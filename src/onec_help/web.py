@@ -104,6 +104,7 @@ def get_content(html_path: str):
                         "breadcrumb": md.get("breadcrumb") or [],
                         "outgoing_links": outgoing,
                         "entity_type": md.get("entity_type") or "topic",
+                        "hbk_slug": md.get("hbk_slug") or "",
                     }
                 )
             except Exception:

@@ -1342,8 +1342,13 @@ def get_topic_metadata(
     version: str | None = None,
     language: str | None = None,
 ) -> dict[str, Any]:
-    """Return metadata for a topic from Qdrant: breadcrumb, outgoing_links, entity_type."""
-    out: dict[str, Any] = {"breadcrumb": [], "outgoing_links": [], "entity_type": "topic"}
+    """Return metadata for a topic from Qdrant: breadcrumb, outgoing_links, entity_type, hbk_slug."""
+    out: dict[str, Any] = {
+        "breadcrumb": [],
+        "outgoing_links": [],
+        "entity_type": "topic",
+        "hbk_slug": "",
+    }
     if QdrantClient is None or Filter is None or FieldCondition is None or MatchValue is None:
         return out
     host = qdrant_host or os.environ.get("QDRANT_HOST", "localhost")
@@ -1373,6 +1378,7 @@ def get_topic_metadata(
                 out["breadcrumb"] = payload.get("breadcrumb") or []
                 out["outgoing_links"] = payload.get("outgoing_links") or []
                 out["entity_type"] = payload.get("entity_type") or "topic"
+                out["hbk_slug"] = payload.get("hbk_slug") or ""
                 return out
         except Exception:
             continue
@@ -1392,6 +1398,7 @@ def get_topic_metadata(
                 out["breadcrumb"] = payload.get("breadcrumb") or []
                 out["outgoing_links"] = payload.get("outgoing_links") or []
                 out["entity_type"] = payload.get("entity_type") or "topic"
+                out["hbk_slug"] = payload.get("hbk_slug") or ""
                 return out
     except Exception:
         pass

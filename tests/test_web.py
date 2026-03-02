@@ -52,6 +52,7 @@ def test_content_with_meta(client, help_sample_dir: Path) -> None:
             "breadcrumb": ["Раздел", "Подраздел"],
             "outgoing_links": [{"resolved_path": "other.html", "target_title": "Другая тема"}],
             "entity_type": "topic",
+            "hbk_slug": "1cv8_ru",
         }
         r = client.get("/content/field626.html?meta=1")
     assert r.status_code == 200
