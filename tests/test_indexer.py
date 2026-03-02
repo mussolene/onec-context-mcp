@@ -8,6 +8,7 @@ import pytest
 from onec_help import indexer as indexer_mod
 from onec_help.indexer import (
     _extract_keywords,
+    _infer_entity_type,
     _path_to_point_id,
     _version_sort_key,
     build_index,
@@ -81,6 +82,16 @@ def test_search_index(mock_client: MagicMock) -> None:
     mock_client.return_value.search.return_value = []
     result = search_index("query", limit=5)
     assert isinstance(result, list)
+
+
+def test_infer_entity_type() -> None:
+    """_infer_entity_type infers from section_path and breadcrumb."""
+    assert _infer_entity_type("obj/Запрос/Методы/Выполнить", []) == "method"
+    assert _infer_entity_type("obj/Form/Properties/Title", []) == "property"
+    assert _infer_entity_type("", ["Свойства"]) == "property"
+    assert _infer_entity_type("Types/СправочникСсылка", ["Типы"]) == "type"
+    assert _infer_entity_type("", []) == "topic"
+    assert _infer_entity_type("obj/Документ/События/ОбработкаПроведения", []) == "event"
 
 
 def test_version_sort_key() -> None:
@@ -279,6 +290,21 @@ def test_search_index_query_points(mock_client: MagicMock) -> None:
     result = search_index("query", limit=5)
     assert isinstance(result, list)
     assert mock_instance.query_points.called or mock_instance.search.called
+
+
+@patch("onec_help.indexer.QdrantClient")
+def test_search_index_entity_type_filter(mock_client: MagicMock) -> None:
+    """search_index passes entity_type to query_filter when set."""
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    mock_instance.query_points.return_value = MagicMock(points=[])
+    search_index("query", limit=5, entity_type="method")
+    call_kw = mock_instance.query_points.call_args[1]
+    assert call_kw.get("query_filter") is not None
+    must = getattr(call_kw["query_filter"], "must", [])
+    assert any(getattr(c, "key", None) == "entity_type" for c in must), (
+        "entity_type filter should be in must"
+    )
 
 
 @patch("onec_help.indexer.QdrantClient")

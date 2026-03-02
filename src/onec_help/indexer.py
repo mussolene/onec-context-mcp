@@ -42,6 +42,30 @@ SNIPPET_MAX_CHARS = 850
 # Regex for CamelCase and Cyrillic identifiers (min 3 chars) for keyword extraction
 _KEYWORDS_PATTERN = re.compile(r"[А-Яа-яA-Za-z][А-Яа-яA-Za-z0-9]{2,}")
 
+# Segment patterns to infer entity_type from section_path or breadcrumb
+_ENTITY_PATTERNS: dict[str, list[str]] = {
+    "method": ["методы", "methods"],
+    "property": ["свойства", "properties"],
+    "type": ["типы", "types"],
+    "function": ["функции", "functions"],
+    "constructor": ["конструктор", "constructor"],
+    "event": ["события", "events"],
+}
+
+
+def _infer_entity_type(section_path: str, breadcrumb: list[str] | None) -> str:
+    """Infer entity_type from section_path or breadcrumb (last segments)."""
+    segments: list[str] = []
+    if section_path:
+        segments.extend(s.strip().lower() for s in section_path.replace("\\", "/").split("/") if s)
+    if breadcrumb:
+        segments.extend(str(b).strip().lower() for b in breadcrumb if b)
+    for ent, patterns in _ENTITY_PATTERNS.items():
+        for p in patterns:
+            if any(seg == p for seg in segments[-3:]):  # check last 3 segments
+                return ent
+    return "topic"
+
 
 def _version_sort_key(version_str: str) -> tuple[int, ...]:
     """Parse version string (e.g. '8.3.27.1859') to comparable tuple for sorting (newest first)."""
@@ -421,6 +445,10 @@ def build_index(
                         payload["section_path"] = section_path
                         payload["breadcrumb"] = breadcrumb
                         break
+            entity_type = _infer_entity_type(
+                payload.get("section_path", ""), payload.get("breadcrumb", [])
+            )
+            payload["entity_type"] = entity_type
             vec_for_point: Any = vector
             if use_bm25 and vectors_bm25:
                 bm25_idx = batch_bm25_start + idx_in_items
@@ -750,9 +778,10 @@ def search_index(
     limit=10,
     version: str | None = None,
     language: str | None = None,
+    entity_type: str | None = None,
 ):
     """Search Qdrant; return list of payloads with path, title, text snippet.
-    version, language: optional payload filters."""
+    version, language, entity_type: optional payload filters."""
     from . import embedding
 
     host = qdrant_host or os.environ.get("QDRANT_HOST", "localhost")
@@ -767,6 +796,8 @@ def search_index(
         must.append(FieldCondition(key="version", match=MatchValue(value=version)))
     if language and Filter and FieldCondition and MatchValue:
         must.append(FieldCondition(key="language", match=MatchValue(value=language)))
+    if entity_type and Filter and FieldCondition and MatchValue:
+        must.append(FieldCondition(key="entity_type", match=MatchValue(value=entity_type)))
     qfilter = Filter(must=must) if must and Filter else None
 
     kwargs: dict[str, Any] = {"collection_name": collection, "limit": limit}
@@ -832,6 +863,7 @@ def search_hybrid(
     limit: int = 10,
     version: str | None = None,
     language: str | None = None,
+    entity_type: str | None = None,
     qdrant_host: str | None = None,
     qdrant_port: int | None = None,
     collection: str = COLLECTION_NAME,
@@ -846,6 +878,7 @@ def search_hybrid(
         limit=limit * 2,
         version=version,
         language=language,
+        entity_type=entity_type,
     )
     keyword_list = search_index_keyword(
         query,
@@ -855,6 +888,7 @@ def search_hybrid(
         limit=15,
         version=version,
         language=language,
+        entity_type=entity_type,
     )
     rrf_scores: dict[str, float] = {}
     path_to_doc: dict[str, dict[str, Any]] = {}
@@ -948,6 +982,7 @@ def search_index_keyword(
     batch_size: int = 500,
     version: str | None = None,
     language: str | None = None,
+    entity_type: str | None = None,
 ) -> list[dict[str, Any]]:
     """Search by keyword. Uses BM25 sparse if available, else payload.keywords/substring."""
     if QdrantClient is None:
@@ -976,6 +1011,10 @@ def search_index_keyword(
                     if language and Filter and FieldCondition and MatchValue:
                         must.append(
                             FieldCondition(key="language", match=MatchValue(value=language))
+                        )
+                    if entity_type and Filter and FieldCondition and MatchValue:
+                        must.append(
+                            FieldCondition(key="entity_type", match=MatchValue(value=entity_type))
                         )
                     qfilter = Filter(must=must) if must and Filter else None
                     kwargs: dict[str, Any] = {
@@ -1057,6 +1096,8 @@ def search_index_keyword(
         must.append(FieldCondition(key="version", match=MatchValue(value=version)))
     if language and Filter and FieldCondition and MatchValue:
         must.append(FieldCondition(key="language", match=MatchValue(value=language)))
+    if entity_type and Filter and FieldCondition and MatchValue:
+        must.append(FieldCondition(key="entity_type", match=MatchValue(value=entity_type)))
 
     query_keywords = _extract_keywords(query, max_tokens=20)
     use_keyword_filter = (
