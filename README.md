@@ -55,10 +55,12 @@ pip install -e ".[dev]"
 | **`unpack <archive> [--output-dir]`** | Распаковать один .hbk (7z → zipfile → offset → unzip → scan local headers) |
 | **`unpack-diag <archive> [-o dir]`** | Диагностика распаковки: пробует каждый метод, печатает результат (при «All unpack methods failed») |
 | **`unpack-dir [source_dir] [-o output]`** | Распаковать все .hbk из дерева каталогов в указанную директорию (без индексации). Источники: `source_dir`, `HELP_SOURCE_BASE` или `--sources` |
+| **`unpack-sync [source_dir] [-o output]`** | Распаковать в data/unpacked (version/stem), записать .hbk_info.json, пропускать без изменений по хэшу. `make unpack-sync` |
+| **`ingest-from-unpacked [--dir]`** | Индексировать из распакованного каталога (version/stem). После `unpack-sync`. `make ingest-from-unpacked` |
 | **`build-docs <project_dir> [--output]`** | Сгенерировать Markdown из HTML справки |
 | **`build-index <directory> [--incremental] [--no-bm25] [--embedding-batch-size N] [--embedding-workers N]`** | Построить векторный индекс в Qdrant по .md/.html. По умолчанию BM25 sparse vectors включены (BM25_ENABLED=1). `--no-bm25` — отключить. |
 | **`add-bm25 [--collection] [--batch-size N]`** | Добавить BM25 sparse vectors в существующую коллекцию **без re-ingest** и без пересчёта эмбеддингов. Используйте для миграции старых индексов. |
-| **`ingest`** | Распаковать .hbk из мультикаталогов во временную папку, построить Markdown, проиндексировать в Qdrant, удалить временные данные. По хэшу .hbk кэшируется факт индексации — при перезапуске неизменённые файлы пропускаются (не парсятся, не пересчитываются эмбеддинги). Опции `--no-cache` для полной переиндексации; `--embedding-batch-size`, `--embedding-workers` — для ускорения эмбеддингов |
+| **`ingest`** | Распаковать .hbk из мультикаталогов во временную папку, построить Markdown, проиндексировать в Qdrant, удалить временные данные. При **INGEST_USE_UNPACKED=1** — unpack-sync + ingest-from-unpacked вместо temp. По хэшу .hbk кэшируется факт индексации — при перезапуске неизменённые файлы пропускаются. Опции `--no-cache`, `--embedding-batch-size`, `--embedding-workers` |
 | **`index-status`** | Статус индекса: число тем, число эмбеддингов, размер БД на диске (если задан `QDRANT_STORAGE_PATH`), версии и языки; при запущенном ingest — скорость эмбеддингов, прогресс по папкам, ETA |
 | **`watchdog`** | Мониторинг новых .hbk в HELP_SOURCE_BASE, инкрементальный ingest при появлении; обработка pending embeddings памяти каждые N минут |
 | **`serve [directory]`** | Веб-просмотр справки (Flask). Каталог из HELP_SERVE_DATA_DIR, HELP_PATH или data/; аргумент — опциональное переопределение |
@@ -81,6 +83,9 @@ pip install -e ".[dev]"
 | `HELP_SERVE_HOST` | Хост для serve (127.0.0.1 — только localhost; 0.0.0.0 — для Docker) | `127.0.0.1` |
 | `INGEST_CACHE_FILE` | Путь к SQLite-кэшу: хэш .hbk, статус ingest. Ingest и index-status читают/пишут в одну БД. В Docker — `/app/var/ingest_cache/ingest_cache.db` (volume `ingest_cache`) | `data/ingest_cache/ingest_cache.db` |
 | `INGEST_SKIP_CACHE` | `1`/`true` — полная переиндексация без кэша (или `ingest --no-cache`) | — |
+| `INGEST_USE_UNPACKED` | `1` — ingest использует unpack-sync + ingest-from-unpacked вместо temp | `0` |
+| `DATA_UNPACKED_DIR` | Каталог распакованной справки (unpack-sync, ingest-from-unpacked) | `data/unpacked` |
+| `HBK_LABELS` | Человекочитаемые метки: `1cv8:Справка 1С,shcntx:Синтаксис` | — |
 | `INGEST_FAILED_LOG` | Файл для списка неудачных .hbk | — |
 | `MCP_TRANSPORT` | Транспорт MCP: `stdio`, `http` или `streamable-http` (для Docker/Cursor рекомендуется streamable-http) | `streamable-http` |
 | `MCP_HOST` | Хост для MCP HTTP | `127.0.0.1` |
@@ -169,6 +174,8 @@ python -m onec_help serve   # данные из HELP_SERVE_DATA_DIR/HELP_PATH/da
 | `make ingest-full` | Индексация (full) |
 | `make index-status` | Статус индекса |
 | `make unpack-help` | Распаковка .hbk в data/unpacked (без индекса) |
+| `make unpack-sync` | Распаковка в data/unpacked с .hbk_info.json (version/stem) |
+| `make ingest-from-unpacked` | Индексация из data/unpacked |
 | `make init` | ingest + load-snippets + load-standards |
 | `make reinit ARGS='--force'` | Стереть коллекции и кэш, затем init |
 | `make load-snippets` | Загрузить сниппеты из SNIPPETS_DIR |
@@ -184,6 +191,8 @@ python -m onec_help serve   # данные из HELP_SERVE_DATA_DIR/HELP_PATH/da
 - **Split (по умолчанию):** mcp (API) + ingest-worker (batch). Cron в ingest-worker.
 - **Full:** один контейнер mcp; cron раз в сутки. `make up-full`, `make ingest-full`.
 - **Serve:** split + веб (Flask:5000). Требуется `./data/unpacked`.
+
+**Веб-справка:** дерево TOC (categories), breadcrumb, «См. также» (outgoing_links), поиск по Qdrant, сворачиваемые секции, подсветка кода (highlight.js). API `/content/<path>?meta=1` возвращает breadcrumb, outgoing_links.
 
 ---
 
