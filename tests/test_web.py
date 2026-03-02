@@ -42,6 +42,25 @@ def test_content_with_dir(client, help_sample_dir: Path) -> None:
     assert "content" in data
 
 
+def test_content_with_meta(client, help_sample_dir: Path) -> None:
+    """Content with ?meta=1 returns breadcrumb and outgoing_links when index available."""
+    from onec_help.web import app
+
+    app.config["BASE_DIR"] = str(help_sample_dir)
+    with patch("onec_help.indexer.get_topic_metadata") as mock_md:
+        mock_md.return_value = {
+            "breadcrumb": ["Раздел", "Подраздел"],
+            "outgoing_links": [{"resolved_path": "other.html", "target_title": "Другая тема"}],
+            "entity_type": "topic",
+        }
+        r = client.get("/content/field626.html?meta=1")
+    assert r.status_code == 200
+    data = r.get_json()
+    assert "content" in data
+    assert data.get("breadcrumb") == ["Раздел", "Подраздел"]
+    assert len(data.get("outgoing_links", [])) >= 1
+
+
 def test_content_exception_returns_500(client, help_sample_dir: Path) -> None:
     from onec_help.web import app
 

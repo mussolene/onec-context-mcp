@@ -1334,6 +1334,70 @@ def get_topic_content(
     )
 
 
+def get_topic_metadata(
+    topic_path: str,
+    qdrant_host: str | None = None,
+    qdrant_port: int | None = None,
+    collection: str = COLLECTION_NAME,
+    version: str | None = None,
+    language: str | None = None,
+) -> dict[str, Any]:
+    """Return metadata for a topic from Qdrant: breadcrumb, outgoing_links, entity_type."""
+    out: dict[str, Any] = {"breadcrumb": [], "outgoing_links": [], "entity_type": "topic"}
+    if QdrantClient is None or Filter is None or FieldCondition is None or MatchValue is None:
+        return out
+    host = qdrant_host or os.environ.get("QDRANT_HOST", "localhost")
+    port = qdrant_port or int(os.environ.get("QDRANT_PORT", "6333"))
+    topic_path = topic_path.lstrip("/")
+    path_variants = [topic_path]
+    if not topic_path.endswith(".md") and not topic_path.endswith(".html"):
+        path_variants.append(topic_path + ".md")
+        path_variants.append(topic_path + ".html")
+    client = QdrantClient(host=host, port=port, check_compatibility=False)
+    for pv in path_variants:
+        try:
+            must_cond = [FieldCondition(key="path", match=MatchValue(value=pv))]
+            if version:
+                must_cond.append(FieldCondition(key="version", match=MatchValue(value=version)))
+            if language:
+                must_cond.append(FieldCondition(key="language", match=MatchValue(value=language)))
+            res, _ = client.scroll(
+                collection_name=collection,
+                scroll_filter=Filter(must=must_cond),
+                limit=1,
+                with_payload=True,
+                with_vectors=False,
+            )
+            if res and len(res) > 0:
+                payload = getattr(res[0], "payload", None) or {}
+                out["breadcrumb"] = payload.get("breadcrumb") or []
+                out["outgoing_links"] = payload.get("outgoing_links") or []
+                out["entity_type"] = payload.get("entity_type") or "topic"
+                return out
+        except Exception:
+            continue
+    # Fallback: match path by suffix (handles version/platform prefix)
+    try:
+        res, _ = client.scroll(
+            collection_name=collection,
+            limit=100,
+            with_payload=True,
+            with_vectors=False,
+        )
+        topic_norm = topic_path.replace("\\", "/")
+        for point in res or []:
+            payload = getattr(point, "payload", None) or {}
+            p = (payload.get("path") or "").replace("\\", "/")
+            if p == topic_norm or p.endswith("/" + topic_norm) or p.endswith(topic_norm):
+                out["breadcrumb"] = payload.get("breadcrumb") or []
+                out["outgoing_links"] = payload.get("outgoing_links") or []
+                out["entity_type"] = payload.get("entity_type") or "topic"
+                return out
+    except Exception:
+        pass
+    return out
+
+
 def get_1c_help_related(
     topic_path: str,
     qdrant_host: str | None = None,

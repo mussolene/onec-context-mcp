@@ -80,12 +80,34 @@ def index():
 
 @app.route("/content/<path:html_path>")
 def get_content(html_path: str):
-    """Serve HTML content for a given path."""
+    """Serve HTML content for a given path. With ?meta=1 returns breadcrumb and outgoing_links."""
     try:
-        base_dir = app.config["BASE_DIR"]
+        base_dir = app.config.get("BASE_DIR")
         if not base_dir:
             return jsonify({"error": "No directory selected"}), 400
         content = get_html_content(html_path, base_dir)
+        meta = request.args.get("meta") in ("1", "true", "yes")
+        if meta:
+            try:
+                from .indexer import get_1c_help_related, get_topic_metadata
+
+                md = get_topic_metadata(html_path)
+                outgoing = md.get("outgoing_links") or []
+                if not outgoing:
+                    related = get_1c_help_related(html_path)
+                    outgoing = [
+                        {"resolved_path": r["path"], "target_title": r["title"]} for r in related
+                    ]
+                return jsonify(
+                    {
+                        "content": content,
+                        "breadcrumb": md.get("breadcrumb") or [],
+                        "outgoing_links": outgoing,
+                        "entity_type": md.get("entity_type") or "topic",
+                    }
+                )
+            except Exception:
+                pass
         return jsonify({"content": content})
     except Exception as e:
         logger.error(
