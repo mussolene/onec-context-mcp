@@ -164,6 +164,7 @@ def build_index(
     source_dir: str | None = None,
     progress_callback=None,
     bm25: bool | None = None,
+    path_prefix: str | None = None,
 ) -> int:
     """Index .md (and optionally .html) files from docs_dir into Qdrant in batches. Returns total points.
     progress_callback(pts_done, phase, total_estimated): optional; total_estimated = len(paths_to_index).
@@ -172,7 +173,8 @@ def build_index(
     source_dir: optional path to unpacked HTML with __categories__ for section_path/breadcrumb in payload.
     embedding_batch_size: texts per embedding batch (env EMBEDDING_BATCH_SIZE).
     embedding_workers: parallel API requests for openai_api (env EMBEDDING_WORKERS).
-    bm25: add BM25 sparse vectors (default: BM25_ENABLED env, 1). Ignored when incremental."""
+    bm25: add BM25 sparse vectors (default: BM25_ENABLED env, 1). Ignored when incremental.
+    path_prefix: if set, prepend to path in payload (e.g. "8.3/1cv8_ru" for version/platform_lang)."""
     from . import embedding
     from .categories import build_tree, find_categories_root, parse_content_file
     from .html2md import (
@@ -395,12 +397,13 @@ def build_index(
         batch_bm25_start = batch_start if use_bm25 else 0
         for idx_in_items, (rel_str, text, title, point_index, outgoing_links) in enumerate(items):
             vector = vectors[idx_in_items]
+            path_for_payload = f"{path_prefix}/{rel_str}" if path_prefix else rel_str
             point_id = (
-                _path_to_point_id(rel_str, version=version, language=language)
+                _path_to_point_id(path_for_payload, version=version, language=language)
                 if incremental
                 else point_index
             )
-            payload = {"path": rel_str, "text": text[:50000], "title": title}
+            payload = {"path": path_for_payload, "text": text[:50000], "title": title}
             payload.update(extra)
             if outgoing_links:
                 payload["outgoing_links"] = outgoing_links

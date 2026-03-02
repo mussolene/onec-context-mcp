@@ -135,6 +135,10 @@ unpack-help:
 unpack-sync:
 	$(COMPOSE) run --rm -v "$(HELP_SOURCE_PATH):/input:ro" -e DATA_UNPACKED_DIR=/output -v "$(abspath $(UNPACK_OUTPUT)):/output" mcp python -m onec_help unpack-sync /input -o /output -l $(HELP_LANGS) $(ARGS)
 
+# Index from unpacked dir (after unpack-sync)
+ingest-from-unpacked:
+	$(COMPOSE) exec $(INGEST_SERVICE) python -m onec_help ingest-from-unpacked $(ARGS)
+
 # Start (split: qdrant + mcp + ingest-worker)
 # Каталоги data/* создаются Docker при volume mount — кросс-платформенно
 up:

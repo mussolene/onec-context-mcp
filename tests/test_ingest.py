@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from onec_help.ingest import (
+    _collect_unpacked_tasks,
     _file_sha256,
     _hbk_label_from_stem,
     _language_from_filename,
@@ -24,6 +25,7 @@ from onec_help.ingest import (
     read_last_ingest_failed,
     read_last_ingest_run,
     run_ingest,
+    run_ingest_from_unpacked,
     run_unpack_only,
     run_unpack_sync,
 )
@@ -745,3 +747,76 @@ def test_run_ingest_failed_log_write_raises(
                 verbose=True,
             )
     assert n == 0
+
+
+def test_collect_unpacked_tasks_empty(tmp_path: Path) -> None:
+    """_collect_unpacked_tasks returns [] for empty or missing dir."""
+    assert _collect_unpacked_tasks(tmp_path) == []
+    assert _collect_unpacked_tasks(tmp_path / "missing") == []
+
+
+def test_collect_unpacked_tasks_one_version_stem(tmp_path: Path) -> None:
+    """_collect_unpacked_tasks finds version/stem with HTML."""
+    v_dir = tmp_path / "8.3.27"
+    v_dir.mkdir()
+    stem_dir = v_dir / "1cv8_ru"
+    stem_dir.mkdir()
+    (stem_dir / "one.html").write_text("<html>")
+    tasks = _collect_unpacked_tasks(tmp_path)
+    assert len(tasks) == 1
+    docs_dir, version, stem, language = tasks[0]
+    assert docs_dir == stem_dir
+    assert version == "8.3.27"
+    assert stem == "1cv8_ru"
+    assert language == "ru"
+
+
+def test_collect_unpacked_tasks_with_hbk_info(tmp_path: Path) -> None:
+    """_collect_unpacked_tasks uses .hbk_info.json for version/language."""
+    import json
+
+    v_dir = tmp_path / "8.3"
+    v_dir.mkdir()
+    stem_dir = v_dir / "custom_en"
+    stem_dir.mkdir()
+    (stem_dir / "a.html").write_text("<html>")
+    (stem_dir / ".hbk_info.json").write_text(
+        json.dumps({"version": "8.3.26", "language": "en", "source_file": "custom_en.hbk"}),
+        encoding="utf-8",
+    )
+    tasks = _collect_unpacked_tasks(tmp_path)
+    assert len(tasks) == 1
+    _, version, stem, language = tasks[0]
+    assert version == "8.3.26"
+    assert stem == "custom_en"
+    assert language == "en"
+
+
+@patch("onec_help.indexer.build_index")
+@patch("qdrant_client.QdrantClient")
+def test_run_ingest_from_unpacked_one(
+    mock_qdrant: MagicMock, mock_build_index: MagicMock, tmp_path: Path
+) -> None:
+    """run_ingest_from_unpacked indexes version/stem dirs with path_prefix."""
+    mock_qdrant.return_value.collection_exists.return_value = True
+    mock_build_index.return_value = 5
+
+    v_dir = tmp_path / "8.3"
+    v_dir.mkdir()
+    stem_dir = v_dir / "1cv8_ru"
+    stem_dir.mkdir()
+    (stem_dir / "Query.html").write_text("<html><body>Query</body></html>")
+
+    n = run_ingest_from_unpacked(
+        unpacked_base=tmp_path,
+        qdrant_host="localhost",
+        qdrant_port=6333,
+        verbose=False,
+    )
+    assert n == 5
+    mock_build_index.assert_called_once()
+    call_kw = mock_build_index.call_args[1]
+    assert call_kw["path_prefix"] == "8.3/1cv8_ru"
+    assert call_kw["extra_payload"]["version"] == "8.3"
+    assert call_kw["extra_payload"]["language"] == "ru"
+    assert call_kw["extra_payload"]["hbk_slug"] == "1cv8_ru"

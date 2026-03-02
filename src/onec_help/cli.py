@@ -910,6 +910,43 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_ingest_from_unpacked(args: argparse.Namespace) -> int:
+    """Index help from unpacked dir (data/unpacked structure: version/stem)."""
+    from pathlib import Path
+
+    from .ingest import run_ingest_from_unpacked
+
+    unpacked_dir = getattr(args, "dir", None) or os.environ.get(
+        "DATA_UNPACKED_DIR", "data/unpacked"
+    )
+    base = Path(unpacked_dir).resolve()
+    if not base.is_dir():
+        print(f"Error: unpacked dir not found: {base}", file=sys.stderr)
+        return 1
+    bm25_val = None
+    if getattr(args, "bm25", False):
+        bm25_val = True
+    elif getattr(args, "no_bm25", False):
+        bm25_val = False
+    try:
+        n = run_ingest_from_unpacked(
+            unpacked_base=base,
+            qdrant_host=os.environ.get("QDRANT_HOST", "localhost"),
+            qdrant_port=int(os.environ.get("QDRANT_PORT", "6333")),
+            collection=os.environ.get("QDRANT_COLLECTION", "onec_help"),
+            incremental=not getattr(args, "recreate", False),
+            verbose=not getattr(args, "quiet", False),
+            embedding_batch_size=getattr(args, "embedding_batch_size", None),
+            embedding_workers=getattr(args, "embedding_workers", None),
+            bm25=bm25_val,
+        )
+        print(f"Ingested from unpacked: {n} points")
+        return 0
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
 def _build_snippets_sources(args: argparse.Namespace) -> list[tuple[Path, str]]:
     """Build list of (path, type) for snippets sources. type: 'json' | 'folder'."""
     path_arg = getattr(args, "snippets_file", None) or os.environ.get("SNIPPETS_JSON_PATH", "")
@@ -1742,6 +1779,51 @@ def main() -> int:
         help="Parallel API requests for openai_api (default: env EMBEDDING_WORKERS or 4)",
     )
     p_ingest.set_defaults(func=cmd_ingest)
+
+    # ingest-from-unpacked — index from data/unpacked (version/stem structure)
+    p_ingest_unpacked = sub.add_parser(
+        "ingest-from-unpacked",
+        help="Index from unpacked dir (version/stem, path_prefix in payload)",
+    )
+    p_ingest_unpacked.add_argument(
+        "--dir",
+        "-d",
+        type=str,
+        default=None,
+        help="Unpacked base dir (default: DATA_UNPACKED_DIR or data/unpacked)",
+    )
+    p_ingest_unpacked.add_argument(
+        "--recreate",
+        action="store_true",
+        help="Recreate Qdrant collection before indexing",
+    )
+    p_ingest_unpacked.add_argument("--quiet", "-q", action="store_true", help="Less output")
+    p_ingest_unpacked.add_argument(
+        "--embedding-batch-size",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Texts per embedding batch",
+    )
+    p_ingest_unpacked.add_argument(
+        "--embedding-workers",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Parallel embedding requests",
+    )
+    p_ingest_unpacked.add_argument(
+        "--bm25",
+        action="store_true",
+        help="Enable BM25 sparse vectors",
+    )
+    p_ingest_unpacked.add_argument(
+        "--no-bm25",
+        action="store_true",
+        dest="no_bm25",
+        help="Disable BM25",
+    )
+    p_ingest_unpacked.set_defaults(func=cmd_ingest_from_unpacked)
 
     # init — ingest + load-snippets + load-standards (no erase)
     p_init = sub.add_parser(

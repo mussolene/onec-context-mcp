@@ -1307,6 +1307,109 @@ def run_unpack_sync(
     return count
 
 
+def _collect_unpacked_tasks(unpacked_base: Path) -> list[tuple[Path, str, str, str]]:
+    """Scan unpacked_base for version/stem dirs. Returns [(docs_dir, version, stem, language), ...]."""
+    tasks: list[tuple[Path, str, str, str]] = []
+    base = Path(unpacked_base).resolve()
+    if not base.is_dir():
+        return []
+    for version_dir in sorted(base.iterdir()):
+        if not version_dir.is_dir() or version_dir.name.startswith("."):
+            continue
+        version = version_dir.name
+        for stem_dir in sorted(version_dir.iterdir()):
+            if not stem_dir.is_dir() or stem_dir.name.startswith("."):
+                continue
+            stem = stem_dir.name
+            info_path = stem_dir / ".hbk_info.json"
+            language = ""
+            if info_path.exists():
+                try:
+                    info = json.loads(info_path.read_text(encoding="utf-8"))
+                    language = info.get("language", "")
+                    if info.get("version"):
+                        version = str(info["version"])
+                except (json.JSONDecodeError, OSError):
+                    pass
+            if not language and "_" in stem:
+                parts = stem.rsplit("_", 1)
+                if len(parts[1]) == 2:
+                    language = parts[1].lower()
+            if not language:
+                language = "ru"
+            if any(stem_dir.rglob("*.html")) or any(stem_dir.rglob("*.md")):
+                tasks.append((stem_dir, version, stem, language))
+    return tasks
+
+
+def run_ingest_from_unpacked(
+    unpacked_base: Path | str,
+    qdrant_host: str = "localhost",
+    qdrant_port: int = 6333,
+    collection: str = "onec_help",
+    incremental: bool = True,
+    verbose: bool = True,
+    embedding_batch_size: int | None = None,
+    embedding_workers: int | None = None,
+    bm25: bool | None = None,
+) -> int:
+    """
+    Index help from unpacked dir (data/unpacked structure).
+    Scans version/stem dirs, uses path_prefix for payload path.
+    Returns total points indexed.
+    """
+    from qdrant_client import QdrantClient
+    from qdrant_client.models import Distance, VectorParams
+
+    from .indexer import build_index, get_embedding_dimension
+
+    base = Path(unpacked_base).resolve()
+    if not base.is_dir():
+        return 0
+    tasks = _collect_unpacked_tasks(base)
+    if not tasks:
+        return 0
+    if incremental:
+        try:
+            client = QdrantClient(host=qdrant_host, port=qdrant_port, check_compatibility=False)
+            if not client.collection_exists(collection):
+                client.create_collection(
+                    collection_name=collection,
+                    vectors_config=VectorParams(
+                        size=get_embedding_dimension(), distance=Distance.COSINE
+                    ),
+                )
+                if verbose:
+                    _log("[ingest-from-unpacked] Created Qdrant collection")
+        except Exception as e:
+            if verbose:
+                _log(f"[ingest-from-unpacked] WARN: {safe_error_message(e)}")
+    total = 0
+    for docs_dir, version, stem, language in tasks:
+        path_prefix = f"{version}/{stem}"
+        try:
+            n = build_index(
+                docs_dir=docs_dir,
+                qdrant_host=qdrant_host,
+                qdrant_port=qdrant_port,
+                collection=collection,
+                incremental=incremental,
+                extra_payload={"version": version, "language": language, "hbk_slug": stem},
+                source_dir=str(docs_dir),
+                path_prefix=path_prefix,
+                embedding_batch_size=embedding_batch_size,
+                embedding_workers=embedding_workers,
+                bm25=bm25,
+            )
+            total += n
+            if verbose:
+                _log(f"[ingest-from-unpacked] {path_prefix}: {n} points")
+        except Exception as e:
+            if verbose:
+                _log(f"[ingest-from-unpacked] skip {path_prefix}: {safe_error_message(e)}")
+    return total
+
+
 def run_unpack_only(
     source_dirs_with_versions: list[tuple[Path | str, str]],
     output_dir: Path | str,

@@ -14,6 +14,7 @@ from onec_help.cli import (
     cmd_build_index,
     cmd_index_status,
     cmd_ingest,
+    cmd_ingest_from_unpacked,
     cmd_load_snippets,
     cmd_load_standards,
     cmd_mcp,
@@ -672,6 +673,36 @@ def test_cmd_unpack_sync_no_sources_error(mock_run) -> None:
     )
     with patch.dict("os.environ", {}, clear=True):
         assert cmd_unpack_sync(args) == 1
+    mock_run.assert_not_called()
+
+
+@patch("onec_help.ingest.run_ingest_from_unpacked")
+def test_cmd_ingest_from_unpacked_success(mock_run, tmp_path: Path) -> None:
+    """cmd_ingest_from_unpacked calls run_ingest_from_unpacked with correct dir."""
+    mock_run.return_value = 10
+    (tmp_path / "8.3").mkdir()
+    (tmp_path / "8.3" / "1cv8_ru").mkdir()
+    (tmp_path / "8.3" / "1cv8_ru" / "a.html").write_text("<html>")
+    args = make_args(
+        dir=str(tmp_path),
+        recreate=False,
+        quiet=True,
+        embedding_batch_size=None,
+        embedding_workers=None,
+        bm25=False,
+        no_bm25=False,
+    )
+    assert cmd_ingest_from_unpacked(args) == 0
+    mock_run.assert_called_once()
+    assert mock_run.call_args[1]["unpacked_base"] == tmp_path.resolve()
+
+
+@patch("onec_help.ingest.run_ingest_from_unpacked")
+def test_cmd_ingest_from_unpacked_dir_missing(mock_run) -> None:
+    """cmd_ingest_from_unpacked returns 1 when unpacked dir does not exist."""
+    args = make_args(dir="/nonexistent/unpacked", recreate=False, quiet=True)
+    with patch.dict("os.environ", {}, clear=True):
+        assert cmd_ingest_from_unpacked(args) == 1
     mock_run.assert_not_called()
 
 

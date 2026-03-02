@@ -22,6 +22,7 @@ services:
       HELP_SOURCE_BASE: ${HELP_SOURCE_BASE:-/opt/1cv8}
       HELP_LANGUAGES: ${HELP_LANGUAGES:-ru}
       HELP_INGEST_TEMP: ${HELP_INGEST_TEMP:-/tmp/help_ingest}
+      DATA_UNPACKED_DIR: ${DATA_UNPACKED_DIR:-/app/data/unpacked}
       INGEST_CACHE_FILE: ${INGEST_CACHE_FILE:-/app/var/ingest_cache/ingest_cache.db}
       INGEST_FAILED_LOG: ${INGEST_FAILED_LOG:-/var/log/ingest_failed.log}
       EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-openai_api}
@@ -45,6 +46,7 @@ services:
       STANDARDS_DIR: ${STANDARDS_DIR:-}
     volumes:
       - /opt/1cv8:/opt/1cv8:ro
+      - ./data/unpacked:/app/data/unpacked:ro
       - ./data/qdrant:/qdrant_storage:ro
       - ./data/ingest_cache:/app/var/ingest_cache
       - ./data/snippets:/data/snippets
