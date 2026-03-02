@@ -69,10 +69,11 @@ services:
     environment:
       PORT: "5000"
       HELP_SERVE_HOST: "0.0.0.0"
+      HELP_SERVE_DATA_DIR: "/data"
       HELP_SERVE_ALLOWED_DIRS: "/data"
     volumes:
       - ./data/unpacked:/data:ro
-    command: ["python", "-m", "onec_help", "serve", "/data"]
+    command: ["python", "-m", "onec_help", "serve"]
     depends_on:
       qdrant:
         condition: service_healthy

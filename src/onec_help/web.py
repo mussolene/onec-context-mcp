@@ -48,8 +48,11 @@ def _security_headers(response):
 
 @app.route("/", methods=["GET", "POST"])
 def index():
-    """Handle directory input and display main page."""
-    if request.method == "POST":
+    """Handle main page. When BASE_DIR set from config, show tree directly (no form)."""
+    import json
+
+    base_dir = app.config.get("BASE_DIR")
+    if request.method == "POST" and not base_dir:
         directory = request.form.get("directory")
         if not directory or not Path(directory).is_dir():
             return render_template("index.html", error="Invalid directory path")
@@ -62,15 +65,17 @@ def index():
             )
             return render_template("index.html", error=err)
         app.config["BASE_DIR"] = directory
-        tree_elements = build_tree(directory)
-        import json
+        base_dir = directory
 
+    if base_dir and Path(base_dir).is_dir():
+        tree_elements = build_tree(base_dir)
         return render_template(
             "index.html",
             success=True,
             tree_elements=json.dumps(tree_elements),
+            from_config=bool(base_dir),
         )
-    return render_template("index.html")
+    return render_template("index.html", success=False, tree_elements="[]")
 
 
 @app.route("/content/<path:html_path>")

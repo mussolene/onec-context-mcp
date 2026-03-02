@@ -91,7 +91,7 @@ def test_main_unpack_usage() -> None:
 
 
 @patch("onec_help.web.app")
-def test_cmd_serve(mock_web_app, help_sample_dir: Path) -> None:
+def test_cmd_serve_with_directory(mock_web_app, help_sample_dir: Path) -> None:
     from onec_help.cli import cmd_serve
 
     mock_web_app.config = {}
@@ -99,6 +99,24 @@ def test_cmd_serve(mock_web_app, help_sample_dir: Path) -> None:
     args = make_args(directory=str(help_sample_dir), debug=False)
     with patch.dict(
         "os.environ", {"HELP_SERVE_ALLOWED_DIRS": str(help_sample_dir.parent)}, clear=False
+    ):
+        assert cmd_serve(args) == 0
+
+
+@patch("onec_help.web.app")
+def test_cmd_serve_from_config(mock_web_app, tmp_path: Path) -> None:
+    """serve without directory arg uses HELP_SERVE_DATA_DIR from config."""
+    from onec_help.cli import cmd_serve
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    mock_web_app.config = {}
+    mock_web_app.run = lambda **kw: None
+    args = make_args(directory=None, debug=False)
+    with patch.dict(
+        "os.environ",
+        {"HELP_SERVE_DATA_DIR": str(data_dir), "HELP_SERVE_ALLOWED_DIRS": str(tmp_path)},
+        clear=False,
     ):
         assert cmd_serve(args) == 0
 
@@ -112,17 +130,19 @@ def test_cmd_serve_directory_not_found() -> None:
         assert cmd_serve(args) == 1
 
 
-def test_cmd_serve_rejects_without_allowlist(help_sample_dir: Path) -> None:
-    """serve requires HELP_SERVE_ALLOWED_DIRS; returns 1 when not set."""
+def test_cmd_serve_rejects_custom_path_without_allowlist(help_sample_dir: Path) -> None:
+    """serve with custom path (not data/) requires HELP_SERVE_ALLOWED_DIRS."""
     from onec_help.cli import cmd_serve
 
     args = make_args(directory=str(help_sample_dir), debug=False)
-    with patch.dict("os.environ", {}, clear=True):
-        env = {k: v for k, v in os.environ.items() if k != "HELP_SERVE_ALLOWED_DIRS"}
-        with patch.dict("os.environ", env, clear=False):
-            # Ensure HELP_SERVE_ALLOWED_DIRS is unset
-            os.environ.pop("HELP_SERVE_ALLOWED_DIRS", None)
-            assert cmd_serve(args) == 1
+    with patch.dict(
+        "os.environ",
+        {},
+        clear=False,
+    ):
+        for k in ("HELP_SERVE_ALLOWED_DIRS", "HELP_SERVE_DATA_DIR", "HELP_PATH"):
+            os.environ.pop(k, None)
+        assert cmd_serve(args) == 1
 
 
 def test_cmd_serve_rejects_directory_outside_allowlist(tmp_path: Path) -> None:

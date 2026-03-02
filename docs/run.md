@@ -29,7 +29,7 @@ python -m onec_help mcp . --transport streamable-http --host 0.0.0.0 --port 8050
 5. Построить индекс:  
    `QDRANT_HOST=localhost QDRANT_PORT=6333 python -m onec_help build-index ./docs_md`
 6. Веб-просмотр:  
-   `python -m onec_help serve ./unpacked`
+   `python -m onec_help serve`  (данные из HELP_SERVE_DATA_DIR/HELP_PATH/data/)
 7. MCP локально (stdio или HTTP):  
    `python -m onec_help mcp ./unpacked` (stdio) или  
    `python -m onec_help mcp ./unpacked --transport streamable-http --host 0.0.0.0 --port 8050`

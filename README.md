@@ -61,7 +61,7 @@ pip install -e ".[dev]"
 | **`ingest`** | Распаковать .hbk из мультикаталогов во временную папку, построить Markdown, проиндексировать в Qdrant, удалить временные данные. По хэшу .hbk кэшируется факт индексации — при перезапуске неизменённые файлы пропускаются (не парсятся, не пересчитываются эмбеддинги). Опции `--no-cache` для полной переиндексации; `--embedding-batch-size`, `--embedding-workers` — для ускорения эмбеддингов |
 | **`index-status`** | Статус индекса: число тем, число эмбеддингов, размер БД на диске (если задан `QDRANT_STORAGE_PATH`), версии и языки; при запущенном ingest — скорость эмбеддингов, прогресс по папкам, ETA |
 | **`watchdog`** | Мониторинг новых .hbk в HELP_SOURCE_BASE, инкрементальный ingest при появлении; обработка pending embeddings памяти каждые N минут |
-| **`serve <directory>`** | Веб-просмотр справки (Flask) |
+| **`serve [directory]`** | Веб-просмотр справки (Flask). Каталог из HELP_SERVE_DATA_DIR, HELP_PATH или data/; аргумент — опциональное переопределение |
 | **`mcp <directory>`** | MCP-сервер (stdio/HTTP; нужен fastmcp) |
 
 Переменные окружения (подробнее — см. таблицу ниже): `QDRANT_HOST`, `QDRANT_PORT`, `QDRANT_COLLECTION`, `HELP_PATH`, `HELP_SOURCE_BASE`, `HELP_SOURCES_DIR`, `HELP_SOURCE_DIRS`, `HELP_LANGUAGES`, `HELP_INGEST_TEMP`, `INGEST_FAILED_LOG`, `MCP_TRANSPORT`, `MCP_HOST`, `MCP_PORT`, `MCP_PATH`, `PORT`.
@@ -90,7 +90,8 @@ pip install -e ".[dev]"
 | `MCP_MAX_TOPIC_CHARS` | Макс. символов топика в get_1c_code_answer/search_with_content | `4000` |
 | `PORT` | Порт веб-сервера (serve) | `5000` |
 | `SERVE_PORT` | Порт serve в Docker (split, профиль serve) | `5000` |
-| `HELP_SERVE_ALLOWED_DIRS` | Список путей через запятую (serve): разрешённые базовые каталоги для формы; если задан, ввод вне списка отклоняется | — |
+| `HELP_SERVE_DATA_DIR` | Каталог со справкой для serve (по умолчанию HELP_PATH или data/) | — |
+| `HELP_SERVE_ALLOWED_DIRS` | Разрешённые каталоги (через запятую); обязателен при нестандартном пути | — |
 | `EMBEDDING_BACKEND` | Эмбеддинги: `local` (sentence-transformers), `openai_api` (внешний API), `deterministic` (детерминированные векторы 384 dim без модели — только БД) или `none` (плейсхолдер, только поиск по ключевым словам) | `openai_api` |
 | `EMBEDDING_MODEL` | Имя модели. Для openai_api (LM Studio): если такой модели нет на сервере, берётся первая из списка или популярная (text-text-embedding-mxbai-embed-large-v1, nomic-embed-text, all-MiniLM-L6-v2); для local — all-MiniLM-L6-v2 | `text-text-embedding-mxbai-embed-large-v1` (openai_api) |
 | `EMBEDDING_API_URL` | Для openai_api: базовый URL (по умолчанию LM Studio: `http://localhost:1234/v1` локально, в контейнере — `http://host.docker.internal:1234/v1`). При недоступности/ошибках используются плейсхолдер-векторы и семантический поиск ограничен | LM Studio: 1234 |
@@ -130,7 +131,7 @@ pip install -e ".[mcp]"
 
 HELP_SOURCE_BASE=/opt/1cv8 python -m onec_help ingest
 python -m onec_help mcp . --transport streamable-http --host 0.0.0.0 --port 8050
-python -m onec_help serve ./unpacked   # HELP_SERVE_ALLOWED_DIRS обязательна
+python -m onec_help serve   # данные из HELP_SERVE_DATA_DIR/HELP_PATH/data/
 ```
 
 Подробнее: [docs/run.md](docs/run.md).

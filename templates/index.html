@@ -90,6 +90,7 @@
 <body>
     <div class="sidebar">
         <h4>1C Help File Viewer</h4>
+        {% if not success %}
         <form method="post">
             <div class="mb-3">
                 <label for="directory" class="form-label">Enter directory path</label>
@@ -98,6 +99,9 @@
             </div>
             <button type="submit" class="btn btn-primary">Load</button>
         </form>
+        {% else %}
+        <p class="text-muted small">Справка из data/ (конфиг)</p>
+        {% endif %}
         {% if error %}
         <div class="alert alert-danger mt-3">{{ error }}</div>
         {% endif %}
