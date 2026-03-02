@@ -18,7 +18,7 @@
 ## Безопасность
 
 - **Веб (serve)** и **MCP по HTTP** не имеют встроенной аутентификации. Предназначены **только** для доверенной среды (localhost, VPN, внутренняя сеть). При экспозиции в интернет — обязателен обратный прокси с аутентификацией.
-- Не выставляйте порты 5000 (Flask) и 8050 (MCP) в интернет без обратного прокси с аутентификацией (nginx + Basic Auth, API key и т.п.).
+- Не выставляйте порты 8000 (Flask/serve) и 8050 (MCP) в интернет без обратного прокси с аутентификацией (nginx + Basic Auth, API key и т.п.).
 - **HELP_SERVE_ALLOWED_DIRS** — обязательна для serve: без неё форма просмотра справки не принимает пути (защита от чтения произвольных каталогов). Задайте список разрешённых базовых каталогов через запятую.
 - Секреты и пароли задавайте только через переменные окружения, не храните в коде или в репозитории.
 - CLI (аргументы `--sources-file`, пути к каталогам) предназначен для доверенного запуска; не передавайте недоверенный ввод в аргументы.
@@ -94,7 +94,7 @@ pip install -e ".[dev]"
 | `MCP_SNIPPET_MAX_CHARS` | Макс. символов сниппета в результатах поиска | `1200` |
 | `MCP_MAX_TOPIC_CHARS` | Макс. символов топика в get_1c_code_answer/search_with_content | `4000` |
 | `PORT` | Порт веб-сервера (serve) | `5000` |
-| `SERVE_PORT` | Порт serve в Docker (split, профиль serve) | `5000` |
+| `SERVE_PORT` | Порт serve в Docker (split, профиль serve) | `8000` |
 | `HELP_SERVE_DATA_DIR` | Каталог со справкой для serve (по умолчанию HELP_PATH или data/) | — |
 | `HELP_SERVE_ALLOWED_DIRS` | Разрешённые каталоги (через запятую); обязателен при нестандартном пути | — |
 | `EMBEDDING_BACKEND` | Эмбеддинги: `local` (sentence-transformers), `openai_api` (внешний API), `deterministic` (детерминированные векторы 384 dim без модели — только БД) или `none` (плейсхолдер, только поиск по ключевым словам) | `openai_api` |
@@ -169,7 +169,7 @@ python -m onec_help serve   # данные из HELP_SERVE_DATA_DIR/HELP_PATH/da
 |---------|----------|
 | `make up` | Запуск split (qdrant + mcp + ingest-worker) |
 | `make up-full` | Запуск full (один контейнер mcp) |
-| `make up-serve` | Split + веб-просмотр (порт 5000) |
+| `make up-serve` | Split + веб-просмотр (порт 8000) |
 | `make ingest` | Индексация .hbk (split) |
 | `make ingest-full` | Индексация (full) |
 | `make index-status` | Статус индекса |
@@ -190,7 +190,7 @@ python -m onec_help serve   # данные из HELP_SERVE_DATA_DIR/HELP_PATH/da
 
 - **Split (по умолчанию):** mcp (API) + ingest-worker (batch). Cron в ingest-worker.
 - **Full:** один контейнер mcp; cron раз в сутки. `make up-full`, `make ingest-full`.
-- **Serve:** split + веб (Flask:5000). Требуется `./data/unpacked`.
+- **Serve:** split + веб (Flask:8000). Требуется `./data/unpacked`.
 
 **Веб-справка:** дерево TOC (categories), breadcrumb, «См. также» (outgoing_links), поиск по Qdrant, сворачиваемые секции, подсветка кода (highlight.js). API `/content/<path>?meta=1` возвращает breadcrumb, outgoing_links.
 

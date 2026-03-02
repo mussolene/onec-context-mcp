@@ -7,7 +7,7 @@
 | **qdrant** | Векторная БД (onec_help, onec_help_memory) | Хранилище | 6333 |
 | **mcp** | MCP API — поиск, чтение топиков, get_1c_code_answer | I/O, embedding для memory | 8050 |
 | **ingest-worker** | Batch ETL: ingest, cron, load-snippets, watchdog | CPU, RAM, embedding API | — |
-| **serve** | Веб-просмотр справки (Flask), профиль `serve` | I/O | 5000 |
+| **serve** | Веб-просмотр справки (Flask), профиль `serve` | I/O | 8000 |
 | **bsl-bridge** | BSL LS MCP — диагностика, рефакторинг (отдельно: `make bsl-start`) | Java/BSL LS | — |
 
 ## Коллекции Qdrant
