@@ -23,6 +23,7 @@ services:
       HELP_LANGUAGES: ${HELP_LANGUAGES:-ru}
       HELP_INGEST_TEMP: ${HELP_INGEST_TEMP:-/tmp/help_ingest}
       DATA_UNPACKED_DIR: ${DATA_UNPACKED_DIR:-/app/data/unpacked}
+      INGEST_USE_UNPACKED: ${INGEST_USE_UNPACKED:-0}
       INGEST_CACHE_FILE: ${INGEST_CACHE_FILE:-/app/var/ingest_cache/ingest_cache.db}
       INGEST_FAILED_LOG: ${INGEST_FAILED_LOG:-/var/log/ingest_failed.log}
       EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-openai_api}

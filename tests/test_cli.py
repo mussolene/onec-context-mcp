@@ -752,6 +752,41 @@ def test_cmd_ingest_sources_file_path_only(mock_run, tmp_path: Path) -> None:
     assert call_kw["source_dirs_with_versions"][0][0] == "/only/path"
 
 
+@patch("onec_help.ingest.run_ingest_from_unpacked")
+@patch("onec_help.ingest.run_unpack_sync")
+def test_cmd_ingest_use_unpacked(mock_unpack, mock_from_unpacked, tmp_path: Path) -> None:
+    """When INGEST_USE_UNPACKED=1, cmd_ingest runs unpack-sync + ingest-from-unpacked."""
+    mock_unpack.return_value = 1
+    mock_from_unpacked.return_value = 10
+    (tmp_path / "v").mkdir()
+    (tmp_path / "v" / "1cv8_ru.hbk").write_bytes(b"x")
+    args = make_args(
+        sources=[str(tmp_path) + ":v"],
+        sources_file=None,
+        languages="ru",
+        temp_base=None,
+        workers=1,
+        max_tasks=None,
+        quiet=True,
+        dry_run=False,
+        index_batch_size=500,
+    )
+    with patch.dict(
+        "os.environ",
+        {
+            "QDRANT_HOST": "localhost",
+            "QDRANT_PORT": "6333",
+            "INGEST_USE_UNPACKED": "1",
+            "DATA_UNPACKED_DIR": str(tmp_path / "unpacked"),
+        },
+        clear=False,
+    ):
+        assert cmd_ingest(args) == 0
+    mock_unpack.assert_called_once()
+    mock_from_unpacked.assert_called_once()
+    assert mock_from_unpacked.call_args[1]["unpacked_base"] == (tmp_path / "unpacked").resolve()
+
+
 @patch("onec_help.ingest.run_ingest")
 def test_cmd_ingest_exception(mock_run) -> None:
     mock_run.side_effect = RuntimeError("Qdrant down")

@@ -886,23 +886,49 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     if getattr(args, "no_cache", False):
         os.environ["INGEST_SKIP_CACHE"] = "1"
     try:
-        _default_temp = os.path.join(tempfile.gettempdir(), "help_ingest")
-        n = run_ingest(
-            source_dirs_with_versions=sources,
-            languages=languages,
-            temp_base=args.temp_base or os.environ.get("HELP_INGEST_TEMP") or _default_temp,
-            qdrant_host=os.environ.get("QDRANT_HOST", "localhost"),
-            qdrant_port=int(os.environ.get("QDRANT_PORT", "6333")),
-            collection=os.environ.get("QDRANT_COLLECTION", "onec_help"),
-            incremental=not getattr(args, "recreate", False),
-            max_workers=getattr(args, "workers", None),
-            max_tasks=getattr(args, "max_tasks", None),
-            verbose=not getattr(args, "quiet", False),
-            dry_run=getattr(args, "dry_run", False),
-            index_batch_size=getattr(args, "index_batch_size", 500),
-            embedding_batch_size=getattr(args, "embedding_batch_size", None),
-            embedding_workers=getattr(args, "embedding_workers", None),
-        )
+        if os.environ.get("INGEST_USE_UNPACKED", "").strip() == "1" and not getattr(
+            args, "dry_run", False
+        ):
+            from .ingest import run_ingest_from_unpacked, run_unpack_sync
+
+            unpacked_dir = os.environ.get("DATA_UNPACKED_DIR", "data/unpacked")
+            unpacked_base = Path(unpacked_dir).resolve()
+            unpacked_base.mkdir(parents=True, exist_ok=True)
+            run_unpack_sync(
+                source_dirs_with_versions=sources,
+                output_dir=unpacked_base,
+                languages=languages,
+                max_workers=getattr(args, "workers", None) or 4,
+                verbose=not getattr(args, "quiet", False),
+            )
+            n = run_ingest_from_unpacked(
+                unpacked_base=unpacked_base,
+                qdrant_host=os.environ.get("QDRANT_HOST", "localhost"),
+                qdrant_port=int(os.environ.get("QDRANT_PORT", "6333")),
+                collection=os.environ.get("QDRANT_COLLECTION", "onec_help"),
+                incremental=not getattr(args, "recreate", False),
+                verbose=not getattr(args, "quiet", False),
+                embedding_batch_size=getattr(args, "embedding_batch_size", None),
+                embedding_workers=getattr(args, "embedding_workers", None),
+            )
+        else:
+            _default_temp = os.path.join(tempfile.gettempdir(), "help_ingest")
+            n = run_ingest(
+                source_dirs_with_versions=sources,
+                languages=languages,
+                temp_base=args.temp_base or os.environ.get("HELP_INGEST_TEMP") or _default_temp,
+                qdrant_host=os.environ.get("QDRANT_HOST", "localhost"),
+                qdrant_port=int(os.environ.get("QDRANT_PORT", "6333")),
+                collection=os.environ.get("QDRANT_COLLECTION", "onec_help"),
+                incremental=not getattr(args, "recreate", False),
+                max_workers=getattr(args, "workers", None),
+                max_tasks=getattr(args, "max_tasks", None),
+                verbose=not getattr(args, "quiet", False),
+                dry_run=getattr(args, "dry_run", False),
+                index_batch_size=getattr(args, "index_batch_size", 500),
+                embedding_batch_size=getattr(args, "embedding_batch_size", None),
+                embedding_workers=getattr(args, "embedding_workers", None),
+            )
         print(f"Ingested and indexed {n} chunks")
         return 0
     except Exception as e:
