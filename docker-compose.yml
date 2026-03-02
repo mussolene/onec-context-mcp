@@ -50,6 +50,7 @@ services:
       - ./data/snippets:/data/snippets
       - ./data/standards:/data/standards
       - ./data/backup:/data/backup
+      - ./data/bm25_vocab:/app/data/bm25_vocab
     command: ["sh", "-c", "sleep infinity"]
     depends_on:
       qdrant:

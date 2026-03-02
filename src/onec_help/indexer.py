@@ -15,7 +15,10 @@ try:
         Filter,
         MatchAny,
         MatchValue,
+        Modifier,
         PointStruct,
+        SparseVector,
+        SparseVectorParams,
         VectorParams,
     )
 except ImportError:
@@ -27,6 +30,9 @@ except ImportError:
     Filter = None  # type: ignore
     MatchAny = None  # type: ignore
     MatchValue = None  # type: ignore
+    SparseVector = None  # type: ignore
+    SparseVectorParams = None  # type: ignore
+    Modifier = None  # type: ignore
 
 from ._utils import path_inside_base, safe_error_message
 
@@ -139,6 +145,12 @@ def _build_path_to_section(
     return result
 
 
+def _bm25_enabled() -> bool:
+    """BM25 enabled by default (env BM25_ENABLED=1). Set to 0 to disable."""
+    v = (os.environ.get("BM25_ENABLED", "1") or "1").strip().lower()
+    return v not in ("0", "false", "no", "off")
+
+
 def build_index(
     docs_dir,
     qdrant_host="localhost",
@@ -151,6 +163,7 @@ def build_index(
     embedding_workers: int | None = None,
     source_dir: str | None = None,
     progress_callback=None,
+    bm25: bool | None = None,
 ) -> int:
     """Index .md (and optionally .html) files from docs_dir into Qdrant in batches. Returns total points.
     progress_callback(pts_done, phase, total_estimated): optional; total_estimated = len(paths_to_index).
@@ -158,7 +171,8 @@ def build_index(
     incremental: if True, do not recreate collection; upsert by path (add new, update changed).
     source_dir: optional path to unpacked HTML with __categories__ for section_path/breadcrumb in payload.
     embedding_batch_size: texts per embedding batch (env EMBEDDING_BATCH_SIZE).
-    embedding_workers: parallel API requests for openai_api (env EMBEDDING_WORKERS)."""
+    embedding_workers: parallel API requests for openai_api (env EMBEDDING_WORKERS).
+    bm25: add BM25 sparse vectors (default: BM25_ENABLED env, 1). Ignored when incremental."""
     from . import embedding
     from .categories import build_tree, find_categories_root, parse_content_file
     from .html2md import (
@@ -214,33 +228,31 @@ def build_index(
     if embedding_workers is None:
         embedding_workers = embedding._embedding_workers()
 
-    collection_created = False
-    total = 0
-    batch_num = 0
-    for batch_start in range(0, len(paths_to_index), batch_size):
-        batch_num += 1
-        batch_paths = paths_to_index[batch_start : batch_start + batch_size]
-        batch_end = min(batch_start + batch_size, len(paths_to_index))
-        print(
-            f"[indexer] batch {batch_num}: files {batch_start + 1}-{batch_end} of {len(paths_to_index)}",
-            file=sys.stderr,
-            flush=True,
-        )
-        items: list[
-            tuple[str, str, str, int, list[dict[str, Any]]]
-        ] = []  # (rel_str, text, title, point_index, outgoing_links)
+    use_bm25 = (bm25 if bm25 is not None else _bm25_enabled()) and not incremental
+    vectors_bm25: list[dict[str, Any]] = []
+    vocab_bm25: dict[str, int] = {}
+    doc_freq_bm25: dict[str, int] = {}
+    all_items: list[tuple[str, str, str, int, list[dict[str, Any]]]] = []
+
+    if use_bm25 and SparseVector is not None and SparseVectorParams is not None:
+        if sys.stderr:
+            print("[indexer] BM25 enabled: collecting all texts for sparse vectors...", file=sys.stderr, flush=True)
         base_for_links = Path(source_dir) if source_dir else docs_dir
-        for path in batch_paths:
+        for path in paths_to_index:
             try:
                 outgoing_links: list[dict[str, Any]] = []
                 if path.suffix == ".md":
-                    text = read_file_with_encoding_fallback(path, encodings=_ENCODINGS_UTF8_FIRST)
+                    text = read_file_with_encoding_fallback(
+                        path, encodings=_ENCODINGS_UTF8_FIRST
+                    )
                     if source_dir:
                         html_path = Path(source_dir) / path.relative_to(docs_dir).with_suffix(
                             ".html"
                         )
                         if html_path.exists():
-                            outgoing_links = extract_outgoing_links(html_path, Path(source_dir))
+                            outgoing_links = extract_outgoing_links(
+                                html_path, Path(source_dir)
+                            )
                     if not outgoing_links and text:
                         md_links = extract_links_from_markdown(text, path, docs_dir)
                         if md_links:
@@ -248,27 +260,101 @@ def build_index(
                 else:
                     text = (
                         html_to_md_content(path)
-                        if path.suffix == ".html" or not path.suffix
-                        else ""
+                        if path.suffix in (".html", "") or not path.suffix
+                        else read_file_with_encoding_fallback(path)[:50000]
                     )
-                    if not text:
-                        try:
-                            text = read_file_with_encoding_fallback(path)[:50000]
-                        except Exception:
-                            continue
                     if path.suffix in (".html", "") or not path.suffix:
                         outgoing_links = extract_outgoing_links(path, base_for_links)
-                if not text.strip():
+                if not text or not text.strip():
                     continue
                 rel = path.relative_to(docs_dir)
                 rel_str = str(rel).replace("\\", "/")
                 title = text.split("\n")[0].strip().lstrip("#").strip() or (
                     path.stem if path.suffix else path.name
                 )
-                point_index = total + len(items)
-                items.append((rel_str, text, title, point_index, outgoing_links))
+                all_items.append((rel_str, text, title, len(all_items), outgoing_links))
             except Exception:
                 continue
+        if all_items:
+            from .sparse_bm25 import build_bm25_vectors, bm25_vocab_path, save_vocab
+
+            texts_bm25 = [it[1] for it in all_items]
+            vectors_bm25, vocab_bm25, doc_freq_bm25 = build_bm25_vectors(texts_bm25)
+            save_vocab(
+                bm25_vocab_path(collection),
+                vocab_bm25,
+                doc_freq_bm25,
+                len(texts_bm25),
+            )
+            if sys.stderr:
+                print(f"[indexer] BM25 vocab built for {len(all_items)} docs", file=sys.stderr, flush=True)
+        else:
+            use_bm25 = False
+
+    collection_created = False
+    total = 0
+    batch_num = 0
+    iter_size = len(all_items) if (use_bm25 and all_items) else len(paths_to_index)
+    for batch_start in range(0, iter_size, batch_size):
+        batch_num += 1
+        batch_end = min(batch_start + batch_size, iter_size)
+        print(
+            f"[indexer] batch {batch_num}: files {batch_start + 1}-{batch_end} of {iter_size}",
+            file=sys.stderr,
+            flush=True,
+        )
+        items: list[tuple[str, str, str, int, list[dict[str, Any]]]] = []
+        if use_bm25 and all_items:
+            items = [
+                (it[0], it[1], it[2], batch_start + i, it[4])
+                for i, it in enumerate(all_items[batch_start:batch_end])
+            ]
+        else:
+            batch_paths = paths_to_index[batch_start : batch_start + batch_size]
+            base_for_links = Path(source_dir) if source_dir else docs_dir
+            for path in batch_paths:
+                try:
+                    outgoing_links = []
+                    if path.suffix == ".md":
+                        text = read_file_with_encoding_fallback(
+                            path, encodings=_ENCODINGS_UTF8_FIRST
+                        )
+                        if source_dir:
+                            html_path = Path(source_dir) / path.relative_to(docs_dir).with_suffix(
+                                ".html"
+                            )
+                            if html_path.exists():
+                                outgoing_links = extract_outgoing_links(
+                                    html_path, Path(source_dir)
+                                )
+                        if not outgoing_links and text:
+                            md_links = extract_links_from_markdown(text, path, docs_dir)
+                            if md_links:
+                                outgoing_links = md_links
+                    else:
+                        text = (
+                            html_to_md_content(path)
+                            if path.suffix == ".html" or not path.suffix
+                            else ""
+                        )
+                        if not text:
+                            try:
+                                text = read_file_with_encoding_fallback(path)[:50000]
+                            except Exception:
+                                continue
+                        if path.suffix in (".html", "") or not path.suffix:
+                            outgoing_links = extract_outgoing_links(path, base_for_links)
+                    if not text or not text.strip():
+                        continue
+                    rel = path.relative_to(docs_dir)
+                    rel_str = str(rel).replace("\\", "/")
+                    title = text.split("\n")[0].strip().lstrip("#").strip() or (
+                        path.stem if path.suffix else path.name
+                    )
+                    point_index = total + len(items)
+                    items.append((rel_str, text, title, point_index, outgoing_links))
+                except Exception:
+                    continue
         if not items:
             continue
         if progress_callback and callable(progress_callback):
@@ -304,6 +390,7 @@ def build_index(
                 continue
             vectors = vectors_retry
         points = []
+        batch_bm25_start = batch_start if use_bm25 else 0
         for idx_in_items, (rel_str, text, title, point_index, outgoing_links) in enumerate(items):
             vector = vectors[idx_in_items]
             point_id = (
@@ -329,19 +416,35 @@ def build_index(
                         payload["section_path"] = section_path
                         payload["breadcrumb"] = breadcrumb
                         break
-            points.append(PointStruct(id=point_id, vector=vector, payload=payload))
+            vec_for_point: Any = vector
+            if use_bm25 and vectors_bm25:
+                bm25_idx = batch_bm25_start + idx_in_items
+                if bm25_idx < len(vectors_bm25):
+                    sv = SparseVector(
+                        indices=vectors_bm25[bm25_idx].get("indices", []),
+                        values=vectors_bm25[bm25_idx].get("values", []),
+                    )
+                    vec_for_point = {"": vector, SPARSE_VECTOR_NAME: sv}
+            points.append(PointStruct(id=point_id, vector=vec_for_point, payload=payload))
         if not collection_created:
             dim = embedding.get_embedding_dimension()
+            sparse_config = (
+                {SPARSE_VECTOR_NAME: SparseVectorParams(modifier=Modifier.IDF)}
+                if (use_bm25 and SparseVectorParams is not None and Modifier is not None)
+                else None
+            )
             if incremental:
                 if not client.collection_exists(collection):
                     client.create_collection(
                         collection_name=collection,
                         vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
+                        sparse_vectors_config=sparse_config,
                     )
             else:
                 client.recreate_collection(
                     collection_name=collection,
                     vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
+                    sparse_vectors_config=sparse_config,
                 )
             collection_created = True
         client.upsert(collection_name=collection, points=points)
@@ -468,6 +571,173 @@ def get_all_collections_status(
     except Exception as e:
         logging.getLogger(__name__).debug("get_all_collections iterate failed: %s", e)
     return result
+
+
+SPARSE_VECTOR_NAME = "text-bm25"
+
+
+def _collection_has_sparse(
+    client: Any,
+    collection: str,
+) -> bool:
+    """Return True if collection has sparse vector 'text-bm25'."""
+    try:
+        info = client.get_collection(collection)
+        params = getattr(info, "config", None) and getattr(
+            getattr(info, "config", None), "params", None
+        )
+        if not params:
+            return False
+        sparse = getattr(params, "sparse_vectors", None) or {}
+        if isinstance(sparse, dict):
+            return SPARSE_VECTOR_NAME in sparse
+        return False
+    except Exception:
+        return False
+
+
+def add_bm25_to_collection(
+    qdrant_host: str | None = None,
+    qdrant_port: int | None = None,
+    collection: str = COLLECTION_NAME,
+    batch_size: int = 200,
+    verbose: bool = True,
+) -> int:
+    """Add BM25 sparse vectors to existing collection. No re-ingest, no re-embedding.
+
+    Scrolls points from collection, builds BM25 from payload text, recreates collection
+    with dense+sparse, upserts all points. Returns total points migrated.
+    """
+    from . import embedding
+    from .sparse_bm25 import (
+        bm25_vocab_path,
+        build_bm25_vectors,
+        query_vector,
+        save_vocab,
+    )
+
+    if QdrantClient is None or SparseVector is None or SparseVectorParams is None:
+        raise RuntimeError("qdrant-client required for add-bm25")
+    host = qdrant_host or os.environ.get("QDRANT_HOST", "localhost")
+    port = qdrant_port or int(os.environ.get("QDRANT_PORT", "6333"))
+    client = QdrantClient(host=host, port=port, check_compatibility=False)
+    if not client.collection_exists(collection):
+        raise RuntimeError(f"Collection {collection} does not exist. Run ingest first.")
+
+    if _collection_has_sparse(client, collection):
+        # Collection has BM25; save vocab to host (e.g. after mounting data/bm25_vocab)
+        points: list[Any] = []
+        offset = None
+        while True:
+            res, next_offset = client.scroll(
+                collection_name=collection,
+                limit=batch_size,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+            points.extend(res or [])
+            if next_offset is None:
+                break
+            offset = next_offset
+        if points:
+            texts = [
+                (getattr(p, "payload", None) or {}).get("title", "")
+                + "\n"
+                + (getattr(p, "payload", None) or {}).get("text", "")
+                for p in points
+            ]
+            _, vocab, doc_freq = build_bm25_vectors(texts)
+            vocab_path = bm25_vocab_path(collection)
+            save_vocab(vocab_path, vocab, doc_freq, len(texts))
+            if verbose:
+                print(
+                    f"[add-bm25] Collection already has BM25. Vocab saved to {vocab_path}",
+                    file=sys.stderr,
+                )
+        return getattr(client.get_collection(collection), "points_count", 0) or 0
+
+    # Scroll all points
+    points: list[Any] = []
+    offset = None
+    while True:
+        res, next_offset = client.scroll(
+            collection_name=collection,
+            limit=batch_size,
+            offset=offset,
+            with_payload=True,
+            with_vectors=True,
+        )
+        points.extend(res or [])
+        if next_offset is None:
+            break
+        offset = next_offset
+
+    if not points:
+        if verbose:
+            print("[add-bm25] No points to migrate.", file=sys.stderr)
+        return 0
+
+    if verbose:
+        print(f"[add-bm25] Migrating {len(points)} points...", file=sys.stderr, flush=True)
+
+    texts = []
+    dense_vectors = []
+    payloads = []
+    ids = []
+    for p in points:
+        pl = getattr(p, "payload", None) or {}
+        text = (pl.get("title") or "") + "\n" + (pl.get("text") or "")
+        texts.append(text)
+        vec = getattr(p, "vector", None)
+        if isinstance(vec, dict):
+            vec = vec.get("") or vec.get(None)
+        dense_vectors.append(vec if isinstance(vec, list) else [])
+        payloads.append(pl)
+        ids.append(getattr(p, "id", 0))
+
+    vectors_bm25, vocab, doc_freq = build_bm25_vectors(texts)
+    N = len(texts)
+
+    # Save vocab for search
+    vocab_path = bm25_vocab_path(collection)
+    save_vocab(vocab_path, vocab, doc_freq, N)
+
+    dim = embedding.get_embedding_dimension()
+    sparse_config = {SPARSE_VECTOR_NAME: SparseVectorParams(modifier=Modifier.IDF)}
+
+    # Recreate collection with dense + sparse
+    client.recreate_collection(
+        collection_name=collection,
+        vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
+        sparse_vectors_config=sparse_config,
+    )
+
+    # Upsert in batches
+    for i in range(0, len(points), batch_size):
+        batch_ids = ids[i : i + batch_size]
+        batch_payloads = payloads[i : i + batch_size]
+        batch_dense = dense_vectors[i : i + batch_size]
+        batch_sparse = vectors_bm25[i : i + batch_size]
+        batch_points = []
+        for j, (pid, pl, dense, sparse) in enumerate(
+            zip(batch_ids, batch_payloads, batch_dense, batch_sparse)
+        ):
+            sv = SparseVector(
+                indices=sparse.get("indices", []),
+                values=sparse.get("values", []),
+            )
+            vec_dict: dict[str, Any] = {"": dense, SPARSE_VECTOR_NAME: sv}
+            batch_points.append(
+                PointStruct(id=pid, vector=vec_dict, payload=pl)
+            )
+        client.upsert(collection_name=collection, points=batch_points)
+        if verbose and (i + batch_size) % 1000 == 0:
+            print(f"[add-bm25] Upserted {min(i + batch_size, len(points))}/{len(points)}", file=sys.stderr, flush=True)
+
+    if verbose:
+        print(f"[add-bm25] Done. BM25 vocab saved to {vocab_path}", file=sys.stderr)
+    return len(points)
 
 
 def search_index(
@@ -627,8 +897,7 @@ def search_index_keyword(
     version: str | None = None,
     language: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Search by keyword (payload.keywords) or substring in title/text (no embedding).
-    Finds exact terms (API names, identifiers)."""
+    """Search by keyword. Uses BM25 sparse if available, else payload.keywords/substring."""
     if QdrantClient is None:
         return []
     host = qdrant_host or os.environ.get("QDRANT_HOST", "localhost")
@@ -638,7 +907,91 @@ def search_index_keyword(
     if not q_lower:
         return []
 
-    # Type.Method pattern (e.g. HTTPСоединение.Получить): use substring search to preserve exact match
+    # BM25 path: when collection has sparse vectors and vocab exists
+    if SparseVector is not None and _collection_has_sparse(client, collection):
+        try:
+            from .sparse_bm25 import bm25_vocab_path, load_vocab, query_vector
+
+            vocab_path = bm25_vocab_path(collection)
+            if vocab_path.exists():
+                vocab, doc_freq, N = load_vocab(vocab_path)
+                qv = query_vector(query, vocab, doc_freq, N)
+                if qv.get("indices"):
+                    sv = SparseVector(indices=qv["indices"], values=qv["values"])
+                    must = []
+                    if version and Filter and FieldCondition and MatchValue:
+                        must.append(
+                            FieldCondition(key="version", match=MatchValue(value=version))
+                        )
+                    if language and Filter and FieldCondition and MatchValue:
+                        must.append(
+                            FieldCondition(key="language", match=MatchValue(value=language))
+                        )
+                    qfilter = Filter(must=must) if must and Filter else None
+                    kwargs: dict[str, Any] = {
+                        "collection_name": collection,
+                        "limit": limit * 2,
+                        "with_payload": True,
+                        "query_filter": qfilter,
+                    }
+                    if hasattr(client, "query_points"):
+                        kwargs["query"] = sv
+                        kwargs["using"] = SPARSE_VECTOR_NAME
+                        resp = client.query_points(**kwargs)
+                    else:
+                        kwargs["query_vector"] = sv
+                        kwargs["using"] = SPARSE_VECTOR_NAME
+                        resp = client.search(**kwargs)
+                    hits = getattr(resp, "points", resp) if hasattr(resp, "points") else resp
+                    raw = []
+                    for h in hits:
+                        payload = getattr(h, "payload", None) or {}
+                        snippet = (payload.get("text") or "")[:SNIPPET_MAX_CHARS]
+                        links = payload.get("outgoing_links") or []
+                        if links:
+                            titles = [
+                                lnk.get("target_title") or lnk.get("link_text", "")
+                                for lnk in links[:5]
+                            ]
+                            snippet = (
+                                snippet
+                                + "\nСвязанные: "
+                                + ", ".join(t for t in titles if t)
+                            ).strip()
+                        raw.append(
+                            {
+                                "path": payload.get("path", ""),
+                                "title": payload.get("title", ""),
+                                "text": snippet,
+                                "score": getattr(h, "score", None),
+                                "version": payload.get("version", ""),
+                            }
+                        )
+                    if raw:
+                        by_path: dict[str, dict[str, Any]] = {}
+                        for r in raw:
+                            p = r.get("path", "")
+                            if not p:
+                                continue
+                            sc = r.get("score") or 0.0
+                            vkey = _version_sort_key(r.get("version", ""))
+                            if p not in by_path:
+                                by_path[p] = r
+                            else:
+                                prev = by_path[p]
+                                prev_sc = prev.get("score") or 0.0
+                                prev_key = _version_sort_key(prev.get("version", ""))
+                                if sc > prev_sc or (sc == prev_sc and vkey > prev_key):
+                                    by_path[p] = r
+                        out = sorted(
+                            by_path.values(),
+                            key=lambda x: (-(x.get("score") or 0.0), -len(_version_sort_key(x.get("version", "")))),
+                        )[:limit]
+                        return out
+        except Exception as e:
+            logging.getLogger(__name__).debug("search_index_keyword BM25 path failed: %s", e)
+
+    # Fallback: payload.keywords or substring scroll
     use_type_method_mode = "." in query
 
     must: list[Any] = []

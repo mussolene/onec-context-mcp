@@ -1,5 +1,19 @@
 # Поиск по справке 1С и MCP
 
+## BM25 sparse vectors (по умолчанию)
+
+Keyword-поиск (`search_1c_help_keyword`, hybrid в `get_1c_code_answer`) использует BM25 sparse vectors для ранжирования результатов. По умолчанию BM25 включён (BM25_ENABLED=1).
+
+- **Новый ingest:** BM25 добавляется автоматически при build_index (при `--no-bm25` или BM25_ENABLED=0 — отключено).
+- **Существующий индекс:** запустите `add-bm25` для миграции **без re-ingest** и без пересчёта эмбеддингов:
+  ```bash
+  make add-bm25
+  # или
+  docker compose exec mcp python -m onec_help add-bm25
+  ```
+- Vocab BM25 сохраняется в `data/bm25_vocab/onec_help.json` для поиска. Папка монтируется в контейнер. Если словарь потерян, а коллекция уже содержит BM25 — повторный вызов `make add-bm25` сохранит vocab на хост.
+- **Стемминг** (Snowball Russian): включён по умолчанию (`BM25_STEMMING=1`). Улучшает recall: «документы» → «документ», «подключение» → «подключ». Смена `BM25_STEMMING` требует повторного `make add-bm25`.
+
 ## Улучшения качества поиска (2025)
 
 ### 1. Типичные промахи семантики

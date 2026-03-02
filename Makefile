@@ -41,8 +41,8 @@ deps/mcp-bsl-lsp-bridge/.git/HEAD:
 	git clone --depth 1 https://github.com/SteelMorgan/mcp-bsl-lsp-bridge.git deps/mcp-bsl-lsp-bridge
 
 fetch-bsl-bridge: deps/mcp-bsl-lsp-bridge/.git/HEAD
-.PHONY: init init-full reinit reinit-full ingest ingest-full build-index build-index-full index-status index-status-full
-.PHONY: watch-index-status watch-index-status-full unpack-help help
+.PHONY: init init-full reinit reinit-full ingest ingest-full build-index build-index-full add-bm25 add-bm25-full
+.PHONY: index-status index-status-full watch-index-status watch-index-status-full unpack-help help
 
 WATCH_INTERVAL ?= 2
 
@@ -105,6 +105,13 @@ build-index:
 
 build-index-full:
 	$(COMPOSE_FULL) exec mcp python -m onec_help build-index $(ARGS)
+
+# Add BM25 sparse vectors to existing collection (no re-ingest, no re-embedding)
+add-bm25:
+	$(COMPOSE) exec $(INDEX_STATUS_SERVICE) python -m onec_help add-bm25 $(ARGS)
+
+add-bm25-full:
+	$(COMPOSE_FULL) exec mcp python -m onec_help add-bm25 $(ARGS)
 
 # Index status
 index-status:
@@ -186,6 +193,7 @@ help:
 	@echo "  make ingest           Индексация .hbk (split, ingest-worker)"
 	@echo "  make ingest-full      Индексация (full, mcp)"
 	@echo "  make build-index      Индексация из папки (ARGS=путь)"
+	@echo "  make add-bm25         Добавить BM25 sparse vectors (без re-ingest)"
 	@echo "  make index-status     Статус индекса"
 	@echo "  make watch-index-status  Статус в реальном времени"
 	@echo "  make fetch-bsl-bridge  Клонировать mcp-bsl-lsp-bridge (для Windows)"

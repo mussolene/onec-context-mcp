@@ -13,6 +13,7 @@ dependencies = [
     "flask>=3.0",
     "beautifulsoup4>=4.12",
     "qdrant-client>=1.7",
+    "snowballstemmer>=2.2",
 ]
 
 [project.optional-dependencies]

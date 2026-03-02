@@ -56,7 +56,8 @@ pip install -e ".[dev]"
 | **`unpack-diag <archive> [-o dir]`** | Диагностика распаковки: пробует каждый метод, печатает результат (при «All unpack methods failed») |
 | **`unpack-dir [source_dir] [-o output]`** | Распаковать все .hbk из дерева каталогов в указанную директорию (без индексации). Источники: `source_dir`, `HELP_SOURCE_BASE` или `--sources` |
 | **`build-docs <project_dir> [--output]`** | Сгенерировать Markdown из HTML справки |
-| **`build-index <directory> [--incremental] [--embedding-batch-size N] [--embedding-workers N]`** | Построить векторный индекс в Qdrant по .md/.html (батч-эмбеддинги; при openai_api — параллельные запросы) |
+| **`build-index <directory> [--incremental] [--no-bm25] [--embedding-batch-size N] [--embedding-workers N]`** | Построить векторный индекс в Qdrant по .md/.html. По умолчанию BM25 sparse vectors включены (BM25_ENABLED=1). `--no-bm25` — отключить. |
+| **`add-bm25 [--collection] [--batch-size N]`** | Добавить BM25 sparse vectors в существующую коллекцию **без re-ingest** и без пересчёта эмбеддингов. Используйте для миграции старых индексов. |
 | **`ingest`** | Распаковать .hbk из мультикаталогов во временную папку, построить Markdown, проиндексировать в Qdrant, удалить временные данные. По хэшу .hbk кэшируется факт индексации — при перезапуске неизменённые файлы пропускаются (не парсятся, не пересчитываются эмбеддинги). Опции `--no-cache` для полной переиндексации; `--embedding-batch-size`, `--embedding-workers` — для ускорения эмбеддингов |
 | **`index-status`** | Статус индекса: число тем, число эмбеддингов, размер БД на диске (если задан `QDRANT_STORAGE_PATH`), версии и языки; при запущенном ingest — скорость эмбеддингов, прогресс по папкам, ETA |
 | **`watchdog`** | Мониторинг новых .hbk в HELP_SOURCE_BASE, инкрементальный ingest при появлении; обработка pending embeddings памяти каждые N минут |
@@ -97,6 +98,7 @@ pip install -e ".[dev]"
 | `EMBEDDING_WORKERS` | Число параллельных запросов к внешнему API (только openai_api). По умолчанию 4 | `4` |
 | `EMBEDDING_FORCE_BATCH` | Максимальная мощность: `1`/`true`/`yes` — батч 256 и 16 воркеров для любого типа embedding | — |
 | `EMBEDDING_MAX_CONCURRENT` | Макс. одновременных запросов к API (при ingest с несколькими воркерами снижает перегрузку LM Studio) | — |
+| `BM25_ENABLED` | BM25 sparse vectors для keyword-поиска (по умолчанию 1). 0 — отключить. `add-bm25` — миграция без re-ingest | `1` |
 | `EMBEDDING_TIMEOUT` | Таймаут HTTP-запроса к API (секунды). При ошибке — retry с backoff, затем плейсхолдер | `60` |
 | `EMBEDDING_BATCH_TIMEOUT` | Таймаут для batch-запроса (секунды). По умолчанию — формула от размера батча | — |
 | `MCP_MODE` | `api` — только MCP (split, по умолчанию); `full` — всё в mcp (один контейнер) | `api` |

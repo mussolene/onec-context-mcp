@@ -109,8 +109,28 @@ def cmd_build_index(args: argparse.Namespace) -> int:
             incremental=getattr(args, "incremental", False),
             embedding_batch_size=getattr(args, "embedding_batch_size", None),
             embedding_workers=getattr(args, "embedding_workers", None),
+            bm25=not getattr(args, "no_bm25", False),
         )
         print(f"Indexed {count} chunks")
+        return 0
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_add_bm25(args: argparse.Namespace) -> int:
+    """Add BM25 sparse vectors to existing collection without re-ingest."""
+    from .indexer import add_bm25_to_collection
+
+    try:
+        count = add_bm25_to_collection(
+            qdrant_host=os.environ.get("QDRANT_HOST", "localhost"),
+            qdrant_port=int(os.environ.get("QDRANT_PORT", "6333")),
+            collection=args.collection or os.environ.get("QDRANT_COLLECTION", "onec_help"),
+            batch_size=getattr(args, "batch_size", 200),
+            verbose=not getattr(args, "quiet", False),
+        )
+        print(f"Migrated {count} points with BM25")
         return 0
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -1479,7 +1499,32 @@ def main() -> int:
         metavar="N",
         help="Parallel API requests for openai_api (default: env EMBEDDING_WORKERS or 4)",
     )
+    p_idx.add_argument(
+        "--no-bm25",
+        action="store_true",
+        help="Disable BM25 sparse vectors (default: BM25_ENABLED=1)",
+    )
     p_idx.set_defaults(func=cmd_build_index)
+
+    # add-bm25
+    p_add_bm25 = sub.add_parser(
+        "add-bm25",
+        help="Add BM25 sparse vectors to existing collection (no re-ingest, no re-embedding)",
+    )
+    p_add_bm25.add_argument(
+        "--collection",
+        type=str,
+        default=None,
+        help="Collection name (default: QDRANT_COLLECTION or onec_help)",
+    )
+    p_add_bm25.add_argument(
+        "--batch-size",
+        type=int,
+        default=200,
+        help="Points per upsert batch (default 200)",
+    )
+    p_add_bm25.add_argument("--quiet", "-q", action="store_true", help="Less output")
+    p_add_bm25.set_defaults(func=cmd_add_bm25)
 
     # ingest
     p_ingest = sub.add_parser(
