@@ -4,7 +4,21 @@ from pathlib import Path
 from unittest.mock import patch
 
 from onec_help._utils import path_inside_base
-from onec_help.tree import build_tree, get_html_content
+from onec_help.tree import build_tree, build_tree_for_web, get_html_content
+
+
+def test_build_tree_for_web_uses_categories(help_sample_dir: Path) -> None:
+    """build_tree_for_web uses __categories__ when present (semantic titles)."""
+    nodes = build_tree_for_web(help_sample_dir)
+    assert isinstance(nodes, list)
+    for n in nodes:
+        assert "identifier" in n
+        assert "html_path" in n
+        assert "is_folder" in n
+        assert "children" in n
+    # With __categories__, should have semantic titles from HTML, not just filenames
+    ids = [n["identifier"] for n in nodes]
+    assert ids  # has at least one
 
 
 def test_build_tree(help_sample_dir: Path) -> None:

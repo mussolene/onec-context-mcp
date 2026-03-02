@@ -153,3 +153,41 @@ def test_index_post_directory_in_allowed_list(client, help_sample_dir: Path) -> 
         r = client.post("/", data={"directory": str(help_sample_dir)})
     assert r.status_code == 200
     assert b"Invalid" not in r.data or b"tree" in r.data
+
+
+def test_api_search_empty_query(client) -> None:
+    """GET /api/search with no q returns empty results."""
+    r = client.get("/api/search")
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["results"] == []
+    assert data.get("error") is None
+
+
+def test_api_search_empty_q_param(client) -> None:
+    """GET /api/search?q= returns empty results."""
+    r = client.get("/api/search?q=")
+    assert r.status_code == 200
+    assert r.get_json()["results"] == []
+
+
+def test_api_search_success(client) -> None:
+    """GET /api/search?q=... calls search_hybrid and returns results."""
+    mock_results = [{"path": "obj/method.html", "title": "Метод.Вызвать", "text": "snippet"}]
+    with patch("onec_help.indexer.search_hybrid", return_value=mock_results):
+        r = client.get("/api/search?q=Вызвать")
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["error"] is None
+    assert len(data["results"]) == 1
+    assert data["results"][0]["title"] == "Метод.Вызвать"
+    assert data["results"][0]["path"] == "obj/method.html"
+
+
+def test_api_search_exception(client) -> None:
+    """GET /api/search on exception returns 500."""
+    with patch("onec_help.indexer.search_hybrid", side_effect=RuntimeError("Qdrant down")):
+        r = client.get("/api/search?q=test")
+    assert r.status_code == 500
+    data = r.get_json()
+    assert "error" in data

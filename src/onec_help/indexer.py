@@ -821,6 +821,56 @@ def search_index(
     return raw
 
 
+_RRF_K = 60
+
+
+def search_hybrid(
+    query: str,
+    limit: int = 10,
+    version: str | None = None,
+    language: str | None = None,
+    qdrant_host: str | None = None,
+    qdrant_port: int | None = None,
+    collection: str = COLLECTION_NAME,
+) -> list[dict[str, Any]]:
+    """Semantic + keyword search merged with RRF (Reciprocal Rank Fusion).
+    Used by web serve and can be reused elsewhere."""
+    semantic_list = search_index(
+        query,
+        qdrant_host=qdrant_host,
+        qdrant_port=qdrant_port,
+        collection=collection,
+        limit=limit * 2,
+        version=version,
+        language=language,
+    )
+    keyword_list = search_index_keyword(
+        query,
+        qdrant_host=qdrant_host,
+        qdrant_port=qdrant_port,
+        collection=collection,
+        limit=15,
+        version=version,
+        language=language,
+    )
+    rrf_scores: dict[str, float] = {}
+    path_to_doc: dict[str, dict[str, Any]] = {}
+    for rank, r in enumerate(semantic_list, 1):
+        p = r.get("path", "")
+        if p:
+            rrf_scores[p] = rrf_scores.get(p, 0) + 1 / (_RRF_K + rank)
+            path_to_doc[p] = r
+    for rank, r in enumerate(keyword_list, 1):
+        p = r.get("path", "")
+        if p:
+            rrf_scores[p] = rrf_scores.get(p, 0) + 1 / (_RRF_K + rank)
+            path_to_doc[p] = r
+    return sorted(
+        path_to_doc.values(),
+        key=lambda x: -rrf_scores.get(x.get("path", ""), 0),
+    )[:limit]
+
+
 def get_topic_from_index(
     topic_path: str,
     qdrant_host: str | None = None,

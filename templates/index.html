@@ -106,7 +106,8 @@
         <div class="alert alert-danger mt-3">{{ error }}</div>
         {% endif %}
         {% if success %}
-        <input type="text" id="search-input" class="form-control mt-3" placeholder="Search...">
+        <input type="text" id="search-input" class="form-control mt-3" placeholder="Поиск (дерево + индекс Qdrant)...">
+        <div id="search-results" class="mt-2" style="display:none;"></div>
         <div id="tree"></div>
         {% endif %}
     </div>
@@ -152,10 +153,11 @@
         function fixLinks() {
             const links = document.getElementById('html-content').getElementsByTagName('a');
             for (let link of links) {
-                if (link.href.startsWith('/content/')) {
+                const href = link.getAttribute('href') || '';
+                if (href.startsWith('/content/')) {
                     link.addEventListener('click', (e) => {
                         e.preventDefault();
-                        loadContent(link.href.replace('/content/', ''));
+                        loadContent(href.replace(/^\/content\//, ''));
                     });
                 }
             }
@@ -166,6 +168,8 @@
                 }
             }
         }
+
+        let searchDebounceTimer = null;
 
         function searchTree(query) {
             const results = [];
@@ -195,8 +199,42 @@
             }
         }
 
+        function showSearchResults(data) {
+            const el = document.getElementById('search-results');
+            const tree = document.getElementById('tree');
+            if (!data.results || data.results.length === 0) {
+                el.style.display = 'none';
+                return;
+            }
+            el.innerHTML = '<div class="small text-muted mb-1">По индексу Qdrant:</div>';
+            data.results.forEach(r => {
+                const a = document.createElement('a');
+                a.href = '#';
+                a.className = 'd-block small text-decoration-none py-1';
+                a.textContent = r.title || r.path || 'Без названия';
+                a.addEventListener('click', (e) => { e.preventDefault(); loadContent(r.path); });
+                el.appendChild(a);
+            });
+            el.style.display = 'block';
+        }
+
+        function fetchSearch(q) {
+            if (q.length < 2) {
+                document.getElementById('search-results').style.display = 'none';
+                return;
+            }
+            fetch(`/api/search?q=${encodeURIComponent(q)}`)
+                .then(r => r.json())
+                .then(data => { if (data.error) return; showSearchResults(data); })
+                .catch(() => {});
+        }
+
         document.getElementById('search-input')?.addEventListener('input', (e) => {
-            searchTree(e.target.value);
+            const q = e.target.value;
+            searchTree(q);
+            clearTimeout(searchDebounceTimer);
+            searchDebounceTimer = setTimeout(() => fetchSearch(q), 350);
+            if (q.length < 2) document.getElementById('search-results').style.display = 'none';
         });
 
         if (treeData) {

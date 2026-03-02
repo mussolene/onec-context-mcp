@@ -7,7 +7,7 @@ from pathlib import Path
 from flask import Flask, jsonify, render_template, request, send_from_directory
 
 from ._utils import mask_path_for_log, safe_error_message
-from .tree import build_tree, get_html_content
+from .tree import build_tree_for_web, get_html_content
 
 
 def _allowed_base_dirs():
@@ -68,7 +68,7 @@ def index():
         base_dir = directory
 
     if base_dir and Path(base_dir).is_dir():
-        tree_elements = build_tree(base_dir)
+        tree_elements = build_tree_for_web(base_dir)
         return render_template(
             "index.html",
             success=True,
@@ -101,6 +101,22 @@ def download_file(file_path: str):
     if not base_dir:
         return jsonify({"error": "No directory selected"}), 400
     return send_from_directory(base_dir, file_path)
+
+
+@app.route("/api/search")
+def api_search():
+    """Search 1C help via Qdrant (semantic + keyword hybrid)."""
+    q = (request.args.get("q") or "").strip()
+    if not q:
+        return jsonify({"results": [], "error": None})
+    try:
+        from .indexer import search_hybrid
+
+        results = search_hybrid(q, limit=20)
+        return jsonify({"results": results, "error": None})
+    except Exception as e:
+        logger.exception("Search failed: %s", e)
+        return jsonify({"results": [], "error": safe_error_message(e)}), 500
 
 
 @app.route("/ready")
