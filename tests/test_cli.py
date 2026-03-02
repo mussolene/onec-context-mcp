@@ -23,6 +23,7 @@ from onec_help.cli import (
     cmd_qdrant_restore,
     cmd_unpack,
     cmd_unpack_dir,
+    cmd_unpack_sync,
     cmd_watchdog,
     main,
 )
@@ -638,6 +639,40 @@ def test_cmd_unpack_dir_success(mock_run, tmp_path: Path) -> None:
     )
     assert cmd_unpack_dir(args) == 0
     mock_run.assert_called_once()
+
+
+@patch("onec_help.ingest.run_unpack_sync")
+def test_cmd_unpack_sync_success(mock_run, tmp_path: Path) -> None:
+    """cmd_unpack_sync calls run_unpack_sync with correct output dir."""
+    mock_run.return_value = 1
+    out = tmp_path / "unpacked"
+    args = make_args(
+        source_dir=str(tmp_path),
+        output_dir=str(out),
+        sources=None,
+        languages="ru",
+        workers=1,
+        quiet=True,
+    )
+    assert cmd_unpack_sync(args) == 0
+    mock_run.assert_called_once()
+    assert mock_run.call_args[1]["output_dir"] == out
+
+
+@patch("onec_help.ingest.run_unpack_sync")
+def test_cmd_unpack_sync_no_sources_error(mock_run) -> None:
+    """cmd_unpack_sync returns 1 when no sources."""
+    args = make_args(
+        source_dir="",
+        output_dir=None,
+        sources=None,
+        languages=None,
+        workers=1,
+        quiet=True,
+    )
+    with patch.dict("os.environ", {}, clear=True):
+        assert cmd_unpack_sync(args) == 1
+    mock_run.assert_not_called()
 
 
 @patch("onec_help.ingest.run_ingest")

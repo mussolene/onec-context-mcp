@@ -1153,6 +1153,51 @@ def run_ingest(
     return total_indexed
 
 
+def _hbk_label_from_stem(stem: str) -> str:
+    """Human-readable label from stem (e.g. 1cv8_ru → 'Справка 1С:Предприятие 8')."""
+    raw = os.environ.get("HBK_LABELS", "").strip()
+    if raw:
+        for part in raw.split(","):
+            part = part.strip()
+            if ":" in part:
+                key, val = part.split(":", 1)
+                if stem.lower().startswith(key.lower() + "_") or stem.lower() == key.lower():
+                    return val.strip()
+    # Built-in mapping
+    s = stem.lower()
+    if s.startswith("1cv8"):
+        return "Справка 1С:Предприятие 8"
+    if s.startswith("shcntx") or "syntax" in s:
+        return "Синтаксис"
+    if s.startswith("designer"):
+        return "Конфигуратор"
+    return stem
+
+
+def _write_hbk_info(
+    out_dir: Path,
+    source_file: str,
+    label: str,
+    version: str,
+    language: str,
+    file_hash: str = "",
+) -> None:
+    """Write .hbk_info.json with metadata for unpacked help."""
+    info = {
+        "source_file": source_file,
+        "label": label,
+        "version": version,
+        "language": language,
+    }
+    if file_hash:
+        info["hash"] = file_hash
+    path = out_dir / ".hbk_info.json"
+    try:
+        path.write_text(json.dumps(info, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError:
+        pass
+
+
 def _unpack_one(
     path: Path,
     version: str,
@@ -1175,6 +1220,91 @@ def _unpack_one(
         if verbose:
             _log(f"[unpack] skip {mask_path_for_log(str(path))}: {safe_error_message(e)}")
         return (False, str(e))
+
+
+def _unpack_one_sync(
+    path: Path,
+    version: str,
+    lang: str,
+    output_base: Path,
+    unpack_fn: Any,
+    verbose: bool,
+) -> tuple[bool, str]:
+    """Unpack one .hbk for unpack-sync: version/stem structure, .hbk_info.json, hash skip."""
+    safe_stem = re.sub(r"[^\w\-]", "_", path.stem)
+    out_sub = output_base / version / safe_stem
+    file_hash = _file_sha256(path)
+    info_path = out_sub / ".hbk_info.json"
+    if out_sub.exists() and info_path.exists() and file_hash:
+        try:
+            info = json.loads(info_path.read_text(encoding="utf-8"))
+            if info.get("hash") == file_hash:
+                if verbose:
+                    _log(f"[unpack-sync] skip (unchanged) {version}/{safe_stem}")
+                return (False, "cached")
+        except (json.JSONDecodeError, OSError):
+            pass
+    try:
+        out_sub.mkdir(parents=True, exist_ok=True)
+        unpack_fn(path, out_sub)
+        label = _hbk_label_from_stem(safe_stem)
+        _write_hbk_info(
+            out_sub,
+            source_file=path.name,
+            label=label,
+            version=version,
+            language=lang,
+            file_hash=file_hash or "",
+        )
+        msg = f"{version}/{safe_stem} → {out_sub.relative_to(output_base)}"
+        if verbose:
+            _log(f"[unpack-sync] {msg}")
+        return (True, msg)
+    except Exception as e:
+        if verbose:
+            _log(f"[unpack-sync] skip {mask_path_for_log(str(path))}: {safe_error_message(e)}")
+        return (False, str(e))
+
+
+def run_unpack_sync(
+    source_dirs_with_versions: list[tuple[Path | str, str]],
+    output_dir: Path | str | None = None,
+    languages: list[str] | None = None,
+    max_workers: int = 4,
+    verbose: bool = True,
+) -> int:
+    """
+    Unpack .hbk to data/unpacked with version/platform_lang structure and .hbk_info.json.
+    Structure: output_dir / version / stem / (unpacked + .hbk_info.json). Skips if hash matches.
+    Returns number of .hbk archives unpacked (excludes cached).
+    """
+    from .unpack import unpack_hbk
+
+    out_raw = output_dir or os.environ.get("DATA_UNPACKED_DIR", "data/unpacked")
+    output_base = Path(out_raw).resolve()
+    pairs = [(Path(p).resolve(), v) for p, v in source_dirs_with_versions]
+    tasks = collect_hbk_tasks(pairs, languages)
+    if not tasks:
+        return 0
+    count = 0
+    if max_workers <= 1:
+        for path, version, lang in tasks:
+            ok, _ = _unpack_one_sync(path, version, lang, output_base, unpack_hbk, verbose)
+            if ok:
+                count += 1
+    else:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futs = [
+                executor.submit(
+                    _unpack_one_sync, path, version, lang, output_base, unpack_hbk, verbose
+                )
+                for path, version, lang in tasks
+            ]
+            for fut in as_completed(futs):
+                ok, _ = fut.result()
+                if ok:
+                    count += 1
+    return count
 
 
 def run_unpack_only(

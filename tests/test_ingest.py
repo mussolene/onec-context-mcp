@@ -7,11 +7,13 @@ import pytest
 
 from onec_help.ingest import (
     _file_sha256,
+    _hbk_label_from_stem,
     _language_from_filename,
     _load_ingest_cache,
     _persist_ingest_status_sqlite,
     _update_ingest_cache_entry,
     _vacuum_cache_db,
+    _write_hbk_info,
     _write_ingest_status,
     collect_hbk_tasks,
     discover_version_dirs,
@@ -23,6 +25,7 @@ from onec_help.ingest import (
     read_last_ingest_run,
     run_ingest,
     run_unpack_only,
+    run_unpack_sync,
 )
 
 
@@ -550,6 +553,83 @@ def test_run_ingest_integration_mock(
     assert mock_unpack.called
     assert mock_build_index.return_value == 1
     assert n >= 1
+
+
+def test_hbk_label_from_stem() -> None:
+    """_hbk_label_from_stem returns built-in or env labels."""
+    assert _hbk_label_from_stem("1cv8_ru") == "Справка 1С:Предприятие 8"
+    assert _hbk_label_from_stem("shcntx_en") == "Синтаксис"
+    assert _hbk_label_from_stem("unknown_ru") == "unknown_ru"
+
+
+def test_hbk_label_from_stem_env(tmp_path: Path) -> None:
+    """_hbk_label_from_stem uses HBK_LABELS env when set."""
+    with patch.dict("os.environ", {"HBK_LABELS": "custom:My Custom Help"}):
+        assert _hbk_label_from_stem("custom_ru") == "My Custom Help"
+
+
+def test_write_hbk_info(tmp_path: Path) -> None:
+    """_write_hbk_info creates .hbk_info.json with metadata."""
+    _write_hbk_info(tmp_path, "1cv8_ru.hbk", "Справка 1С", "8.3", "ru", "abc123")
+    info_path = tmp_path / ".hbk_info.json"
+    assert info_path.exists()
+    import json
+
+    info = json.loads(info_path.read_text(encoding="utf-8"))
+    assert info["source_file"] == "1cv8_ru.hbk"
+    assert info["label"] == "Справка 1С"
+    assert info["version"] == "8.3"
+    assert info["language"] == "ru"
+    assert info["hash"] == "abc123"
+
+
+@patch("onec_help.unpack.unpack_hbk")
+def test_run_unpack_sync_one_archive(mock_unpack: MagicMock, tmp_path: Path) -> None:
+    """run_unpack_sync unpacks to version/stem and writes .hbk_info.json."""
+    (tmp_path / "v").mkdir()
+    (tmp_path / "v" / "1cv8_ru.hbk").write_bytes(b"x")
+    out = tmp_path / "output"
+    n = run_unpack_sync(
+        source_dirs_with_versions=[(tmp_path, "v")],
+        output_dir=out,
+        languages=["ru"],
+        max_workers=1,
+        verbose=False,
+    )
+    assert n == 1
+    mock_unpack.assert_called_once()
+    out_sub = out / "v" / "1cv8_ru"
+    assert out_sub.exists()
+    info_path = out_sub / ".hbk_info.json"
+    assert info_path.exists()
+    import json
+
+    info = json.loads(info_path.read_text(encoding="utf-8"))
+    assert info["source_file"] == "1cv8_ru.hbk"
+    assert info["version"] == "v"
+    assert info["language"] == "ru"
+
+
+@patch("onec_help.unpack.unpack_hbk")
+def test_run_unpack_sync_skip_unchanged(mock_unpack: MagicMock, tmp_path: Path) -> None:
+    """run_unpack_sync skips when .hbk_info.json hash matches."""
+    (tmp_path / "v").mkdir()
+    hbk = tmp_path / "v" / "1cv8_ru.hbk"
+    hbk.write_bytes(b"same")
+    out = tmp_path / "output"
+    h = _file_sha256(hbk)
+    out_sub = out / "v" / "1cv8_ru"
+    out_sub.mkdir(parents=True)
+    _write_hbk_info(out_sub, "1cv8_ru.hbk", "Label", "v", "ru", file_hash=h or "")
+    n = run_unpack_sync(
+        source_dirs_with_versions=[(tmp_path, "v")],
+        output_dir=out,
+        languages=["ru"],
+        max_workers=1,
+        verbose=False,
+    )
+    assert n == 0
+    mock_unpack.assert_not_called()
 
 
 @patch("onec_help.unpack.unpack_hbk")

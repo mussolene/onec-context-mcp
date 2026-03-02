@@ -131,6 +131,10 @@ watch-index-status-full:
 unpack-help:
 	$(COMPOSE) run --rm -v "$(HELP_SOURCE_PATH):/input:ro" -v "$(abspath $(UNPACK_OUTPUT)):/output" mcp python -m onec_help unpack-dir /input -o /output -l $(HELP_LANGS) $(ARGS)
 
+# Unpack .hbk в data/unpacked с .hbk_info.json (version/stem, skip unchanged)
+unpack-sync:
+	$(COMPOSE) run --rm -v "$(HELP_SOURCE_PATH):/input:ro" -e DATA_UNPACKED_DIR=/output -v "$(abspath $(UNPACK_OUTPUT)):/output" mcp python -m onec_help unpack-sync /input -o /output -l $(HELP_LANGS) $(ARGS)
+
 # Start (split: qdrant + mcp + ingest-worker)
 # Каталоги data/* создаются Docker при volume mount — кросс-платформенно
 up:
