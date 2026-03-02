@@ -68,3 +68,14 @@ def embedding_backend_none_for_network_tests(request):
             yield
     else:
         yield
+
+
+@pytest.fixture(autouse=True)
+def isolate_bm25_vocab_for_indexer_tests(request, tmp_path):
+    """Redirect BM25 vocab to tmp_path in indexer tests to avoid overwriting data/bm25_vocab."""
+    path = str(getattr(request, "fspath", None) or "")
+    if "test_indexer" in path:
+        with patch.dict("os.environ", {"DATA_DIR": str(tmp_path)}, clear=False):
+            yield
+    else:
+        yield
