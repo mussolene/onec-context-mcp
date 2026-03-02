@@ -86,6 +86,8 @@ pip install -e ".[dev]"
 | `MCP_HOST` | Хост для MCP HTTP | `127.0.0.1` |
 | `MCP_PORT` | Порт для MCP HTTP | `8050` |
 | `MCP_PATH` | URL-путь эндпоинта MCP | `/mcp` |
+| `MCP_SNIPPET_MAX_CHARS` | Макс. символов сниппета в результатах поиска | `1200` |
+| `MCP_MAX_TOPIC_CHARS` | Макс. символов топика в get_1c_code_answer/search_with_content | `4000` |
 | `PORT` | Порт веб-сервера (serve) | `5000` |
 | `SERVE_PORT` | Порт serve в Docker (split, профиль serve) | `5000` |
 | `HELP_SERVE_ALLOWED_DIRS` | Список путей через запятую (serve): разрешённые базовые каталоги для формы; если задан, ввод вне списка отклоняется | — |

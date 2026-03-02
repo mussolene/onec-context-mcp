@@ -10,10 +10,22 @@ from typing import Any
 
 from ._utils import format_duration, safe_error_message
 
-SNIPPET_MAX_CHARS = 850
-MAX_TOPIC_CONTENT_CHARS = (
-    2000  # truncate full topic in get_1c_code_answer/search_with_content to reduce tokens
-)
+def _snippet_max_chars() -> int:
+    """Snippet length for search results. env MCP_SNIPPET_MAX_CHARS (default 1200)."""
+    try:
+        v = os.environ.get("MCP_SNIPPET_MAX_CHARS", "1200")
+        return max(100, min(5000, int(v)))
+    except (TypeError, ValueError):
+        return 1200
+
+
+def _max_topic_content_chars() -> int:
+    """Max chars per topic in get_1c_code_answer/search_with_content. env MCP_MAX_TOPIC_CHARS (default 4000)."""
+    try:
+        v = os.environ.get("MCP_MAX_TOPIC_CHARS", "4000")
+        return max(500, min(50000, int(v)))
+    except (TypeError, ValueError):
+        return 4000
 MAX_QUERY_CHARS = 65536  # 64 KB
 MAX_CODE_SNIPPET_CHARS = 65536  # 64 KB
 _RATE_LIMIT_REQUESTS = 120
@@ -301,7 +313,8 @@ def run_mcp(
         For code answers prefer get_1c_code_answer. For exact API names use search_1c_help_keyword.
         query: search text (e.g. 'Формат', 'Запрос.ПакетПолучения', 'синтаксис ОбъединитьПериоды').
         limit: max results (default 8). version, language: optional filters.
-        include_user_memory: if True, also search saved snippets and mark source."""
+        include_user_memory: if True, also search saved snippets and mark source.
+        Tip: if results are irrelevant or low quality, try search_1c_help_keyword with exact API name (e.g. Тип.Метод)."""
         err = _check_rate_limit()
         if err:
             return err
@@ -324,7 +337,7 @@ def run_mcp(
         suffix = " [help]" if memory_results else ""
         for r in results:
             lines.append(f"{idx}. **{r.get('title', '')}** (path: {r.get('path', '')}){suffix}")
-            text = r.get("text", "")[:SNIPPET_MAX_CHARS]
+            text = r.get("text", "")[:_snippet_max_chars()]
             lines.append(f"   {text}...")
             idx += 1
         for m in memory_results:
@@ -337,7 +350,7 @@ def run_mcp(
                 else (" [инструкция]" if d == "community_help" else " [memory]")
             )
             lines.append(f"{idx}. **{title}**{src}")
-            lines.append(f"   {str(payload)[:SNIPPET_MAX_CHARS]}...")
+            lines.append(f"   {str(payload)[:_snippet_max_chars()]}...")
             idx += 1
         return "\n".join(lines)
 
@@ -348,10 +361,11 @@ def run_mcp(
         version: str | None = None,
         language: str | None = None,
     ) -> str:
-        """Search 1C help by exact substring in title and text (e.g. 'Формат', 'ПроцессорВыводаРезультатаКомпоновкиДанныхВКоллекциюЗначений').
-        Use when semantic search misses specific API names. For code answers prefer get_1c_code_answer.
-        For method names like Type.Method (e.g. HTTPСоединение.Получить) pass the full string.
-        limit: max results (default 10). version, language: optional filters."""
+        """Search 1C help by exact substring/BM25 in title and text (e.g. 'Формат', 'ПроцессорВыводаРезультатаКомпоновкиДанныхВКоллекциюЗначений').
+        Use when semantic search misses specific API names or returns irrelevant results.
+        For code answers prefer get_1c_code_answer. For method names like Type.Method (e.g. HTTPСоединение.Получить) pass the full string.
+        limit: max results (default 10). version, language: optional filters.
+        Tip: if no matches, try search_1c_help for semantic search or synonym (e.g. ПакетПолучения → ВыполнитьПакет)."""
         err = _check_rate_limit()
         if err:
             return err
@@ -369,7 +383,7 @@ def run_mcp(
         lines = []
         for i, r in enumerate(results, 1):
             lines.append(f"{i}. **{r.get('title', '')}** (path: {r.get('path', '')})")
-            text = r.get("text", "")[:SNIPPET_MAX_CHARS]
+            text = r.get("text", "")[:_snippet_max_chars()]
             lines.append(f"   {text}...")
         return "\n".join(lines)
 
@@ -383,7 +397,8 @@ def run_mcp(
         """Search 1C help and return full content of top results in one call.
         Combines semantic + keyword search, then get_topic for each result.
         query: search text. limit: max topics with full content (default 3).
-        version, language: optional filters."""
+        version, language: optional filters.
+        Tip: if results are irrelevant, try search_1c_help_keyword with exact API name (Тип.Метод)."""
         err = _check_rate_limit()
         if err:
             return err
@@ -400,8 +415,9 @@ def run_mcp(
                 continue
             content = _get_topic(path, version=version, language=language, prefer_index=False)
             if content:
-                if len(content) > MAX_TOPIC_CONTENT_CHARS:
-                    content = content[:MAX_TOPIC_CONTENT_CHARS] + "\n\n..."
+                max_chars = _max_topic_content_chars()
+                if len(content) > max_chars:
+                    content = content[:max_chars] + "\n\n..."
                 parts.append(f"---\n## {path}\n\n{content}")
         return "\n\n".join(parts) if parts else "No content could be retrieved."
 
@@ -417,7 +433,8 @@ def run_mcp(
         """Get code-ready answer from 1C help in one call. Best for: 'вывод СКД в таблицу', 'Формат', etc.
         Combines semantic + keyword search, full topic content, and memory. Prefer over search+get_topic chain.
         Traps: ПрочитатьJSON returns Structure by default — use ПрочитатьВСоответствие=Истина for Соответствие (Получить). HTTPСоединение.Получить — server only.
-        query: natural language or API name. limit: max topics (default 3). include_memory: also search saved snippets. code_only: if True, return primarily code blocks from help."""
+        query: natural language or API name. limit: max topics (default 3). include_memory: also search saved snippets. code_only: if True, return primarily code blocks from help.
+        Tip: if results are irrelevant, call search_1c_help_keyword with exact API name (Тип.Метод), then get_1c_help_topic for full content."""
         err = _check_rate_limit()
         if err:
             return err
@@ -487,6 +504,7 @@ def run_mcp(
                     continue
                 content = _get_topic(path, version=version, language=language, prefer_index=False)
                 if content:
+                    max_chars = _max_topic_content_chars()
                     if code_only:
                         blocks = _extract_code_blocks(content)
                         if blocks:
@@ -494,11 +512,11 @@ def run_mcp(
                             help_blocks.append(f"---\n## {path}\n\n{block_text}")
                         else:
                             help_blocks.append(
-                                f"---\n## {path}\n\n{content[:MAX_TOPIC_CONTENT_CHARS]}..."
+                                f"---\n## {path}\n\n{content[:max_chars]}..."
                             )
                     else:
-                        if len(content) > MAX_TOPIC_CONTENT_CHARS:
-                            content = content[:MAX_TOPIC_CONTENT_CHARS] + "\n\n..."
+                        if len(content) > max_chars:
+                            content = content[:max_chars] + "\n\n..."
                         help_blocks.append(f"---\n## {path}\n\n{content}")
             if help_blocks:
                 parts.append("\n### Из справки\n\n" + "\n\n".join(help_blocks))
@@ -514,7 +532,8 @@ def run_mcp(
         """Get full help topic content in Markdown by path. Path from search results (e.g. 'zif3_CryptoManager.md').
         Content is read from disk or from index if files were not persisted.
         version, language: optional filters when reading from index.
-        prefer_index: if True, read only from index (skip disk)."""
+        prefer_index: if True, read only from index (skip disk).
+        Tip: get path from search_1c_help or search_1c_help_keyword first. Use topic_path (not path) parameter."""
         err = _check_rate_limit()
         if err:
             return err
@@ -854,7 +873,8 @@ def run_mcp(
     ) -> str:
         """Get description, syntax, parameters, return value for a 1C function/method.
         name: e.g. 'Формат', 'МенеджерКриптографии.Подписать'. path: optional exact topic path.
-        When ambiguous (e.g. Формат → function vs format topic), use choose_index=1,2,... or search_1c_help_keyword for exact API."""
+        When ambiguous (e.g. Формат → function vs format topic), use choose_index=1,2,... or search_1c_help_keyword for exact API.
+        Tip: for exact API names always pass full Тип.Метод (e.g. HTTPСоединение.Получить). If no match, try search_1c_help_keyword with synonym."""
         name_clean = name.strip()
         if not name_clean:
             return "Provide a function or method name."
