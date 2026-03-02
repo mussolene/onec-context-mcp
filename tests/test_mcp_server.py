@@ -92,6 +92,16 @@ def test_hybrid_search_returns_meta() -> None:
         assert "c.md" in paths
         assert "b.md" in paths
 
+        # RRF: doc in both lists ranks higher (scores from both)
+        mock_search.return_value = [
+            {"path": "both.md", "title": "Both", "text": "x", "score": 0.5},
+            {"path": "sem_only.md", "title": "Sem", "text": "y", "score": 0.9},
+        ]
+        mock_kw.return_value = [{"path": "both.md", "title": "Both", "text": "x", "score": 1.0}]
+        results3, _ = mcp_server._hybrid_search("API.Метод", limit=5)
+        paths3 = [r.get("path") for r in results3]
+        assert paths3[0] == "both.md"  # RRF: in both lists → highest score
+
 
 def test_should_show_low_score_hint() -> None:
     """_should_show_low_score_hint: True when no keyword hits, low score, has results."""

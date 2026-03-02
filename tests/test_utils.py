@@ -87,12 +87,63 @@ def test_path_inside_base_path_equals_base() -> None:
     assert path_inside_base(base, base) is True
 
 
+def test_dir_size_on_disk_nonexistent_returns_zero() -> None:
+    """Non-existent path returns 0."""
+    assert dir_size_on_disk(Path("/nonexistent/path/xyz")) == 0
+
+
+def test_dir_size_on_disk_file_not_dir_returns_zero(tmp_path: Path) -> None:
+    """Passing a file path (not dir) returns 0."""
+    f = tmp_path / "file.txt"
+    f.write_text("x")
+    assert dir_size_on_disk(f) == 0
+
+
 def test_dir_size_on_disk(tmp_path: Path) -> None:
     """dir_size_on_disk sums file sizes; deduplicates hard links."""
     (tmp_path / "a.txt").write_text("x" * 100)
     (tmp_path / "b.txt").write_text("y" * 200)
     sz = dir_size_on_disk(tmp_path)
     assert sz >= 300
+
+
+def test_dir_size_on_disk_stat_raises_skipped(tmp_path: Path) -> None:
+    """OSError during stat() is skipped; fallback when st_blocks is 0."""
+    (tmp_path / "a.txt").write_text("x" * 100)
+    bad = tmp_path / "bad.txt"
+    bad.write_text("y")
+    original_stat = Path.stat
+
+    def mock_stat(self):
+        if str(self) == str(bad):
+            raise OSError("permission denied")
+        return original_stat(self)
+
+    with patch.object(Path, "stat", mock_stat):
+        sz = dir_size_on_disk(tmp_path)
+    assert sz >= 100  # At least a.txt counted
+
+
+def test_dir_size_on_disk_fallback_when_no_st_blocks(tmp_path: Path) -> None:
+    """When st_blocks is 0 or missing, use fallback_bytes (sum of st_size)."""
+    f = tmp_path / "f.txt"
+    f.write_text("hello")
+    original_stat = Path.stat
+    target = str(f)
+
+    def mock_stat(self):
+        st = original_stat(self)
+        # For files in our tmp dir, use st_blocks=0 to trigger fallback path
+        if str(self) == target:
+            return type("FakeStat", (), {
+                "st_ino": st.st_ino, "st_dev": st.st_dev, "st_size": st.st_size,
+                "st_blocks": 0, "st_mode": st.st_mode,
+            })()
+        return st
+
+    with patch.object(Path, "stat", mock_stat):
+        sz = dir_size_on_disk(tmp_path)
+    assert sz >= 5  # fallback_bytes from st_size
 
 
 def test_dir_size_on_disk_hardlink(tmp_path: Path) -> None:

@@ -75,6 +75,14 @@ def test_reference_fallback_when_bsl_but_not_dominant():
     assert classify_snippet_vs_reference("Разное", desc, code) == "reference"
 
 
+def test_snippet_code_share_over_45_but_not_dominant():
+    """Code share > 45%, BSL, but code_len <= desc_len*1.2 → snippet via line 76-78."""
+    # code_len ~100, desc_len ~120: share > 0.45, but code not dominant
+    code = "Процедура Х()\nСообщить(1);\nКонецПроцедуры\n" * 4  # ~100 chars, BSL
+    desc = "Описание " * 15  # ~120 chars
+    assert classify_snippet_vs_reference("Тест", desc, code) == "snippet"
+
+
 def test_snippet_code_share_over_45_balanced_desc():
     """Code share > 45% with BSL, but code not > desc*1.2 → snippet via line 76-78."""
     code = "Процедура Х()\nСообщить(1);\nКонецПроцедуры\n" * 8  # ~200 chars, BSL

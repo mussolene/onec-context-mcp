@@ -10,6 +10,7 @@ from typing import Any
 
 from ._utils import format_duration, safe_error_message
 
+
 def _snippet_max_chars() -> int:
     """Snippet length for search results. env MCP_SNIPPET_MAX_CHARS (default 1200)."""
     try:
@@ -26,6 +27,8 @@ def _max_topic_content_chars() -> int:
         return max(500, min(50000, int(v)))
     except (TypeError, ValueError):
         return 4000
+
+
 MAX_QUERY_CHARS = 65536  # 64 KB
 MAX_CODE_SNIPPET_CHARS = 65536  # 64 KB
 _RATE_LIMIT_REQUESTS = 120
@@ -242,41 +245,56 @@ def _should_show_low_score_hint(
     )
 
 
+_RRF_K = 60  # Reciprocal Rank Fusion constant
+
+
 def _hybrid_search(
     query: str,
     limit: int = 10,
     version: str | None = None,
     language: str | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Semantic + keyword search, merged and deduplicated. Keyword matches ranked higher.
+    """Semantic + keyword search merged with RRF (Reciprocal Rank Fusion).
     Returns (results, metadata) where metadata has: has_keyword_hits, top_semantic_score."""
-    seen: dict[str, tuple[dict[str, Any], bool]] = {}
-    top_semantic_score: float = 0.0
-
-    for r in _search(query, limit=limit * 2, version=version, language=language):
-        path = r.get("path", "")
+    # Semantic list
+    semantic_list = _search(query, limit=limit * 2, version=version, language=language)
+    top_semantic_score = 0.0
+    for r in semantic_list:
         sc = r.get("score")
         if sc is not None and isinstance(sc, (int, float)):
             top_semantic_score = max(top_semantic_score, float(sc))
-        if path and path not in seen:
-            seen[path] = (r, False)
 
-    has_keyword_hits = False
+    # Keyword list (merged from tokens, dedup by path, first occurrence wins)
+    keyword_seen: set[str] = set()
+    keyword_list: list[dict[str, Any]] = []
     for token in _extract_keyword_tokens(query):
         for r in _search_keyword(token, limit=5, version=version, language=language):
-            path = r.get("path", "")
-            if path and path not in seen:
-                seen[path] = (r, True)
-                has_keyword_hits = True
-            elif path and seen[path][1] is False:
-                seen[path] = (r, True)
-                has_keyword_hits = True
+            p = r.get("path", "")
+            if p and p not in keyword_seen:
+                keyword_seen.add(p)
+                keyword_list.append(r)
+    has_keyword_hits = bool(keyword_list)
 
-    keyword_first = sorted(
-        seen.items(),
-        key=lambda x: (0 if x[1][1] else 1, -(x[1][0].get("score") or 0)),
-    )
-    results = [item[1][0] for item in keyword_first[:limit]]
+    # RRF: score = sum 1/(k + rank) over lists where doc appears
+    rrf_scores: dict[str, float] = {}
+    path_to_doc: dict[str, dict[str, Any]] = {}
+
+    for rank, r in enumerate(semantic_list, 1):
+        p = r.get("path", "")
+        if p:
+            rrf_scores[p] = rrf_scores.get(p, 0) + 1 / (_RRF_K + rank)
+            path_to_doc[p] = r
+
+    for rank, r in enumerate(keyword_list, 1):
+        p = r.get("path", "")
+        if p:
+            rrf_scores[p] = rrf_scores.get(p, 0) + 1 / (_RRF_K + rank)
+            path_to_doc[p] = r  # keyword overwrites if same path (prefer keyword payload)
+
+    results = sorted(
+        path_to_doc.values(),
+        key=lambda x: -rrf_scores.get(x.get("path", ""), 0),
+    )[:limit]
     meta = {
         "has_keyword_hits": has_keyword_hits,
         "top_semantic_score": top_semantic_score,
@@ -337,7 +355,7 @@ def run_mcp(
         suffix = " [help]" if memory_results else ""
         for r in results:
             lines.append(f"{idx}. **{r.get('title', '')}** (path: {r.get('path', '')}){suffix}")
-            text = r.get("text", "")[:_snippet_max_chars()]
+            text = r.get("text", "")[: _snippet_max_chars()]
             lines.append(f"   {text}...")
             idx += 1
         for m in memory_results:
@@ -350,7 +368,7 @@ def run_mcp(
                 else (" [инструкция]" if d == "community_help" else " [memory]")
             )
             lines.append(f"{idx}. **{title}**{src}")
-            lines.append(f"   {str(payload)[:_snippet_max_chars()]}...")
+            lines.append(f"   {str(payload)[: _snippet_max_chars()]}...")
             idx += 1
         return "\n".join(lines)
 
@@ -383,7 +401,7 @@ def run_mcp(
         lines = []
         for i, r in enumerate(results, 1):
             lines.append(f"{i}. **{r.get('title', '')}** (path: {r.get('path', '')})")
-            text = r.get("text", "")[:_snippet_max_chars()]
+            text = r.get("text", "")[: _snippet_max_chars()]
             lines.append(f"   {text}...")
         return "\n".join(lines)
 
@@ -511,9 +529,7 @@ def run_mcp(
                             block_text = "\n\n".join(f"```bsl\n{b}\n```" for b in blocks)
                             help_blocks.append(f"---\n## {path}\n\n{block_text}")
                         else:
-                            help_blocks.append(
-                                f"---\n## {path}\n\n{content[:max_chars]}..."
-                            )
+                            help_blocks.append(f"---\n## {path}\n\n{content[:max_chars]}...")
                     else:
                         if len(content) > max_chars:
                             content = content[:max_chars] + "\n\n..."
@@ -895,7 +911,8 @@ def run_mcp(
         if best_priority == 3:
             lines = [
                 f"No exact match for «{name_clean}».",
-                "Use search_1c_help_keyword with exact API name (e.g. Формат for function, Тип.Метод for method).",
+                f'Try: search_1c_help_keyword(query="{name_clean}"), then get_1c_help_topic(topic_path) for full content.',
+                "For methods use full Тип.Метод (e.g. HTTPСоединение.Получить). Synonym? e.g. ПакетПолучения → ВыполнитьПакет.",
                 "",
                 "Keyword suggestions (from index):",
             ]

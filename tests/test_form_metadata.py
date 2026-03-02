@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from onec_help.form_metadata import get_form_metadata, parse_form_xml
+from onec_help.form_metadata import _text, get_form_metadata, parse_form_xml
 
 
 def test_get_form_metadata_minimal(tmp_path: Path) -> None:
@@ -37,6 +37,29 @@ def test_get_form_metadata_minimal(tmp_path: Path) -> None:
 def test_get_form_metadata_not_found() -> None:
     """Returns error when file does not exist."""
     data = get_form_metadata(Path("/nonexistent/Form.xml"))
+    assert "error" in data
+    assert data["attributes"] == []
+    assert data["commands"] == []
+
+
+def test_text_none_returns_empty() -> None:
+    """_text(None) returns empty string."""
+    assert _text(None) == ""
+
+
+def test_parse_form_xml_invalid_returns_error() -> None:
+    """Invalid XML returns error dict with empty attributes/commands."""
+    data = parse_form_xml("<invalid")
+    assert "error" in data
+    assert data["attributes"] == []
+    assert data["commands"] == []
+
+
+def test_get_form_metadata_unicode_error(tmp_path: Path) -> None:
+    """File with invalid UTF-8 returns error dict."""
+    form = tmp_path / "Form.xml"
+    form.write_bytes(b"\xff\xfe\xfd")
+    data = get_form_metadata(form)
     assert "error" in data
     assert data["attributes"] == []
     assert data["commands"] == []

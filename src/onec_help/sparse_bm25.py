@@ -88,7 +88,6 @@ def build_bm25_vectors(
         return [], {}, {}
 
     vocab, doc_tokens, doc_lens, avgdl = _bm25_build_vocab_and_stats(corpus_texts)
-    N = len(corpus_texts)
     df: dict[str, int] = Counter()
     for toks in doc_tokens:
         for t in set(toks):
