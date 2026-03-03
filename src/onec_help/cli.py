@@ -777,6 +777,62 @@ def cmd_unpack_sync(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_read_hbk_container(args: argparse.Namespace) -> int:
+    """Read HBK binary container (source: alkoleft/hbk-viewer); list entities or extract to dir."""
+    from pathlib import Path
+
+    from .hbk_container import (
+        extract_filestorage_bytes,
+        extract_packblock_toc_bytes,
+        read_container_from_path,
+    )
+
+    hbk_path = Path(getattr(args, "file", None) or "").resolve()
+    if not hbk_path.is_file():
+        print(f"Error: not a file: {hbk_path}", file=sys.stderr)
+        return 1
+    try:
+        entities = read_container_from_path(hbk_path)
+    except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    except ValueError as e:
+        print(f"Error: invalid HBK container: {e}", file=sys.stderr)
+        return 1
+
+    out_dir = getattr(args, "out_dir", None)
+    toc_json = getattr(args, "toc_json", None)
+    if not out_dir and not toc_json:
+        print("Entities:", ", ".join(sorted(entities.keys())))
+        for name, body in sorted(entities.items()):
+            print(f"  {name}: {len(body)} bytes")
+        return 0
+
+    if toc_json:
+        toc_bytes = extract_packblock_toc_bytes(entities)
+        if toc_bytes:
+            Path(toc_json).parent.mkdir(parents=True, exist_ok=True)
+            Path(toc_json).write_bytes(toc_bytes)
+            print(f"TOC written to {toc_json} ({len(toc_bytes)} bytes)")
+        else:
+            print("No PackBlock TOC in container", file=sys.stderr)
+
+    if out_dir:
+        out_path = Path(out_dir).resolve()
+        out_path.mkdir(parents=True, exist_ok=True)
+        fs = extract_filestorage_bytes(entities)
+        if fs:
+            import io
+            import zipfile
+
+            z = zipfile.ZipFile(io.BytesIO(fs), "r")
+            z.extractall(out_path)
+            print(f"FileStorage extracted to {out_path}")
+        else:
+            print("No FileStorage in container", file=sys.stderr)
+    return 0
+
+
 def cmd_ingest(args: argparse.Namespace) -> int:
     """Ingest .hbk from multiple read-only source dirs: unpack to temp, build docs, index, cleanup."""
     from pathlib import Path
@@ -1592,6 +1648,20 @@ def main() -> int:
     p_unpack_sync.add_argument("--workers", "-w", type=int, default=4, help="Parallel workers")
     p_unpack_sync.add_argument("--quiet", "-q", action="store_true", help="Less output")
     p_unpack_sync.set_defaults(func=cmd_unpack_sync)
+
+    # read-hbk-container — read HBK binary container (source: alkoleft/hbk-viewer)
+    p_read_hbk = sub.add_parser(
+        "read-hbk-container",
+        help="Read HBK binary container; list entities or extract FileStorage/TOC",
+    )
+    p_read_hbk.add_argument("file", type=str, help="Path to .hbk file")
+    p_read_hbk.add_argument(
+        "--out-dir", "-o", type=str, default=None, help="Extract FileStorage ZIP to this directory"
+    )
+    p_read_hbk.add_argument(
+        "--toc-json", type=str, default=None, help="Write PackBlock TOC (UTF-8) to this file"
+    )
+    p_read_hbk.set_defaults(func=cmd_read_hbk_container)
 
     # build-docs
     p_docs = sub.add_parser("build-docs", help="Generate Markdown from HTML")

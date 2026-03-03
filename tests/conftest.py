@@ -14,6 +14,7 @@ def _ensure_onec_help_submodules():
 
     for _name in (
         "embedding",
+        "hbk_container",
         "indexer",
         "memory",
         "parse_fastcode",

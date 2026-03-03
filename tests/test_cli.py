@@ -21,6 +21,7 @@ from onec_help.cli import (
     cmd_parse_helpf,
     cmd_qdrant_backup,
     cmd_qdrant_restore,
+    cmd_read_hbk_container,
     cmd_unpack,
     cmd_unpack_dir,
     cmd_unpack_sync,
@@ -46,6 +47,28 @@ def test_cmd_build_docs_error(mock_build_docs, tmp_path: Path) -> None:
     tmp_path.mkdir(exist_ok=True)
     args = make_args(project_dir=str(tmp_path), output=str(tmp_path / "out_md"))
     assert cmd_build_docs(args) == 1
+
+
+def test_cmd_read_hbk_container_not_file() -> None:
+    """read-hbk-container returns 1 when path is not a file."""
+    args = make_args(file="/nonexistent.hbk", out_dir=None, toc_json=None)
+    assert cmd_read_hbk_container(args) == 1
+
+
+def test_cmd_read_hbk_container_empty_toc(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """read-hbk-container on minimal container (empty TOC) lists entities."""
+    import struct
+
+    header = struct.pack("<iiii", 0, 256, 0, 0)
+    toc_header = b"\x0d\x0a00000000 00000000 FFFFFFFF \x0d\x0a"
+    hbk = tmp_path / "empty.hbk"
+    hbk.write_bytes(header + toc_header)
+    args = make_args(file=str(hbk), out_dir=None, toc_json=None)
+    assert cmd_read_hbk_container(args) == 0
+    out = capsys.readouterr().out
+    assert "Entities:" in out
 
 
 def test_cmd_unpack_fail() -> None:
