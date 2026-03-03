@@ -838,7 +838,12 @@ def search_index(
     if QdrantClient is None:
         return []
     client = QdrantClient(host=host, port=port, check_compatibility=False)
-    vector = embedding.get_embedding(query)
+    coll_dim = get_collection_vector_size(
+        collection=collection, qdrant_host=host, qdrant_port=port
+    )
+    vector = embedding.get_embedding(
+        query, target_dimension=coll_dim if coll_dim is not None else None
+    )
 
     must = []
     if version and Filter and FieldCondition and MatchValue:

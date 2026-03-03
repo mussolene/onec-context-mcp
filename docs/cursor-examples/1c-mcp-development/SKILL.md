@@ -22,6 +22,8 @@ description: Ведёт агента по разработке 1С (BSL) с MCP 
 | Примеры, API | 1c-help | `get_1c_code_answer` | `code_only=True`, если нужен только код |
 | Точный поиск по имени API | 1c-help | `search_1c_help_keyword` | Передавать полное имя, напр. `Тип.Метод` |
 | Детали топика | 1c-help | `get_1c_help_topic` | Параметр `topic_path`, не `path` |
+| Описание/сигнатура API | 1c-help | `get_1c_function_info` | При нескольких совпадениях — `choose_index` |
+| Метаданные формы | 1c-help | `get_form_metadata` | Передать `xml_content` из Form.xml |
 | Сохранить полезный код | 1c-help | `save_1c_snippet` | После рабочего примера |
 | Диагностика файла | lsp-bsl-bridge | `document_diagnostics` | URI: `file:///projects/<путь>/Module.bsl` |
 | Быстрые правки | lsp-bsl-bridge | `code_actions` | Ограниченная поддержка; часто — ручные правки |

@@ -10,7 +10,6 @@ from onec_help.indexer import (
     _collection_info_int,
     _extract_keywords,
     _infer_entity_type,
-    _is_qdrant_500,
     _path_to_point_id,
     _upsert_batch_with_retry,
     _version_sort_key,

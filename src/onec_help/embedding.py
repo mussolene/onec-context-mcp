@@ -607,16 +607,24 @@ def _get_embedding_api_batch_parallel(
     return results
 
 
-def get_embedding(text: str) -> list[float]:
-    """Produce embedding for one text; backend from env: local, openai_api, deterministic, or none (placeholder)."""
+def get_embedding(text: str, target_dimension: int | None = None) -> list[float]:
+    """Produce embedding for one text; backend from env: local, openai_api, deterministic, or none (placeholder).
+    If target_dimension is set and the backend returns a vector of different length, a placeholder vector
+    of target_dimension is returned so the caller (e.g. search) can use the collection's vector size."""
     text = sanitize_text_for_embedding(text)
+    dim_fallback = target_dimension if target_dimension is not None else None
     if _EMBEDDING_BACKEND in ("none", "null", "off"):
-        return _get_embedding_placeholder(text, get_embedding_dimension())
+        dim = dim_fallback or get_embedding_dimension()
+        return _get_embedding_placeholder(text, dim)
     if _EMBEDDING_BACKEND == "deterministic":
-        return _get_embedding_deterministic(text)
-    if _EMBEDDING_BACKEND == "openai_api":
-        return _get_embedding_api_single(text)
-    return _get_embedding_local(text)
+        vec = _get_embedding_deterministic(text)
+    elif _EMBEDDING_BACKEND == "openai_api":
+        vec = _get_embedding_api_single(text)
+    else:
+        vec = _get_embedding_local(text)
+    if target_dimension is not None and len(vec) != target_dimension:
+        return _get_embedding_placeholder(text, target_dimension)
+    return vec
 
 
 def get_embedding_batch(

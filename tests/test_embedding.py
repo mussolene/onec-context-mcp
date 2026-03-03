@@ -1,5 +1,6 @@
 """Tests for embedding module."""
 
+import json
 from unittest.mock import MagicMock, patch
 
 from onec_help import embedding as embedding_mod
@@ -124,6 +125,32 @@ def test_get_embedding_openai_api_mock() -> None:
             mock_open.return_value.__exit__.return_value = False
             vec = embedding_mod.get_embedding("hello")
         assert vec == fake_embedding
+    importlib.reload(embedding_mod)
+
+
+def test_get_embedding_target_dimension_fallback() -> None:
+    """When target_dimension is set and backend returns different size, placeholder of target_dimension is used."""
+    import importlib
+
+    with patch.dict(
+        "os.environ",
+        {"EMBEDDING_BACKEND": "openai_api", "EMBEDDING_API_URL": "http://test"},
+        clear=False,
+    ):
+        importlib.reload(embedding_mod)
+        # Mock API returns 768-dim vector; target_dimension=384 -> fallback to placeholder(384)
+        vec_768 = [0.1] * 768
+        with patch("urllib.request.urlopen") as mock_open:
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = json.dumps(
+                {"data": [{"embedding": vec_768}]}
+            ).encode()
+            mock_resp.getheader.return_value = None
+            mock_open.return_value.__enter__.return_value = mock_resp
+            mock_open.return_value.__exit__.return_value = False
+            vec = embedding_mod.get_embedding("query", target_dimension=384)
+        assert len(vec) == 384
+        assert all(isinstance(x, float) for x in vec)
     importlib.reload(embedding_mod)
 
 
