@@ -26,12 +26,14 @@ services:
     ports:
       - "${MCP_PORT:-8050}:8050"
     environment:
-      MCP_MODE: ${MCP_MODE:-full}
+      # api = только MCP (без фона). full = + ingest в фоне (тяжело).
+      MCP_MODE: ${MCP_MODE:-api}
       QDRANT_HOST: ${QDRANT_HOST:-qdrant}
       QDRANT_PORT: ${QDRANT_PORT:-6333}
       QDRANT_COLLECTION: ${QDRANT_COLLECTION:-onec_help}
       QDRANT_STORAGE_PATH: /qdrant_storage
-      MCP_TRANSPORT: ${MCP_TRANSPORT:-streamable-http}
+      # По умолчанию SSE — лучше совместим с Cursor (streamable-http даёт ECONNRESET / tools не видны).
+      MCP_TRANSPORT: ${MCP_TRANSPORT:-sse}
       MCP_HOST: ${MCP_HOST:-0.0.0.0}
       MCP_PORT: "8050"
       MCP_PATH: ${MCP_PATH:-/mcp}
@@ -68,13 +70,14 @@ services:
       - ./data/standards:/data/standards
       - ./data/backup:/data/backup
       - ./data/bm25_vocab:/app/data/bm25_vocab
-    command: ["python", "-m", "onec_help", "mcp", "/data", "--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8050", "--path", "/mcp"]
+    # Транспорт из MCP_TRANSPORT (streamable-http или sse). Если в Cursor не отображаются tools / ECONNRESET — попробуйте MCP_TRANSPORT=sse.
+    command: ["python", "-m", "onec_help.mcp_server", "/data", "--host", "0.0.0.0", "--port", "8050", "--path", "/mcp"]
     depends_on:
       qdrant:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import socket; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1', 8050)); s.close()\" || exit 1"]
-      interval: 30s
+      interval: 15s
       timeout: 5s
-      retries: 3
-      start_period: 10s
+      retries: 5
+      start_period: 45s

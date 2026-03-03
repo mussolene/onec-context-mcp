@@ -246,6 +246,20 @@ docker run --rm -d -p 8050:8050 \
 
 **Если Cursor пишет «connect ECONNREFUSED 127.0.0.1:8050»:** проверьте `docker compose up -d`, `docker compose ps`, `docker compose logs mcp`.
 
+**Если в логах MCP «fetch failed» или «read ECONNRESET»:** соединение обрывается со стороны сервера. (1) В логах контейнера ищите причину: `docker compose logs mcp --tail 100` — при падении сервера по исключению появится строка «MCP server exited» и traceback. (2) Контейнер должен слушать на `0.0.0.0:8050`, путь `/mcp` задаётся в command (в base compose явно передан `--path /mcp`). (3) URL в `.cursor/mcp.json`: `http://localhost:8050/mcp` без завершающего слэша. (4) Проверка без Cursor: после `docker compose up -d` выполнить `curl -v http://localhost:8050/mcp` — ответ не должен обрываться (ECONNRESET). Если обрывается — пересобрать образ: `docker compose build mcp && docker compose up -d mcp` и снова посмотреть логи.
+
+**MCP контейнер долго стартует или не поднимается:** по умолчанию в base compose задано `MCP_MODE=api` — в контейнере не запускается фоновый ingest/cron/watchdog, только процесс MCP (быстрый старт). Если нужен один контейнер «всё в одном» с ingest по расписанию — задайте `MCP_MODE=full` в `.env` (тогда при старте в фоне запустится `python -m onec_help ingest`, это тяжело и может замедлить поднятие MCP).
+
+**Сервер запущен, но Cursor не показывает tools или «No server info found»:** в base compose по умолчанию задано `MCP_TRANSPORT=sse` (лучше совместим с Cursor). Убедитесь: (1) контейнер перезапущен после смены транспорта: `docker compose -f docker-compose.base.yml up -d mcp`; (2) в Cursor URL именно `http://localhost:8050/mcp`; (3) **полностью перезапустите Cursor** (Quit и снова открыть), не только перезагрузка окна; (4) в настройках MCP дождитесь появления сервера и списка tools (иногда 5–10 с). Если по-прежнему пусто — в логах Cursor (Output → MCP) смотрите ошибки; при `ECONNRESET` проверьте, что порт 8050 не занят и файрвол не режет соединение.
+
+**MCP подключается, но не работает или отваливается:**
+1. Контейнер mcp запущен: `docker compose ps` — сервис `mcp` (или `ingest-worker` в split) в состоянии Up.
+2. Порт 8050 слушается: `curl -s -o /dev/null -w "%{http_code}" http://localhost:8050/` (ожидается ответ от сервера, не 000).
+3. Конфиг Cursor: в `.cursor/mcp.json` для 1c-help указано `"url": "http://localhost:8050/mcp"` (без опечаток; порт совпадает с MCP_PORT).
+4. После смены конфига или порта — полностью перезапустить Cursor (не только перезагрузка окна).
+5. Индекс есть: вызвать инструмент `get_1c_help_index_status` — если «Index does not exist», выполнить `make ingest`.
+6. Логи: `docker compose logs mcp --tail 100` — смотреть на ошибки Python/Qdrant при запросах.
+
 ## Тесты и линт
 
 ```bash

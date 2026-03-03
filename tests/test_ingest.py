@@ -9,6 +9,7 @@ from onec_help.ingest import (
     _collect_unpacked_tasks,
     _file_sha256,
     _hbk_label_from_stem,
+    _ingest_cache_key,
     _language_from_filename,
     _load_ingest_cache,
     _persist_ingest_status_sqlite,
@@ -141,11 +142,12 @@ def test_load_save_ingest_cache(tmp_path: Path) -> None:
 
 def test_run_ingest_skips_cached(tmp_path: Path) -> None:
     """When cache has same-hash entry with indexed=true, task is skipped (no unpack/index)."""
-    (tmp_path / "v").mkdir()
-    (tmp_path / "v" / "1cv8_ru.hbk").write_bytes(b"x")
+    hbk_path = tmp_path / "v" / "1cv8_ru.hbk"
+    hbk_path.parent.mkdir(parents=True, exist_ok=True)
+    hbk_path.write_bytes(b"x")
     cache_file = tmp_path / "cache.db"
-    key = "v/ru/1cv8_ru.hbk"
-    h = _file_sha256(tmp_path / "v" / "1cv8_ru.hbk")
+    key = _ingest_cache_key("v", "ru", hbk_path)
+    h = _file_sha256(hbk_path)
     with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_file)}, clear=False):
         _update_ingest_cache_entry(key, h, 5)
         with patch("onec_help.indexer.build_index") as mock_idx:

@@ -949,6 +949,54 @@ def run_mcp(
 
     if transport in ("sse", "http", "streamable-http"):
         path_val = (path or "/mcp").rstrip("/") or "/mcp"
-        mcp.run(transport=transport, host=host, port=port, path=path_val)
+        port_int = int(port) if port is not None else 8050
+        _log = logging.getLogger(__name__)
+        _log.info("MCP listening on %s:%s%s (%s)", host, port_int, path_val, transport)
+        try:
+            mcp.run(transport=transport, host=host, port=port_int, path=path_val)
+        except Exception as e:
+            _log.exception("MCP server exited: %s", safe_error_message(e))
+            raise
     else:
         mcp.run(transport="stdio")
+
+
+def _main() -> None:
+    """Fast entry point: run MCP without loading the full CLI (python -m onec_help.mcp_server)."""
+    import argparse
+    import sys
+
+    p = argparse.ArgumentParser(
+        description="Run 1C Help MCP server (fast startup, no CLI). Use same args as 'onec_help mcp'."
+    )
+    p.add_argument(
+        "directory",
+        nargs="?",
+        default="data",
+        help="Help data directory (default: data or HELP_PATH)",
+    )
+    p.add_argument(
+        "--transport",
+        default=None,
+        help="MCP transport: stdio, sse, http, streamable-http (default: env MCP_TRANSPORT or streamable-http)",
+    )
+    p.add_argument("--host", default=None, help="Host for HTTP (default: env MCP_HOST or 0.0.0.0)")
+    p.add_argument("--port", type=int, default=None, help="Port (default: env MCP_PORT or 8050)")
+    p.add_argument("--path", default=None, help="URL path (default: env MCP_PATH or /mcp)")
+    args = p.parse_args()
+    transport = (args.transport or os.environ.get("MCP_TRANSPORT", "streamable-http")).strip()
+    host = (args.host or os.environ.get("MCP_HOST", "0.0.0.0")).strip()
+    port = args.port if args.port is not None else int(os.environ.get("MCP_PORT", "8050"))
+    path = (args.path or os.environ.get("MCP_PATH", "/mcp")).strip()
+    run_mcp(
+        help_path=Path(args.directory).resolve(),
+        transport=transport,
+        host=host,
+        port=port,
+        path=path,
+    )
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    _main()

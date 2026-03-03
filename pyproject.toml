@@ -18,7 +18,7 @@ dependencies = [
 
 [project.optional-dependencies]
 mcp = [
-    "fastmcp>=2.0",
+    "fastmcp>=2.0,<4",
     "defusedxml>=0.7",
 ]
 embed = [

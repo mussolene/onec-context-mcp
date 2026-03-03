@@ -61,6 +61,12 @@ def _file_sha256(path: Path) -> str | None:
         return None
 
 
+def _ingest_cache_key(version: str, lang: str, path: Path) -> str:
+    """Unique cache key: version/lang/filename + short path hash so same name from different dirs don't collide."""
+    path_id = hashlib.sha256(str(path.resolve()).encode()).hexdigest()[:16]
+    return f"{version}/{lang}/{path.name}|{path_id}"
+
+
 def _ingest_cache_path() -> str:
     path = os.environ.get("INGEST_CACHE_FILE", DEFAULT_INGEST_CACHE_FILE)
     parent = os.path.dirname(path)
@@ -743,7 +749,7 @@ def run_ingest(
     task_hashes: dict[tuple[str, str, str], str] = {}
     skipped_files: list[dict[str, Any]] = []
     for path, version, lang in all_tasks:
-        key = f"{version}/{lang}/{path.name}"
+        key = _ingest_cache_key(version, lang, path)
         h = None if skip_cache else _file_sha256(path)
         if h is None:
             to_process.append((path, version, lang))
@@ -991,7 +997,7 @@ def run_ingest(
                             progress_callback=_on_batch,
                         )
                         total_indexed += n
-                        key = f"{version}/{language}/{path_hbk.name}"
+                        key = _ingest_cache_key(version, language, path_hbk)
                         h = task_hashes.get((version, language, path_hbk.name)) or _file_sha256(
                             path_hbk
                         )
