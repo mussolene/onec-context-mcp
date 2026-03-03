@@ -13,7 +13,7 @@ docker run -d -p 6333:6333 -v qdrant_data:/qdrant/storage qdrant/qdrant:v1.12.0
 # Ingest из каталога с версиями 1С
 HELP_SOURCE_BASE=/opt/1cv8 QDRANT_HOST=localhost python -m onec_help ingest
 
-# MCP (топики из Qdrant; каталог может быть пустым) и веб
+# MCP (топики из Qdrant; каталог может быть пустым)
 python -m onec_help mcp . --transport streamable-http --host 0.0.0.0 --port 8050
 ```
 
@@ -28,9 +28,7 @@ python -m onec_help mcp . --transport streamable-http --host 0.0.0.0 --port 8050
 4. Запустить Qdrant (Docker): `docker run -d -p 6333:6333 -v qdrant_data:/qdrant/storage qdrant/qdrant:v1.12.0`
 5. Построить индекс:  
    `QDRANT_HOST=localhost QDRANT_PORT=6333 python -m onec_help build-index ./docs_md`
-6. Веб-просмотр:  
-   `python -m onec_help serve`  (данные из HELP_SERVE_DATA_DIR/HELP_PATH/data/)
-7. MCP локально (stdio или HTTP):  
+6. MCP локально (stdio или HTTP):  
    `python -m onec_help mcp ./unpacked` (stdio) или  
    `python -m onec_help mcp ./unpacked --transport streamable-http --host 0.0.0.0 --port 8050`
 

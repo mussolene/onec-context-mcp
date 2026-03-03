@@ -17,9 +17,8 @@
 
 ## Безопасность
 
-- **Веб (serve)** и **MCP по HTTP** не имеют встроенной аутентификации. Предназначены **только** для доверенной среды (localhost, VPN, внутренняя сеть). При экспозиции в интернет — обязателен обратный прокси с аутентификацией.
-- Не выставляйте порты 8000 (Flask/serve) и 8050 (MCP) в интернет без обратного прокси с аутентификацией (nginx + Basic Auth, API key и т.п.).
-- **HELP_SERVE_ALLOWED_DIRS** — обязательна для serve: без неё форма просмотра справки не принимает пути (защита от чтения произвольных каталогов). Задайте список разрешённых базовых каталогов через запятую.
+- **MCP по HTTP** не имеет встроенной аутентификации. Предназначен **только** для доверенной среды (localhost, VPN, внутренняя сеть). При экспозиции в интернет — обязателен обратный прокси с аутентификацией.
+- Не выставляйте порт 8050 (MCP) в интернет без обратного прокси с аутентификацией (nginx + Basic Auth, API key и т.п.).
 - Секреты и пароли задавайте только через переменные окружения, не храните в коде или в репозитории.
 - CLI (аргументы `--sources-file`, пути к каталогам) предназначен для доверенного запуска; не передавайте недоверенный ввод в аргументы.
 
@@ -63,10 +62,9 @@ pip install -e ".[dev]"
 | **`ingest`** | Распаковать .hbk из мультикаталогов во временную папку, построить Markdown, проиндексировать в Qdrant, удалить временные данные. При **INGEST_USE_UNPACKED=1** — unpack-sync + ingest-from-unpacked вместо temp. По хэшу .hbk кэшируется факт индексации — при перезапуске неизменённые файлы пропускаются. Опции `--no-cache`, `--embedding-batch-size`, `--embedding-workers` |
 | **`index-status`** | Статус индекса: число тем, число эмбеддингов, размер БД на диске (если задан `QDRANT_STORAGE_PATH`), версии и языки; при запущенном ingest — скорость эмбеддингов, прогресс по папкам, ETA |
 | **`watchdog`** | Мониторинг новых .hbk в HELP_SOURCE_BASE, инкрементальный ingest при появлении; обработка pending embeddings памяти каждые N минут |
-| **`serve [directory]`** | Веб-просмотр справки (Flask). Каталог из HELP_SERVE_DATA_DIR, HELP_PATH или data/; аргумент — опциональное переопределение |
 | **`mcp <directory>`** | MCP-сервер (stdio/HTTP; нужен fastmcp) |
 
-Переменные окружения (подробнее — см. таблицу ниже): `QDRANT_HOST`, `QDRANT_PORT`, `QDRANT_COLLECTION`, `HELP_PATH`, `HELP_SOURCE_BASE`, `HELP_SOURCES_DIR`, `HELP_SOURCE_DIRS`, `HELP_LANGUAGES`, `HELP_INGEST_TEMP`, `INGEST_FAILED_LOG`, `MCP_TRANSPORT`, `MCP_HOST`, `MCP_PORT`, `MCP_PATH`, `PORT`.
+Переменные окружения (подробнее — см. таблицу ниже): `QDRANT_HOST`, `QDRANT_PORT`, `QDRANT_COLLECTION`, `HELP_PATH`, `HELP_SOURCE_BASE`, `HELP_SOURCES_DIR`, `HELP_SOURCE_DIRS`, `HELP_LANGUAGES`, `HELP_INGEST_TEMP`, `INGEST_FAILED_LOG`, `MCP_TRANSPORT`, `MCP_HOST`, `MCP_PORT`, `MCP_PATH`.
 
 | Переменная | Описание | Пример / по умолчанию |
 |------------|----------|------------------------|
@@ -74,13 +72,12 @@ pip install -e ".[dev]"
 | `QDRANT_PORT` | Порт Qdrant | `6333` |
 | `QDRANT_COLLECTION` | Имя коллекции в Qdrant | `onec_help` |
 | `QDRANT_STORAGE_PATH` | Путь к каталогу хранилища Qdrant (для `index-status`: вывод размера БД на диске) | — |
-| `HELP_PATH` | Базовый каталог справки (для MCP/serve) | `/data` |
+| `HELP_PATH` | Базовый каталог справки (для MCP) | `/data` |
 | `HELP_SOURCE_BASE` | Корень каталогов с версиями 1С (ingest) | — |
 | `HELP_SOURCES_DIR` | То же, альтернативное имя | — |
 | `HELP_SOURCE_DIRS` | Список путей через запятую (ingest) | — |
 | `HELP_LANGUAGES` | Языки справки (ingest) | `ru` |
 | `HELP_INGEST_TEMP` | Временный каталог для ingest (если не задан — `$TMPDIR/help_ingest` или `tempfile.gettempdir()`) | — |
-| `HELP_SERVE_HOST` | Хост для serve (127.0.0.1 — только localhost; 0.0.0.0 — для Docker) | `127.0.0.1` |
 | `INGEST_CACHE_FILE` | Путь к SQLite-кэшу: хэш .hbk, статус ingest. Ingest и index-status читают/пишут в одну БД. В Docker — `/app/var/ingest_cache/ingest_cache.db` (volume `ingest_cache`) | `data/ingest_cache/ingest_cache.db` |
 | `INGEST_SKIP_CACHE` | `1`/`true` — полная переиндексация без кэша (или `ingest --no-cache`) | — |
 | `INGEST_USE_UNPACKED` | `1` — ingest использует unpack-sync + ingest-from-unpacked вместо temp | `0` |
@@ -93,10 +90,6 @@ pip install -e ".[dev]"
 | `MCP_PATH` | URL-путь эндпоинта MCP | `/mcp` |
 | `MCP_SNIPPET_MAX_CHARS` | Макс. символов сниппета в результатах поиска | `1200` |
 | `MCP_MAX_TOPIC_CHARS` | Макс. символов топика в get_1c_code_answer/search_with_content | `4000` |
-| `PORT` | Порт веб-сервера (serve) | `5000` |
-| `SERVE_PORT` | Порт serve в Docker (split, профиль serve) | `8000` |
-| `HELP_SERVE_DATA_DIR` | Каталог со справкой для serve (по умолчанию HELP_PATH или data/) | — |
-| `HELP_SERVE_ALLOWED_DIRS` | Разрешённые каталоги (через запятую); обязателен при нестандартном пути | — |
 | `EMBEDDING_BACKEND` | Эмбеддинги: `local` (sentence-transformers), `openai_api` (внешний API), `deterministic` (детерминированные векторы 384 dim без модели — только БД) или `none` (плейсхолдер, только поиск по ключевым словам) | `openai_api` |
 | `EMBEDDING_MODEL` | Имя модели. Для openai_api (LM Studio): если такой модели нет на сервере, берётся первая из списка или популярная (text-text-embedding-mxbai-embed-large-v1, nomic-embed-text, all-MiniLM-L6-v2); для local — all-MiniLM-L6-v2 | `text-text-embedding-mxbai-embed-large-v1` (openai_api) |
 | `EMBEDDING_API_URL` | Для openai_api: базовый URL (по умолчанию LM Studio: `http://localhost:1234/v1` локально, в контейнере — `http://host.docker.internal:1234/v1`). При недоступности/ошибках используются плейсхолдер-векторы и семантический поиск ограничен | LM Studio: 1234 |
@@ -136,7 +129,6 @@ pip install -e ".[mcp]"
 
 HELP_SOURCE_BASE=/opt/1cv8 python -m onec_help ingest
 python -m onec_help mcp . --transport streamable-http --host 0.0.0.0 --port 8050
-python -m onec_help serve   # данные из HELP_SERVE_DATA_DIR/HELP_PATH/data/
 ```
 
 Подробнее: [docs/run.md](docs/run.md).
@@ -152,7 +144,6 @@ python -m onec_help serve   # данные из HELP_SERVE_DATA_DIR/HELP_PATH/da
 | Действие | Команда |
 |----------|---------|
 | Запуск (split) | `docker compose up -d` |
-| Запуск + веб (serve) | `docker compose --profile serve up -d` |
 | Запуск full (один контейнер) | `docker compose -f docker-compose.full.yml up -d` |
 | Индексация (split) | `docker compose exec ingest-worker python -m onec_help ingest` |
 | Индексация (full) | `docker compose -f docker-compose.full.yml exec mcp python -m onec_help ingest` |
@@ -169,7 +160,6 @@ python -m onec_help serve   # данные из HELP_SERVE_DATA_DIR/HELP_PATH/da
 |---------|----------|
 | `make up` | Запуск split (qdrant + mcp + ingest-worker) |
 | `make up-full` | Запуск full (один контейнер mcp) |
-| `make up-serve` | Split + веб-просмотр (порт 8000) |
 | `make ingest` | Индексация .hbk (split) |
 | `make ingest-full` | Индексация (full) |
 | `make index-status` | Статус индекса |
@@ -190,9 +180,8 @@ python -m onec_help serve   # данные из HELP_SERVE_DATA_DIR/HELP_PATH/da
 
 - **Split (по умолчанию):** mcp (API) + ingest-worker (batch). Cron в ingest-worker.
 - **Full:** один контейнер mcp; cron раз в сутки. `make up-full`, `make ingest-full`.
-- **Serve:** split + веб (Flask:8000). Требуется `./data/unpacked`.
 
-**Веб-справка:** дерево TOC (categories), breadcrumb, «См. также» (outgoing_links), поиск по Qdrant, сворачиваемые секции, подсветка кода (highlight.js). API `/content/<path>?meta=1` возвращает breadcrumb, outgoing_links.
+Просмотр справки в браузере может быть реализован в будущем отдельным контейнером (по аналогии с BSL LS).
 
 ---
 

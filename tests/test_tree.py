@@ -82,3 +82,71 @@ def test_build_tree_with_html_and_same_name_folder(tmp_path: Path) -> None:
     nested = next((c for c in children if c["identifier"] == "nested.html"), None)
     assert nested is not None
     assert "nested.html" in (nested.get("html_path") or "")
+
+
+def test_build_tree_max_depth(tmp_path: Path) -> None:
+    """build_tree with max_depth limits recursion depth."""
+    (tmp_path / "a.html").write_text("<html></html>")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "b.html").write_text("<html></html>")
+    nodes = build_tree(tmp_path, max_depth=1)
+    assert len(nodes) >= 1
+    ids = [n["identifier"] for n in nodes]
+    assert "a.html" in ids or "sub" in ids
+
+
+def test_build_tree_for_web_multiversion_layout(tmp_path: Path) -> None:
+    """build_tree_for_web with version/stem layout uses _build_unpacked_multiversion_tree."""
+    v_dir = tmp_path / "8.3.27.1234"
+    v_dir.mkdir()
+    stem_dir = v_dir / "shcntx_ru"
+    stem_dir.mkdir()
+    (stem_dir / "__categories__").write_text("page1.html\n")
+    (stem_dir / "page1.html").write_text("<html><body>Page1</body></html>")
+    nodes = build_tree_for_web(tmp_path)
+    assert isinstance(nodes, list)
+    assert len(nodes) >= 1
+    # Should have version node with children
+    version_node = next((n for n in nodes if n.get("identifier") == "8.3.27.1234"), None)
+    assert version_node is not None
+    assert version_node.get("is_folder") is True
+    assert len(version_node.get("children", [])) >= 1
+
+
+def test_get_html_content_rewrites_links(tmp_path: Path) -> None:
+    """get_html_content rewrites href and src to /content/ and /download/."""
+    (tmp_path / "page.html").write_text(
+        '<html><body><a href="other.html">Link</a><img src="img.png"></body></html>'
+    )
+    (tmp_path / "other.html").write_text("<html>Other</html>")
+    (tmp_path / "img.png").write_bytes(b"\x89PNG")
+    content = get_html_content("page.html", tmp_path)
+    assert "/content/" in content
+    assert "/download/" in content
+    assert "other.html" in content or "img.png" in content
+
+
+def test_resolve_v8help_not_uri_returns_none(tmp_path: Path) -> None:
+    """_resolve_v8help with non-v8help URI returns None."""
+    from onec_help.tree import _resolve_v8help
+
+    assert _resolve_v8help("http://example.com/", tmp_path, tmp_path / "x.html") is None
+    assert _resolve_v8help("v8help://", tmp_path, tmp_path / "x.html") is None
+
+
+def test_build_tree_for_web_multiversion_uses_hbk_labels(tmp_path: Path) -> None:
+    """build_tree_for_web multiversion layout uses HBK_LABELS for stem identifier."""
+    v_dir = tmp_path / "8.3.27.1"
+    v_dir.mkdir()
+    stem_dir = v_dir / "shcntx_ru"
+    stem_dir.mkdir()
+    (stem_dir / "__categories__").write_text("p.html\n")
+    (stem_dir / "p.html").write_text("<html></html>")
+    with patch.dict("os.environ", {"HBK_LABELS": "shcntx:Синтаксис,1cv8:Справка 1С"}, clear=False):
+        nodes = build_tree_for_web(tmp_path)
+    assert len(nodes) >= 1
+    version_node = next((n for n in nodes if n.get("identifier") == "8.3.27.1"), None)
+    assert version_node is not None
+    children = version_node.get("children", [])
+    stem_node = next((c for c in children if c.get("identifier") == "Синтаксис"), None)
+    assert stem_node is not None

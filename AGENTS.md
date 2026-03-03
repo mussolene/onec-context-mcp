@@ -8,7 +8,7 @@
 
 ## Команды и сценарии
 
-- **Локально:** `python -m onec_help unpack/unpack-sync/ingest/ingest-from-unpacked/build-docs/build-index/load-snippets/load-standards/parse-fastcode/parse-helpf/watchdog/serve/mcp <args>`
+- **Локально:** `python -m onec_help unpack/unpack-sync/ingest/ingest-from-unpacked/build-docs/build-index/load-snippets/load-standards/parse-fastcode/parse-helpf/watchdog/mcp <args>`
 - **init** — стартовая загрузка: ingest (справка) + load-snippets + load-standards. Использует env (HELP_SOURCE_BASE, SNIPPETS_DIR, STANDARDS_REPOS). Не стирает данные.
 - **reinit** — выполняет init. Если индекс уже существует с данными — без стирания (init). **reinit --force** — стирает коллекции и cache, затем init.
 - **Docker:** `docker-compose up` (сервисы `qdrant` + `mcp`). В mcp смонтирован `/opt/1cv8`, cron раз в сутки в 3:00 запускает ingest; при `WATCHDOG_ENABLED=1` — watchdog в фоне. BSL LS — `make bsl-start` (отдельный compose, volume `.:/projects`).
@@ -37,8 +37,8 @@
 
 ## Структура кода
 
-- `src/onec_help/`: пакет (unpack, categories, html2md, tree, web, indexer, memory, parse_fastcode, parse_helpf, snippet_classifier, standards_loader, watchdog, mcp_server, cli).
-- `unpack` — 7z, zipfile, ZIP from offset, unzip, scan local headers (schemui/mapui FileStorage); `unpack-diag` — диагностика при ошибке; `categories` — парсинг `__categories__` и дерево TOC; `html2md` — HTML → Markdown; `tree` — дерево для веба; `web` — Flask; `indexer` — Qdrant; `memory` — тройная память (short/medium/long); `watchdog` — мониторинг .hbk и pending embeddings; `mcp_server` — FastMCP, инструменты search_1c_help, search_1c_help_with_content, get_1c_code_answer, get_1c_help_topic, get_1c_function_info, save_1c_snippet, get_form_metadata, get_module_info, get_1c_help_related, compare_1c_help, trigger_reindex.
+- `src/onec_help/`: пакет (unpack, categories, html2md, tree, indexer, memory, parse_fastcode, parse_helpf, snippet_classifier, standards_loader, watchdog, mcp_server, cli).
+- `unpack` — 7z, zipfile, ZIP from offset, unzip, scan local headers (schemui/mapui FileStorage); `unpack-diag` — диагностика при ошибке; `categories` — парсинг `__categories__` и дерево TOC; `html2md` — HTML → Markdown; `tree` — дерево (build_tree_for_web и др., используются indexer); `indexer` — Qdrant; `memory` — тройная память (short/medium/long); `watchdog` — мониторинг .hbk и pending embeddings; `mcp_server` — FastMCP, инструменты search_1c_help, search_1c_help_with_content, get_1c_code_answer, get_1c_help_topic, get_1c_function_info, save_1c_snippet, get_form_metadata, get_module_info, get_1c_help_related, compare_1c_help, trigger_reindex.
 - Тесты в `tests/`, покрытие ≥70% (pytest-cov, `--cov-fail-under=70`).
 - Фикстуры — минимальный срез справки в `tests/fixtures/help_sample/`.
 
@@ -57,8 +57,7 @@
 
 ## Безопасность
 
-- Веб (serve) и MCP по HTTP не имеют аутентификации; рассчитаны **только** на доверенную сеть (localhost/VPN). При экспозиции в интернет — обязателен обратный прокси с аутентификацией.
-- **Serve:** каталог справки из HELP_SERVE_DATA_DIR, HELP_PATH или data/; аргумент directory опционален. При нестандартном пути нужен HELP_SERVE_ALLOWED_DIRS. Breadcrumb, «См. также», API `/content/<path>?meta=1`.
+- MCP по HTTP не имеет аутентификации; рассчитан **только** на доверенную сеть (localhost/VPN). При экспозиции в интернет — обязателен обратный прокси с аутентификацией.
 
 ## Конфиденциальность и NDA
 

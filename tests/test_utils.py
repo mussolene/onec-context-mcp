@@ -135,10 +135,17 @@ def test_dir_size_on_disk_fallback_when_no_st_blocks(tmp_path: Path) -> None:
         st = original_stat(self)
         # For files in our tmp dir, use st_blocks=0 to trigger fallback path
         if str(self) == target:
-            return type("FakeStat", (), {
-                "st_ino": st.st_ino, "st_dev": st.st_dev, "st_size": st.st_size,
-                "st_blocks": 0, "st_mode": st.st_mode,
-            })()
+            return type(
+                "FakeStat",
+                (),
+                {
+                    "st_ino": st.st_ino,
+                    "st_dev": st.st_dev,
+                    "st_size": st.st_size,
+                    "st_blocks": 0,
+                    "st_mode": st.st_mode,
+                },
+            )()
         return st
 
     with patch.object(Path, "stat", mock_stat):

@@ -101,9 +101,7 @@ def test_record_and_read_last_snippets_run(tmp_path: Path) -> None:
     cache_db = tmp_path / "cache.db"
     with patch.dict(os.environ, {"INGEST_CACHE_FILE": str(cache_db)}, clear=False):
         started = time.time()
-        record_snippets_run(
-            files_processed=2, files_skipped=0, items_loaded=5, started_at=started
-        )
+        record_snippets_run(files_processed=2, files_skipped=0, items_loaded=5, started_at=started)
         run = read_last_snippets_run()
     assert run is not None
     assert run["files_processed"] == 2

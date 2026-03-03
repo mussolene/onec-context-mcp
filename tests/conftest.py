@@ -20,7 +20,6 @@ def _ensure_onec_help_submodules():
         "standards_loader",
         "unpack",
         "watchdog",
-        "web",
     ):
         _mod = __import__(f"onec_help.{_name}", fromlist=[_name])
         setattr(onec_help, _name, _mod)

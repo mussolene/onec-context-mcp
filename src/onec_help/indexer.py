@@ -430,7 +430,15 @@ def build_index(
             payload = {"path": path_for_payload, "text": text[:50000], "title": title}
             payload.update(extra)
             if outgoing_links:
-                payload["outgoing_links"] = outgoing_links
+                prefix = (path_prefix or "").strip().rstrip("/")
+                links_with_prefix = []
+                for lnk in outgoing_links:
+                    rp = (lnk.get("resolved_path") or "").strip()
+                    if prefix and rp and not rp.startswith(prefix + "/"):
+                        links_with_prefix.append({**lnk, "resolved_path": f"{prefix}/{rp}"})
+                    else:
+                        links_with_prefix.append(dict(lnk))
+                payload["outgoing_links"] = links_with_prefix
             first_para = text.split("\n\n")[0] if text else ""
             kw = list(
                 dict.fromkeys(_extract_keywords(title) + _extract_keywords(first_para[:800]))
@@ -869,7 +877,7 @@ def search_hybrid(
     collection: str = COLLECTION_NAME,
 ) -> list[dict[str, Any]]:
     """Semantic + keyword search merged with RRF (Reciprocal Rank Fusion).
-    Used by web serve and can be reused elsewhere."""
+    Used by MCP and can be reused elsewhere."""
     semantic_list = search_index(
         query,
         qdrant_host=qdrant_host,
@@ -1245,6 +1253,57 @@ def list_index_titles(
                 continue
             seen_paths.add(path)
             out.append({"title": payload.get("title", ""), "path": path})
+        if next_offset is None:
+            break
+        offset = next_offset
+    return out[:limit]
+
+
+def list_index_nav_items(
+    qdrant_host: str | None = None,
+    qdrant_port: int | None = None,
+    collection: str = COLLECTION_NAME,
+    limit: int = 5000,
+) -> list[dict[str, Any]]:
+    """List (path, title, breadcrumb) from index for building nav tree. Deduplicates by path."""
+    if QdrantClient is None:
+        return []
+    host = qdrant_host or os.environ.get("QDRANT_HOST", "localhost")
+    port = qdrant_port or int(os.environ.get("QDRANT_PORT", "6333"))
+    client = QdrantClient(host=host, port=port, check_compatibility=False)
+    if not client.collection_exists(collection):
+        return []
+    out: list[dict[str, Any]] = []
+    seen_paths: set[str] = set()
+    offset = None
+    while len(out) < limit:
+        try:
+            res, next_offset = client.scroll(
+                collection_name=collection,
+                limit=min(500, limit - len(out) + 100),
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+        except Exception:
+            break
+        if not res:
+            break
+        for point in res:
+            if len(out) >= limit:
+                break
+            payload = getattr(point, "payload", None) or {}
+            path = (payload.get("path") or "").strip()
+            if not path or path in seen_paths:
+                continue
+            seen_paths.add(path)
+            out.append(
+                {
+                    "path": path,
+                    "title": payload.get("title", ""),
+                    "breadcrumb": payload.get("breadcrumb") or [],
+                }
+            )
         if next_offset is None:
             break
         offset = next_offset

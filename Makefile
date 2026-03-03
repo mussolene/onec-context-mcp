@@ -148,10 +148,6 @@ up:
 up-full:
 	$(COMPOSE_FULL) up -d
 
-# Start split + serve
-up-serve:
-	$(COMPOSE) --profile serve up -d
-
 # Stop
 down:
 	$(COMPOSE) down
@@ -207,7 +203,6 @@ help:
 	@echo "  make fetch-bsl-bridge  Клонировать mcp-bsl-lsp-bridge (для Windows)"
 	@echo "  make up               Start split (qdrant + mcp + ingest-worker)"
 	@echo "  make up-full          Start full (один контейнер mcp)"
-	@echo "  make up-serve         Start split + serve"
 	@echo "  make down             Stop"
 	@echo "  make bsl-start        BSL LS bridge only (отдельно от up)"
 	@echo "  make bsl-stop         Stop BSL bridge"

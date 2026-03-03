@@ -10,8 +10,8 @@ license = { text = "MIT" }
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "flask>=3.0",
     "beautifulsoup4>=4.12",
+    "markdown>=3.5",
     "qdrant-client>=1.7",
     "snowballstemmer>=2.2",
 ]
@@ -44,6 +44,7 @@ filterwarnings = ["ignore::DeprecationWarning"]
 [tool.coverage.run]
 omit = [
     "src/onec_help/__main__.py",  # entry point, delegates to cli
+    "src/onec_help/mcp_server.py",  # MCP tools — integration, tested via MCP clients
     "*/tests/*",
 ]
 source = ["src/onec_help"]

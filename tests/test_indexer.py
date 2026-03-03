@@ -20,7 +20,9 @@ from onec_help.indexer import (
     get_topic_by_path,
     get_topic_content,
     get_topic_from_index,
+    list_index_nav_items,
     list_index_titles,
+    search_hybrid,
     search_index,
     search_index_keyword,
 )
@@ -82,6 +84,22 @@ def test_search_index(mock_client: MagicMock) -> None:
     mock_client.return_value.search.return_value = []
     result = search_index("query", limit=5)
     assert isinstance(result, list)
+
+
+@patch("onec_help.indexer.search_index_keyword")
+@patch("onec_help.indexer.search_index")
+def test_search_hybrid_rrf_merge(mock_search: MagicMock, mock_keyword: MagicMock) -> None:
+    """search_hybrid merges semantic and keyword results with RRF."""
+    mock_search.return_value = [{"path": "a.html", "title": "A"}, {"path": "b.html", "title": "B"}]
+    mock_keyword.return_value = [{"path": "b.html", "title": "B"}, {"path": "c.html", "title": "C"}]
+    result = search_hybrid("query", limit=5, qdrant_host="localhost", qdrant_port=6333)
+    assert len(result) <= 5
+    paths = [r["path"] for r in result]
+    assert "a.html" in paths
+    assert "b.html" in paths
+    assert "c.html" in paths
+    mock_search.assert_called_once()
+    mock_keyword.assert_called_once()
 
 
 def test_infer_entity_type() -> None:
@@ -465,6 +483,37 @@ def test_get_topic_from_index_fallback_scroll(
 
 
 @patch("onec_help.indexer.QdrantClient")
+def test_get_topic_from_index_apply_outgoing_links(mock_client: MagicMock) -> None:
+    """get_topic_from_index applies _apply_outgoing_links when payload has outgoing_links."""
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    mock_instance.scroll.side_effect = [
+        ([], None),
+        (
+            [
+                MagicMock(
+                    payload={
+                        "path": "topic.html",
+                        "text": "See [Other](other.html) for details.",
+                        "outgoing_links": [
+                            {
+                                "href": "other.html",
+                                "resolved_path": "other.md",
+                                "link_text": "Other",
+                            },
+                        ],
+                    }
+                )
+            ],
+            None,
+        ),
+    ]
+    text = get_topic_from_index("topic.html", qdrant_host="localhost", qdrant_port=6333)
+    assert "other.md" in text
+    assert "Связанные темы" in text or "Other" in text
+
+
+@patch("onec_help.indexer.QdrantClient")
 def test_build_index_multiple_batches(mock_client: MagicMock, tmp_path: Path) -> None:
     """Multiple .md files trigger multiple upsert batches when batch_size is small."""
     for i in range(5):
@@ -517,3 +566,80 @@ def test_get_1c_help_related(
     assert len(result) == 1
     assert result[0]["path"] == "a.md"
     assert result[0]["title"] == "A"
+
+
+@patch("onec_help.indexer.QdrantClient")
+def test_list_index_nav_items(mock_client: MagicMock) -> None:
+    """list_index_nav_items returns path, title, breadcrumb from scroll payloads."""
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    mock_instance.collection_exists.return_value = True
+    mock_instance.scroll.return_value = (
+        [
+            MagicMock(
+                payload={"path": "topic1.html", "title": "Topic 1", "breadcrumb": ["A", "B"]}
+            ),
+            MagicMock(payload={"path": "topic2.html", "title": "Topic 2"}),
+        ],
+        None,
+    )
+    out = list_index_nav_items(qdrant_host="localhost", qdrant_port=6333)
+    assert len(out) == 2
+    assert out[0]["path"] == "topic1.html"
+    assert out[0]["title"] == "Topic 1"
+    assert out[0]["breadcrumb"] == ["A", "B"]
+    assert out[1]["path"] == "topic2.html"
+    assert out[1]["title"] == "Topic 2"
+
+
+@patch("onec_help.indexer.QdrantClient")
+def test_list_index_nav_items_no_collection(mock_client: MagicMock) -> None:
+    """list_index_nav_items returns [] when collection does not exist."""
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    mock_instance.collection_exists.return_value = False
+    assert list_index_nav_items(qdrant_host="localhost", qdrant_port=6333) == []
+
+
+@patch("onec_help.indexer.QdrantClient")
+def test_list_index_nav_items_deduplicates_and_skips_empty_path(mock_client: MagicMock) -> None:
+    """list_index_nav_items deduplicates by path and skips points with empty path."""
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    mock_instance.collection_exists.return_value = True
+    mock_instance.scroll.return_value = (
+        [
+            MagicMock(payload={"path": "a.html", "title": "A"}),
+            MagicMock(payload={"path": "", "title": "No path"}),
+            MagicMock(payload={"path": "a.html", "title": "A again"}),  # duplicate
+            MagicMock(payload={"path": "b.html"}),
+        ],
+        None,
+    )
+    out = list_index_nav_items(qdrant_host="localhost", qdrant_port=6333, limit=10)
+    assert len(out) == 2
+    assert out[0]["path"] == "a.html"
+    assert out[1]["path"] == "b.html"
+
+
+@patch("onec_help.indexer.QdrantClient")
+def test_list_index_nav_items_pagination(mock_client: MagicMock) -> None:
+    """list_index_nav_items follows scroll offset until next_offset is None."""
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    mock_instance.collection_exists.return_value = True
+    mock_instance.scroll.side_effect = [
+        (
+            [MagicMock(payload={"path": "p1.html", "title": "P1"})],
+            "offset1",
+        ),
+        (
+            [MagicMock(payload={"path": "p2.html", "title": "P2"})],
+            None,
+        ),
+    ]
+    out = list_index_nav_items(qdrant_host="localhost", qdrant_port=6333, limit=10)
+    assert len(out) == 2
+    assert out[0]["path"] == "p1.html"
+    assert out[1]["path"] == "p2.html"
+    assert mock_instance.scroll.call_count == 2

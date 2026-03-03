@@ -1,4 +1,4 @@
-"""CLI: unpack, build-docs, serve, build-index, mcp."""
+"""CLI: unpack, build-docs, build-index, mcp."""
 
 import argparse
 import json
@@ -60,63 +60,6 @@ def cmd_build_docs(args: argparse.Namespace) -> int:
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
-
-
-def cmd_serve(args: argparse.Namespace) -> int:
-    """Run Flask web viewer. Data directory from config (HELP_SERVE_DATA_DIR or HELP_PATH) or data/."""
-    import logging
-
-    from .web import _allowed_base_dirs, _directory_allowed, app
-
-    # Path from CLI (legacy) or config
-    dir_arg = getattr(args, "directory", None)
-    if dir_arg:
-        dir_path = Path(dir_arg).resolve()
-    else:
-        # Config: HELP_SERVE_DATA_DIR > HELP_PATH > data (project default)
-        raw = (
-            os.environ.get("HELP_SERVE_DATA_DIR", "").strip()
-            or os.environ.get("HELP_PATH", "").strip()
-        )
-        if raw:
-            dir_path = Path(raw).resolve()
-        else:
-            dir_path = (Path.cwd() / "data").resolve()
-        if not dir_path.exists():
-            dir_path = (Path.cwd() / "data" / "unpacked").resolve()
-
-    if not dir_path.is_dir():
-        print(
-            f"Error: directory not found or not a directory: {dir_path}",
-            file=sys.stderr,
-        )
-        return 1
-    allowed = _allowed_base_dirs()
-    if allowed:
-        if not _directory_allowed(str(dir_path)):
-            print("Error: Directory not in allowed list (HELP_SERVE_ALLOWED_DIRS)", file=sys.stderr)
-            return 1
-    else:
-        # No allowlist: only allow default data/ under cwd (security)
-        default_data = (Path.cwd() / "data").resolve()
-        default_unpacked = (Path.cwd() / "data" / "unpacked").resolve()
-        if dir_path != default_data and dir_path != default_unpacked:
-            print(
-                "Error: HELP_SERVE_ALLOWED_DIRS must be set when using custom path.",
-                file=sys.stderr,
-            )
-            return 1
-
-    port = int(_env_path("PORT", "5000") or "5000")
-    host = os.environ.get("HELP_SERVE_HOST", "127.0.0.1").strip() or "127.0.0.1"
-    app.config["BASE_DIR"] = str(dir_path)
-    use_debug = args.debug and os.environ.get("PRODUCTION") != "1"
-    if args.debug and not use_debug:
-        logging.warning("PRODUCTION=1 is set; debug mode disabled for security.")
-    elif use_debug:
-        logging.warning("Running with debug=True. Do not use in production (exposes tracebacks).")
-    app.run(host=host, port=port, debug=use_debug)
-    return 0
 
 
 def cmd_build_index(args: argparse.Namespace) -> int:
@@ -1657,20 +1600,6 @@ def main() -> int:
         "--output", "-o", type=str, help="Output directory (default: project_dir/docs_md)"
     )
     p_docs.set_defaults(func=cmd_build_docs)
-
-    # serve
-    p_serve = sub.add_parser(
-        "serve", help="Run web viewer (data from HELP_SERVE_DATA_DIR or HELP_PATH or data/)"
-    )
-    p_serve.add_argument(
-        "directory",
-        type=str,
-        nargs="?",
-        default=None,
-        help="Override directory (optional; default from config: HELP_SERVE_DATA_DIR, HELP_PATH, or data/)",
-    )
-    p_serve.add_argument("--debug", action="store_true", help="Flask debug")
-    p_serve.set_defaults(func=cmd_serve)
 
     # build-index
     p_idx = sub.add_parser("build-index", help="Build Qdrant index from Markdown/docs (recursive)")

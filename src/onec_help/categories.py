@@ -70,7 +70,9 @@ def build_tree(
                     ),
                 }
             )
-        elif item.endswith(".html") and full_path.is_file():
+        elif full_path.is_file() and (
+            item.endswith(".html") or item.endswith(".htm") or "." not in item
+        ):
             title = extract_html_title(full_path)
             rel_path = os.path.join(current_path, item).replace("\\", "/")
             tree.append(
