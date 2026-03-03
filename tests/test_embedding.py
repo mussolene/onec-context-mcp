@@ -142,9 +142,7 @@ def test_get_embedding_target_dimension_fallback() -> None:
         vec_768 = [0.1] * 768
         with patch("urllib.request.urlopen") as mock_open:
             mock_resp = MagicMock()
-            mock_resp.read.return_value = json.dumps(
-                {"data": [{"embedding": vec_768}]}
-            ).encode()
+            mock_resp.read.return_value = json.dumps({"data": [{"embedding": vec_768}]}).encode()
             mock_resp.getheader.return_value = None
             mock_open.return_value.__enter__.return_value = mock_resp
             mock_open.return_value.__exit__.return_value = False

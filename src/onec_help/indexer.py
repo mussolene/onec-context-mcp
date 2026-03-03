@@ -265,11 +265,7 @@ def build_index(
                     if md_links:
                         outgoing_links = md_links
             else:
-                text = (
-                    html_to_md_content(p)
-                    if p.suffix in (".html", "") or not p.suffix
-                    else ""
-                )
+                text = html_to_md_content(p) if p.suffix in (".html", "") or not p.suffix else ""
                 if not text or not text.strip():
                     try:
                         text = read_file_with_encoding_fallback(p)[:50000]
@@ -281,9 +277,8 @@ def build_index(
                 return None
             rel = p.relative_to(docs_dir)
             rel_str = str(rel).replace("\\", "/")
-            title = (
-                text.split("\n")[0].strip().lstrip("#").strip()
-                or (p.stem if p.suffix else p.name)
+            title = text.split("\n")[0].strip().lstrip("#").strip() or (
+                p.stem if p.suffix else p.name
             )
             return (rel_str, text, title, outgoing_links)
         except Exception:
@@ -629,9 +624,10 @@ def get_all_collections_status(
             try:
                 info = client.get_collection(name)
                 pts = _collection_info_int(info, "points_count", "pointsCount")
-                vecs = _collection_info_int(
-                    info, "indexed_vectors_count", "indexedVectorsCount"
-                ) or pts
+                vecs = (
+                    _collection_info_int(info, "indexed_vectors_count", "indexedVectorsCount")
+                    or pts
+                )
                 segs = _collection_info_int(info, "segments_count", "segmentsCount")
                 result.append(
                     {
@@ -838,9 +834,7 @@ def search_index(
     if QdrantClient is None:
         return []
     client = QdrantClient(host=host, port=port, check_compatibility=False)
-    coll_dim = get_collection_vector_size(
-        collection=collection, qdrant_host=host, qdrant_port=port
-    )
+    coll_dim = get_collection_vector_size(collection=collection, qdrant_host=host, qdrant_port=port)
     vector = embedding.get_embedding(
         query, target_dimension=coll_dim if coll_dim is not None else None
     )

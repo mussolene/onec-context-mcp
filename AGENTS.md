@@ -95,5 +95,5 @@
 ### Слой тестирования
 
 - **BSL LS:** `document_diagnostics` — статический анализ (не runtime). Вызывать после каждой правки; цикл до чистоты.
-- **Python (onec_help):** `pytest tests --cov=src/onec_help --cov-fail-under=70`; `ruff check src tests && ruff format src tests`. При падении покрытия — добавить тесты.
+- **Python (onec_help):** `PYTHONPATH=src python -m pytest tests -v --cov=src/onec_help --cov-report=term-missing --cov-fail-under=70`; `ruff check src tests && ruff format --check src tests`. При падении покрытия — добавить тесты.
 - **1C runtime:** xUnitFor1C (unit), Vanessa-Automation (BDD), CoverageBSL. При новой логике — предлагать/создавать тесты. Если есть `Tests/` или `features/` — считать тесты частью workflow.

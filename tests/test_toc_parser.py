@@ -97,7 +97,12 @@ def test_path_to_section_and_title_from_toc_duplicate_path_last_wins():
     """When flat has duplicate paths, last occurrence wins for section and title."""
     flat = [
         {"path": "page.html", "title_ru": "First", "breadcrumb": ["A"], "entity_type": "topic"},
-        {"path": "page.html", "title_ru": "Second", "breadcrumb": ["B", "Page"], "entity_type": "topic"},
+        {
+            "path": "page.html",
+            "title_ru": "Second",
+            "breadcrumb": ["B", "Page"],
+            "entity_type": "topic",
+        },
     ]
     path_to_section, path_to_title = path_to_section_and_title_from_toc(flat)
     assert path_to_title["page.html"] == "Second"

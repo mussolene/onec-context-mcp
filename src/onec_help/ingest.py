@@ -242,7 +242,9 @@ def _error_category_and_stored_message(err: str) -> tuple[str, str]:
         cat = "unpack"
         return cat, err
     if "embed" in err.lower() or "429" in err or "timeout" in err.lower():
-        hint = " Рекомендация: проверьте EMBEDDING_API_URL, EMBEDDING_TIMEOUT; перезапустите ingest."
+        hint = (
+            " Рекомендация: проверьте EMBEDDING_API_URL, EMBEDDING_TIMEOUT; перезапустите ingest."
+        )
         stored = (err[:450] + hint) if len(err) + len(hint) > 500 else err + hint
         return "embed", stored[:500]
     if "qdrant" in err.lower() or "upsert" in err.lower():

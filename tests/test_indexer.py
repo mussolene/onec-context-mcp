@@ -44,7 +44,10 @@ def test_collection_info_int() -> None:
     """_collection_info_int reads from object attributes or dict keys."""
     from types import SimpleNamespace
 
-    assert _collection_info_int(SimpleNamespace(points_count=100), "points_count", "pointsCount") == 100
+    assert (
+        _collection_info_int(SimpleNamespace(points_count=100), "points_count", "pointsCount")
+        == 100
+    )
     assert _collection_info_int({"indexed_vectors_count": 200}, "indexed_vectors_count") == 200
     assert _collection_info_int(SimpleNamespace(segments_count=0), "segments_count") == 0
     assert _collection_info_int(SimpleNamespace(), "points_count") == 0
@@ -52,6 +55,7 @@ def test_collection_info_int() -> None:
 
 def test_is_qdrant_500() -> None:
     """_is_qdrant_500 detects 500 and UnexpectedResponse."""
+
     class UnexpectedResponse(Exception):
         pass
 

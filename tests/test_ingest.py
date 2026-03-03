@@ -289,7 +289,9 @@ def test_failed_tasks_written_to_cache_before_run_completes(tmp_path: Path) -> N
     """Errors are written to ingest_failed as they occur; read_last_ingest_failed returns them even for in_progress run."""
     cache_db = tmp_path / "cache.db"
     with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_db)}, clear=False):
-        run_id = _create_ingest_run(started_at=1000.0, embedding_backend="openai_api", total_tasks=5)
+        run_id = _create_ingest_run(
+            started_at=1000.0, embedding_backend="openai_api", total_tasks=5
+        )
         assert run_id is not None
         _append_failed_to_cache(
             run_id,
