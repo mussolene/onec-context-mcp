@@ -8,14 +8,15 @@
 
 ## Команды и сценарии
 
-- **Локально:** `python -m onec_help unpack/unpack-sync/ingest/ingest-from-unpacked/build-docs/build-index/load-snippets/load-standards/parse-fastcode/parse-helpf/watchdog/mcp <args>`
+- **Локально:** `python -m onec_help unpack/unpack-sync/read-hbk-container/ingest/ingest-from-unpacked/build-docs/build-index/load-snippets/load-standards/parse-fastcode/parse-helpf/watchdog/mcp <args>`
 - **init** — стартовая загрузка: ingest (справка) + load-snippets + load-standards. Использует env (HELP_SOURCE_BASE, SNIPPETS_DIR, STANDARDS_REPOS). Не стирает данные.
 - **reinit** — выполняет init. Если индекс уже существует с данными — без стирания (init). **reinit --force** — стирает коллекции и cache, затем init.
 - **Docker:** `docker-compose up` (сервисы `qdrant` + `mcp`). В mcp смонтирован `/opt/1cv8`, cron раз в сутки в 3:00 запускает ingest; при `WATCHDOG_ENABLED=1` — watchdog в фоне. BSL LS — `make bsl-start` (отдельный compose, volume `.:/projects`).
 - **По умолчанию split:** `docker compose up -d` — mcp только API (MCP_MODE=api), ingest-worker — batch (ingest, cron, load-snippets, watchdog). Индексация: `make ingest` (exec ingest-worker).
 - **Full (один контейнер):** `docker compose -f docker-compose.full.yml up -d` — mcp выполняет всё. Индексация: `make ingest-full`.
 - **Индекс вручную:** `make ingest` (split) или `make ingest-full` (full). Каталог версий — `HELP_SOURCE_BASE`, подпапки = версии 1С, поиск .hbk рекурсивно, в т.ч. в `bin/` на Windows.
-- **unpack-sync** — распаковка в `data/unpacked` (version/stem), `.hbk_info.json`, пропуск по хэшу. `make unpack-sync`.
+- **unpack-sync** — распаковка в `data/unpacked` (version/stem), `.hbk_info.json`, пропуск по хэшу. При успешном разборе HBK binary container (fallback 6) в каталог stem записывается `.toc.json` для payload. `make unpack-sync`.
+- **read-hbk-container** — чтение .hbk как бинарного контейнера (источник: alkoleft/hbk-viewer): список сущностей, извлечение FileStorage в каталог, PackBlock TOC в файл.
 - **ingest-from-unpacked** — индексация из `data/unpacked`. При `INGEST_USE_UNPACKED=1` команда `ingest` делает unpack-sync + ingest-from-unpacked. `make ingest-from-unpacked`.
 - **Сниппеты:** ./data/snippets → /data/snippets. parse-fastcode и parse-helpf пишут туда. HelpF по умолчанию — только FAQ (file/help/freelance: `--source all`). `load-snippets` загружает. `make snippets` — оба сайта; `make parse-helpf` — только FAQ.
 - **Стандарты:** `make load-standards` — по умолчанию STANDARDS_REPOS загружает совместно 1C-Company/v8-code-style и zeegin/v8std (v8std.ru).
@@ -37,8 +38,8 @@
 
 ## Структура кода
 
-- `src/onec_help/`: пакет (unpack, categories, html2md, tree, indexer, memory, parse_fastcode, parse_helpf, snippet_classifier, standards_loader, watchdog, mcp_server, cli).
-- `unpack` — 7z, zipfile, ZIP from offset, unzip, scan local headers (schemui/mapui FileStorage); `unpack-diag` — диагностика при ошибке; `categories` — парсинг `__categories__` и дерево TOC; `html2md` — HTML → Markdown; `tree` — дерево (build_tree_for_web и др., используются indexer); `indexer` — Qdrant; `memory` — тройная память (short/medium/long); `watchdog` — мониторинг .hbk и pending embeddings; `mcp_server` — FastMCP, инструменты search_1c_help, search_1c_help_with_content, get_1c_code_answer, get_1c_help_topic, get_1c_function_info, save_1c_snippet, get_form_metadata, get_module_info, get_1c_help_related, compare_1c_help, trigger_reindex.
+- `src/onec_help/`: пакет (unpack, categories, html2md, tree, indexer, memory, parse_fastcode, parse_helpf, snippet_classifier, standards_loader, watchdog, mcp_server, cli, hbk_container, toc_parser).
+- `unpack` — 7z, zipfile, ZIP from offset, unzip, scan local headers, **HBK binary container** (источник: alkoleft/hbk-viewer); при контейнере пишет `.toc.json`; `unpack-diag` — диагностика при ошибке; `hbk_container` — чтение бинарного .hbk (FileStorage, PackBlock, Book); `toc_parser` — разбор текста PackBlock TOC в плоский список (path, title_ru/en, breadcrumb, entity_type); `categories` — парсинг `__categories__` и дерево TOC; `html2md` — HTML → Markdown; `tree` — дерево (build_tree_for_web и др.); `indexer` — Qdrant, при наличии `.toc.json` в source_dir подмешивает title/breadcrumb/section_path в payload; `memory` — тройная память; `watchdog` — мониторинг .hbk и pending embeddings; `mcp_server` — FastMCP (search_1c_help, get_1c_help_topic, get_1c_function_info, save_1c_snippet, get_1c_help_related, compare_1c_help, trigger_reindex и др.). Payload точек при TOC содержит `breadcrumb`, `entity_type`.
 - Тесты в `tests/`, покрытие ≥70% (pytest-cov, `--cov-fail-under=70`).
 - Фикстуры — минимальный срез справки в `tests/fixtures/help_sample/`.
 

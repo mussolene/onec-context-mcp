@@ -13,6 +13,8 @@
 
 Лицензия проекта: MIT, см. [LICENSE](LICENSE). Используемые библиотеки и лицензии: см. [NOTICE](NOTICE).
 
+**Источники форматов и логики:** разбор бинарного контейнера .hbk и оглавления (PackBlock) — по [alkoleft/hbk-viewer](https://github.com/alkoleft/hbk-viewer) (MIT). Спецификация форматов справки — [docs/help_formats.md](docs/help_formats.md).
+
 Стандарты разработки 1С (load-standards): по умолчанию загружаются совместно [1C-Company/v8-code-style](https://github.com/1C-Company/v8-code-style) и [zeegin/v8std](https://github.com/zeegin/v8std) ([v8std.ru](https://v8std.ru)).
 
 ## Безопасность
@@ -54,8 +56,9 @@ pip install -e ".[dev]"
 | **`unpack <archive> [--output-dir]`** | Распаковать один .hbk (7z → zipfile → offset → unzip → scan local headers) |
 | **`unpack-diag <archive> [-o dir]`** | Диагностика распаковки: пробует каждый метод, печатает результат (при «All unpack methods failed») |
 | **`unpack-dir [source_dir] [-o output]`** | Распаковать все .hbk из дерева каталогов в указанную директорию (без индексации). Источники: `source_dir`, `HELP_SOURCE_BASE` или `--sources` |
-| **`unpack-sync [source_dir] [-o output]`** | Распаковать в data/unpacked (version/stem), записать .hbk_info.json, пропускать без изменений по хэшу. `make unpack-sync` |
-| **`ingest-from-unpacked [--dir]`** | Индексировать из распакованного каталога (version/stem). После `unpack-sync`. `make ingest-from-unpacked` |
+| **`unpack-sync [source_dir] [-o output]`** | Распаковать в data/unpacked (version/stem), записать .hbk_info.json, при разборе HBK-контейнера — .toc.json. Пропуск без изменений по хэшу. `make unpack-sync` |
+| **`read-hbk-container <file> [--out-dir dir] [--toc-json path]`** | Прочитать .hbk как бинарный контейнер (источник: [alkoleft/hbk-viewer](https://github.com/alkoleft/hbk-viewer)): список сущностей, извлечение FileStorage в каталог, запись TOC в JSON. |
+| **`ingest-from-unpacked [--dir]`** | Индексировать из распакованного каталога (version/stem). При наличии .toc.json в каталоге — payload с breadcrumb/entity_type. После `unpack-sync`. `make ingest-from-unpacked` |
 | **`build-docs <project_dir> [--output]`** | Сгенерировать Markdown из HTML справки |
 | **`build-index <directory> [--incremental] [--no-bm25] [--embedding-batch-size N] [--embedding-workers N]`** | Построить векторный индекс в Qdrant по .md/.html. По умолчанию BM25 sparse vectors включены (BM25_ENABLED=1). `--no-bm25` — отключить. |
 | **`add-bm25 [--collection] [--batch-size N]`** | Добавить BM25 sparse vectors в существующую коллекцию **без re-ingest** и без пересчёта эмбеддингов. Используйте для миграции старых индексов. |

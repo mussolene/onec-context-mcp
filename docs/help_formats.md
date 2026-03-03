@@ -28,10 +28,16 @@
 | 3 | **ZIP from offset** | .hbk с заголовком: ZIP начинается со смещения (1656, 2048, 1024, 512, 256, 4096, 8192 байт); `truncate_tail` — обрезка хвоста при «data after end» |
 | 4 | **unzip** (команда) | Резервный вариант для чистого ZIP |
 | 5 | **Scan local headers** | Встроенный ZIP с повреждённым/отсутствующим EOCD (schemui_ru, mapui_ru — формат FileStorage): сканирование `PK\x03\x04`, ручной разбор записей, zlib.decompress |
+| 6 | **HBK binary container** | Для .hbk: разбор бинарного контейнера (источник: [alkoleft/hbk-viewer](https://github.com/alkoleft/hbk-viewer)). Извлечение сущности FileStorage (ZIP) в каталог и, при наличии PackBlock, запись оглавления в `.toc.json` в том же каталоге. Индексер использует `.toc.json` для payload: `title`, `breadcrumb`, `section_path`, `entity_type`. |
 
 При ошибке всех методов: `unpack` выводит подсказку; для диагностики — **`unpack-diag <file> -o /tmp/out`**: пробует каждый метод и печатает результат (7z l -slt, returncode, извлечено/нет). Используйте при «All unpack methods failed».
 
-### 1.4 Поведение проекта
+### 1.4 Оглавление (TOC) и payload
+
+- Если в каталоге распакованной справки есть **`.toc.json`** (список объектов с полями `path`, `title_ru`, `title_en`, `breadcrumb`, `entity_type`), индексер подмешивает их в payload точек: заголовок и цепочка навигации берутся из TOC, а не только из первого заголовка HTML/MD.
+- `.toc.json` создаётся при распаковке через метод 6 (HBK binary container) или вручную. Формат соответствует выходу парсера PackBlock (см. `toc_parser`, источник — hbk-viewer).
+
+### 1.5 Поведение проекта
 
 - Конвейер (build-docs → build-index) работает с **каталогом HTML** (распакованным из .hbk или полученным иначе).
 
