@@ -4,12 +4,14 @@
 
 Эмбеддинги используются для семантического поиска по справке 1С, сниппетам и событиям памяти. Все точки входа используют единый пайплайн: sanitize, truncation, retry, rate limiting.
 
+**Сравнение моделей и выбор под MacBook M1 (2026):** см. [embedding-models-analysis.md](embedding-models-analysis.md).
+
 ## Бэкенды
 
 | Бэкенд | Описание | Размерность |
 |--------|----------|-------------|
-| **local** | sentence-transformers (all-MiniLM-L6-v2 и др.) | 384 (по умолчанию) |
-| **openai_api** | LM Studio, Ollama, OpenAI-совместимый API | EMBEDDING_DIMENSION или автоопределение |
+| **local** | По умолчанию. sentence-transformers, модель **paraphrase-multilingual-MiniLM-L12-v2** (50+ языков, RU). Размерность определяется автоматически по модели. | авто |
+| **openai_api** | LM Studio (localhost:1234), Ollama, OpenAI-совместимый API. Размерность определяется автоматически по ответу API; при недоступности API используется EMBEDDING_DIMENSION. | авто (fallback: EMBEDDING_DIMENSION) |
 | **deterministic** | 384-dim хэш без модели — только для наполнения БД, keyword-поиск | 384 |
 | **none** | Плейсхолдер, только keyword-поиск | 384 |
 
@@ -44,9 +46,9 @@
 
 | Переменная | Описание | По умолчанию |
 |------------|----------|--------------|
-| EMBEDDING_BACKEND | local, openai_api, deterministic, none | local |
-| EMBEDDING_MODEL | Имя модели (HuggingFace / API) | all-MiniLM-L6-v2 |
-| EMBEDDING_API_URL | URL OpenAI-совместимого API | http://localhost:1234/v1 |
+| EMBEDDING_BACKEND | local (по умолчанию), openai_api, deterministic, none | local |
+| EMBEDDING_MODEL | Имя модели. Для local — HuggingFace (по умолчанию paraphrase-multilingual-MiniLM-L12-v2); для openai_api — id в LM Studio | paraphrase-multilingual-MiniLM-L12-v2 |
+| EMBEDDING_API_URL | URL LM Studio / OpenAI-совместимого API | http://localhost:1234/v1 |
 | EMBEDDING_DIMENSION | Размерность при openai_api | авто |
 | EMBEDDING_BATCH_SIZE | Размер батча | 64 |
 | EMBEDDING_WORKERS | Параллельных воркеров (только openai_api) | 4 |

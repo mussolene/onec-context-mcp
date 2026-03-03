@@ -38,7 +38,9 @@ RETRY_BASE_DELAY = 1.0
 _embedding_model = None
 
 _EMBEDDING_BACKEND = os.environ.get("EMBEDDING_BACKEND", "local").strip().lower()
-_EMBEDDING_MODEL = (os.environ.get("EMBEDDING_MODEL") or "all-MiniLM-L6-v2").strip()
+_EMBEDDING_MODEL = (
+    os.environ.get("EMBEDDING_MODEL") or "paraphrase-multilingual-MiniLM-L12-v2"
+).strip()
 _LMSTUDIO_PREFERRED_EMBEDDING_MODELS = (
     "nomic-embed-text",
     "all-MiniLM-L6-v2",
@@ -157,8 +159,10 @@ def _release_api_slot() -> None:
 
 _resolved_api_model_id: str | None = None
 _cached_api_dimension: int | None = None
+_cached_local_dimension: int | None = None
 _cached_qdrant_dimension: int | None = None
 _dimension_detecting: bool = False
+_last_api_embedding_was_placeholder: bool = False
 _embedding_api_available: bool | None = None
 _fallback_log_count = 0
 
@@ -284,28 +288,42 @@ def _get_fallback_dim_from_qdrant() -> int | None:
 
 
 def get_embedding_dimension() -> int:
-    """Return vector size for the current embedding backend (for collection creation)."""
-    global _cached_api_dimension, _dimension_detecting
+    """Return vector size for the current embedding backend (for collection creation).
+    For local and openai_api: auto-detect (encode/API once); EMBEDDING_DIMENSION — fallback for API."""
+    global _cached_api_dimension, _cached_local_dimension, _dimension_detecting
     if _EMBEDDING_BACKEND == "deterministic":
         return 384
-    if _EMBEDDING_BACKEND == "openai_api" and _EMBEDDING_DIMENSION:
+    if _EMBEDDING_BACKEND == "local":
+        if _cached_local_dimension is not None:
+            return _cached_local_dimension
         try:
-            return int(_EMBEDDING_DIMENSION)
-        except ValueError:
-            pass
-    if _EMBEDDING_BACKEND == "openai_api" and _EMBEDDING_API_URL:
+            vec = _get_embedding_local(".")
+            _cached_local_dimension = len(vec)
+            return _cached_local_dimension
+        except Exception as e:
+            logging.getLogger(__name__).debug("local embedding dimension detect failed: %s", e)
+        return VECTOR_SIZE
+    if _EMBEDDING_BACKEND == "openai_api":
         if _cached_api_dimension is not None:
             return _cached_api_dimension
-        _dimension_detecting = True
-        try:
-            vec = _get_embedding_api_single(".")
-            _cached_api_dimension = len(vec)
-            return _cached_api_dimension
-        except Exception as e:
-            logging.getLogger(__name__).debug("embedding dimension detect failed: %s", e)
-        finally:
-            _dimension_detecting = False
-        # API failed: try Qdrant collection dimension so placeholder matches index
+        # Сначала автоопределение по ответу API (не кэшировать размерность плейсхолдера)
+        if _EMBEDDING_API_URL:
+            _dimension_detecting = True
+            try:
+                vec = _get_embedding_api_single(".")
+                if not _last_api_embedding_was_placeholder:
+                    _cached_api_dimension = len(vec)
+                    return _cached_api_dimension
+            except Exception as e:
+                logging.getLogger(__name__).debug("embedding dimension detect failed: %s", e)
+            finally:
+                _dimension_detecting = False
+        # Fallback: явная переменная окружения
+        if _EMBEDDING_DIMENSION:
+            try:
+                return int(_EMBEDDING_DIMENSION)
+            except ValueError:
+                pass
         dim = _get_fallback_dim_from_qdrant()
         if dim is not None:
             return dim
@@ -440,9 +458,12 @@ def _get_embedding_local_batch(texts: list[str]) -> list[list[float]]:
 
 def _get_embedding_api_single(text: str) -> list[float]:
     """Single request to OpenAI-compatible API with retry and configurable timeout."""
+    global _last_api_embedding_was_placeholder
     if not _EMBEDDING_API_URL:
+        _last_api_embedding_was_placeholder = True
         return _get_embedding_placeholder(text, _embedding_fallback_dim())
     if not _check_embedding_api_available():
+        _last_api_embedding_was_placeholder = True
         return _get_embedding_placeholder(text, _embedding_fallback_dim())
     model_id = _resolve_openai_api_model()
     url = f"{_EMBEDDING_API_URL}/embeddings"
@@ -475,6 +496,7 @@ def _get_embedding_api_single(text: str) -> list[float]:
             out = data.get("data") or []
             first = out[0] if out else None
             if isinstance(first, dict) and "embedding" in first:
+                _last_api_embedding_was_placeholder = False
                 return list(first["embedding"])
             break
         except Exception as e:
@@ -486,6 +508,7 @@ def _get_embedding_api_single(text: str) -> list[float]:
             _release_api_slot()
     global _resolved_api_model_id
     _resolved_api_model_id = None
+    _last_api_embedding_was_placeholder = True
     _log_fallback(f"embedding API error/timeout, using placeholder: {type(last_err).__name__}")
     return _get_embedding_placeholder(text, _embedding_fallback_dim())
 

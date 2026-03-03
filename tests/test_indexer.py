@@ -7,9 +7,12 @@ import pytest
 
 from onec_help import indexer as indexer_mod
 from onec_help.indexer import (
+    _collection_info_int,
     _extract_keywords,
     _infer_entity_type,
+    _is_qdrant_500,
     _path_to_point_id,
+    _upsert_batch_with_retry,
     _version_sort_key,
     build_index,
     get_1c_help_related,
@@ -36,6 +39,48 @@ def test_get_embedding_dimension_delegates_to_embedding() -> None:
     from onec_help import embedding
 
     assert dim == embedding.get_embedding_dimension()
+
+
+def test_collection_info_int() -> None:
+    """_collection_info_int reads from object attributes or dict keys."""
+    from types import SimpleNamespace
+
+    assert _collection_info_int(SimpleNamespace(points_count=100), "points_count", "pointsCount") == 100
+    assert _collection_info_int({"indexed_vectors_count": 200}, "indexed_vectors_count") == 200
+    assert _collection_info_int(SimpleNamespace(segments_count=0), "segments_count") == 0
+    assert _collection_info_int(SimpleNamespace(), "points_count") == 0
+
+
+def test_is_qdrant_500() -> None:
+    """_is_qdrant_500 detects 500 and UnexpectedResponse."""
+    class UnexpectedResponse(Exception):
+        pass
+
+    assert indexer_mod._is_qdrant_500(Exception("500 Internal Server Error")) is True
+    assert indexer_mod._is_qdrant_500(Exception("Internal server error")) is True
+    assert indexer_mod._is_qdrant_500(UnexpectedResponse("oops")) is True
+    assert indexer_mod._is_qdrant_500(Exception("404 Not Found")) is False
+    assert indexer_mod._is_qdrant_500(ValueError("bad")) is False
+
+
+def test_upsert_batch_with_retry_retries_then_splits() -> None:
+    """_upsert_batch_with_retry retries on 500, then splits batch on repeated failure."""
+    from unittest.mock import Mock
+
+    client = Mock()
+    err_500 = Exception("Unexpected Response: 500 (Internal Server Error)")
+    # First two upserts raise 500, then two half-batch upserts succeed
+    client.upsert.side_effect = [err_500, err_500, None, None]
+    points = [Mock(), Mock(), Mock(), Mock()]
+    with patch("onec_help.indexer.time.sleep"):
+        _upsert_batch_with_retry(client, "onec_help", points)
+    assert client.upsert.call_count == 4
+    # First call: full batch (fail), second: retry full (fail), third/fourth: half batches
+    calls = client.upsert.call_args_list
+    assert len(calls[0][1]["points"]) == 4
+    assert len(calls[1][1]["points"]) == 4
+    assert len(calls[2][1]["points"]) == 2
+    assert len(calls[3][1]["points"]) == 2
 
 
 @patch("onec_help.indexer.QdrantClient")

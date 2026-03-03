@@ -1051,6 +1051,12 @@ def run_ingest(
                             pass
                 except Exception as e:
                     err_msg = f"{type(e).__name__}: {e}"
+                    err_str = str(e).lower()
+                    if "500" in err_str or "unexpectedresponse" in type(e).__name__.lower():
+                        err_msg += (
+                            " [Qdrant 500: проверьте make qdrant-logs; "
+                            "размерность векторов (EMBEDDING_DIMENSION); уменьшите index_batch_size]"
+                        )
                     with state_lock:
                         failed_tasks_list.append(
                             {

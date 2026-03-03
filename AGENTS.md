@@ -23,8 +23,9 @@
 
 1. **INGEST_CACHE_FILE** — в Docker: `/app/var/ingest_cache/ingest_cache.db` (→ ./data/ingest_cache).
 2. **Ошибка чтения кэша** — при `[ingest] WARN: ingest cache read failed` проверьте права, существование файла, место на диске. В логе будет подсказка.
-3. **Watchdog** — state в INGEST_CACHE (watchdog_hbk_cache.json); при рестарте неизменённые .hbk пропускаются по кэшу.
-4. **reinit --force** — стирает коллекции и кэш, затем init; полная переиндексация ожидаема.
+3. **Распаковка по умолчанию** — ingest пишет в **data/unpacked** (DATA_UNPACKED_DIR) структуру **version/stem** (run_unpack_sync), затем run_ingest_from_unpacked индексирует из неё. Команда **ingest-from-unpacked** ожидает именно эту структуру; вывод **unpack-dir** (version/lang/name) с ней не совместим. INGEST_USE_TEMP=1 — временная папка с удалением после индексации.
+4. **Watchdog** — state в INGEST_CACHE (watchdog_hbk_cache.json); при рестарте неизменённые .hbk пропускаются по кэшу.
+5. **reinit --force** — стирает коллекции и кэш, затем init; полная переиндексация ожидаема.
 
 ## Embedding и индексация
 

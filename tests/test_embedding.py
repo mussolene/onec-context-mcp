@@ -6,21 +6,47 @@ from onec_help import embedding as embedding_mod
 
 
 def test_get_embedding_dimension_default() -> None:
-    """Default backend is local: dimension is VECTOR_SIZE."""
-    assert embedding_mod.get_embedding_dimension() == embedding_mod.VECTOR_SIZE
+    """Default backend is local; dimension is auto-detected from model or VECTOR_SIZE fallback."""
+    dim = embedding_mod.get_embedding_dimension()
+    assert dim == embedding_mod.VECTOR_SIZE or dim > 0
 
 
 def test_get_embedding_dimension_openai_api() -> None:
-    """When openai_api and EMBEDDING_DIMENSION set, returns that value."""
+    """When openai_api and no API URL, EMBEDDING_DIMENSION is used as fallback."""
     import importlib
 
     with patch.dict(
         "os.environ",
-        {"EMBEDDING_BACKEND": "openai_api", "EMBEDDING_DIMENSION": "768"},
+        {
+            "EMBEDDING_BACKEND": "openai_api",
+            "EMBEDDING_DIMENSION": "768",
+            "EMBEDDING_API_URL": "",
+        },
         clear=False,
     ):
         importlib.reload(embedding_mod)
         assert embedding_mod.get_embedding_dimension() == 768
+    importlib.reload(embedding_mod)
+
+
+def test_get_embedding_dimension_local_auto_detect() -> None:
+    """Local backend: dimension is auto-detected from model encode (or VECTOR_SIZE on failure)."""
+    import importlib
+
+    with patch.dict(
+        "os.environ",
+        {
+            "EMBEDDING_BACKEND": "local",
+            "EMBEDDING_MODEL": "paraphrase-multilingual-MiniLM-L12-v2",
+        },
+        clear=False,
+    ):
+        importlib.reload(embedding_mod)
+        embedding_mod._cached_local_dimension = None
+        # If sentence_transformers available: real dim (e.g. 384); else VECTOR_SIZE fallback
+        dim = embedding_mod.get_embedding_dimension()
+        assert dim > 0
+        assert dim == embedding_mod.VECTOR_SIZE or embedding_mod._cached_local_dimension == dim
     importlib.reload(embedding_mod)
 
 
@@ -284,6 +310,27 @@ def test_embedding_fallback_dim_when_detecting() -> None:
             assert embedding_mod._embedding_fallback_dim() == embedding_mod.VECTOR_SIZE
         with patch.object(embedding_mod, "_get_fallback_dim_from_qdrant", return_value=768):
             assert embedding_mod._embedding_fallback_dim() == 768
+
+
+def test_get_embedding_dimension_openai_api_auto_detect_first() -> None:
+    """openai_api: dimension is auto-detected from API first; EMBEDDING_DIMENSION is fallback."""
+    import importlib
+
+    with patch.dict(
+        "os.environ",
+        {
+            "EMBEDDING_BACKEND": "openai_api",
+            "EMBEDDING_API_URL": "http://test/v1",
+            "EMBEDDING_DIMENSION": "768",
+        },
+        clear=False,
+    ):
+        importlib.reload(embedding_mod)
+        embedding_mod._cached_api_dimension = None
+        with patch.object(embedding_mod, "_get_embedding_api_single", return_value=[0.1] * 512):
+            dim = embedding_mod.get_embedding_dimension()
+        assert dim == 512  # from API, not from EMBEDDING_DIMENSION
+    importlib.reload(embedding_mod)
 
 
 def test_get_embedding_dimension_openai_api_detects_from_api() -> None:

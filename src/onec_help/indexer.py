@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -179,6 +180,31 @@ def _bm25_enabled() -> bool:
     return v not in ("0", "false", "no", "off")
 
 
+def _is_qdrant_500(err: BaseException) -> bool:
+    """True if exception looks like Qdrant 500 (transient or batch too large)."""
+    msg = str(err).lower()
+    name = type(err).__name__.lower()
+    return "500" in msg or "internal server error" in msg or "unexpectedresponse" in name
+
+
+def _upsert_batch_with_retry(client: Any, collection_name: str, points: list[Any]) -> None:
+    """Upsert points with retry on 500; on repeated failure try half-batch."""
+    try:
+        client.upsert(collection_name=collection_name, points=points)
+    except Exception as e:
+        if not _is_qdrant_500(e):
+            raise
+        time.sleep(2.0)  # backoff before retry
+        try:
+            client.upsert(collection_name=collection_name, points=points)
+        except Exception as e2:
+            if not _is_qdrant_500(e2) or len(points) <= 1:
+                raise
+            mid = len(points) // 2
+            _upsert_batch_with_retry(client, collection_name, points[:mid])
+            _upsert_batch_with_retry(client, collection_name, points[mid:])
+
+
 def build_index(
     docs_dir,
     qdrant_host="localhost",
@@ -222,6 +248,46 @@ def build_index(
     version = extra.get("version", "")
     language = extra.get("language", "")
     max_input_chars = embedding.MAX_EMBEDDING_INPUT_CHARS
+
+    def _read_one_item(p: Path) -> tuple[str, str, str, list[dict[str, Any]]] | None:
+        """Read one file for indexing. Returns (rel_str, text, title, outgoing_links) or None to skip."""
+        base_for_links = Path(source_dir) if source_dir else docs_dir
+        try:
+            outgoing_links: list[dict[str, Any]] = []
+            if p.suffix == ".md":
+                text = read_file_with_encoding_fallback(p, encodings=_ENCODINGS_UTF8_FIRST)
+                if source_dir:
+                    html_path = Path(source_dir) / p.relative_to(docs_dir).with_suffix(".html")
+                    if html_path.exists():
+                        outgoing_links = extract_outgoing_links(html_path, Path(source_dir))
+                if not outgoing_links and text:
+                    md_links = extract_links_from_markdown(text, p, docs_dir)
+                    if md_links:
+                        outgoing_links = md_links
+            else:
+                text = (
+                    html_to_md_content(p)
+                    if p.suffix in (".html", "") or not p.suffix
+                    else ""
+                )
+                if not text or not text.strip():
+                    try:
+                        text = read_file_with_encoding_fallback(p)[:50000]
+                    except Exception:
+                        return None
+                if p.suffix in (".html", "") or not p.suffix:
+                    outgoing_links = extract_outgoing_links(p, base_for_links)
+            if not text or not text.strip():
+                return None
+            rel = p.relative_to(docs_dir)
+            rel_str = str(rel).replace("\\", "/")
+            title = (
+                text.split("\n")[0].strip().lstrip("#").strip()
+                or (p.stem if p.suffix else p.name)
+            )
+            return (rel_str, text, title, outgoing_links)
+        except Exception:
+            return None
 
     path_to_section: dict[str, tuple[str, list[str]]] = {}
     path_to_title: dict[str, str] = {}
@@ -281,40 +347,12 @@ def build_index(
                 file=sys.stderr,
                 flush=True,
             )
-        base_for_links = Path(source_dir) if source_dir else docs_dir
         for path in paths_to_index:
-            try:
-                outgoing_links: list[dict[str, Any]] = []
-                if path.suffix == ".md":
-                    text = read_file_with_encoding_fallback(path, encodings=_ENCODINGS_UTF8_FIRST)
-                    if source_dir:
-                        html_path = Path(source_dir) / path.relative_to(docs_dir).with_suffix(
-                            ".html"
-                        )
-                        if html_path.exists():
-                            outgoing_links = extract_outgoing_links(html_path, Path(source_dir))
-                    if not outgoing_links and text:
-                        md_links = extract_links_from_markdown(text, path, docs_dir)
-                        if md_links:
-                            outgoing_links = md_links
-                else:
-                    text = (
-                        html_to_md_content(path)
-                        if path.suffix in (".html", "") or not path.suffix
-                        else read_file_with_encoding_fallback(path)[:50000]
-                    )
-                    if path.suffix in (".html", "") or not path.suffix:
-                        outgoing_links = extract_outgoing_links(path, base_for_links)
-                if not text or not text.strip():
-                    continue
-                rel = path.relative_to(docs_dir)
-                rel_str = str(rel).replace("\\", "/")
-                title = text.split("\n")[0].strip().lstrip("#").strip() or (
-                    path.stem if path.suffix else path.name
-                )
-                all_items.append((rel_str, text, title, len(all_items), outgoing_links))
-            except Exception:
+            item = _read_one_item(path)
+            if item is None:
                 continue
+            rel_str, text, title, outgoing_links = item
+            all_items.append((rel_str, text, title, len(all_items), outgoing_links))
         if all_items:
             from .sparse_bm25 import bm25_vocab_path, build_bm25_vectors, save_vocab
 
@@ -355,48 +393,13 @@ def build_index(
             ]
         else:
             batch_paths = paths_to_index[batch_start : batch_start + batch_size]
-            base_for_links = Path(source_dir) if source_dir else docs_dir
             for path in batch_paths:
-                try:
-                    outgoing_links = []
-                    if path.suffix == ".md":
-                        text = read_file_with_encoding_fallback(
-                            path, encodings=_ENCODINGS_UTF8_FIRST
-                        )
-                        if source_dir:
-                            html_path = Path(source_dir) / path.relative_to(docs_dir).with_suffix(
-                                ".html"
-                            )
-                            if html_path.exists():
-                                outgoing_links = extract_outgoing_links(html_path, Path(source_dir))
-                        if not outgoing_links and text:
-                            md_links = extract_links_from_markdown(text, path, docs_dir)
-                            if md_links:
-                                outgoing_links = md_links
-                    else:
-                        text = (
-                            html_to_md_content(path)
-                            if path.suffix == ".html" or not path.suffix
-                            else ""
-                        )
-                        if not text:
-                            try:
-                                text = read_file_with_encoding_fallback(path)[:50000]
-                            except Exception:
-                                continue
-                        if path.suffix in (".html", "") or not path.suffix:
-                            outgoing_links = extract_outgoing_links(path, base_for_links)
-                    if not text or not text.strip():
-                        continue
-                    rel = path.relative_to(docs_dir)
-                    rel_str = str(rel).replace("\\", "/")
-                    title = text.split("\n")[0].strip().lstrip("#").strip() or (
-                        path.stem if path.suffix else path.name
-                    )
-                    point_index = total + len(items)
-                    items.append((rel_str, text, title, point_index, outgoing_links))
-                except Exception:
+                item = _read_one_item(path)
+                if item is None:
                     continue
+                rel_str, text, title, outgoing_links = item
+                point_index = total + len(items)
+                items.append((rel_str, text, title, point_index, outgoing_links))
         if not items:
             continue
         if progress_callback and callable(progress_callback):
@@ -512,7 +515,7 @@ def build_index(
                     sparse_vectors_config=sparse_config,
                 )
             collection_created = True
-        client.upsert(collection_name=collection, points=points)
+        _upsert_batch_with_retry(client, collection, points)
         total += len(points)
         if progress_callback and callable(progress_callback):
             try:
@@ -546,7 +549,7 @@ def get_index_status(
         return {"exists": False, "points_count": 0, "collection": collection}
     try:
         info = client.get_collection(collection)
-        points_count = getattr(info, "points_count", None) or getattr(info, "pointsCount", 0)
+        points_count = _collection_info_int(info, "points_count", "pointsCount")
     except Exception as e:
         return {
             "exists": True,
@@ -583,11 +586,23 @@ def get_index_status(
     return out
 
 
+def _collection_info_int(info: Any, *keys: str) -> int:
+    """Get first available int from collection info (Pydantic/dict), for points_count, indexed_vectors_count, segments_count."""
+    for key in keys:
+        v = getattr(info, key, None)
+        if v is None and isinstance(info, dict):
+            v = info.get(key)
+        if v is not None and isinstance(v, int):
+            return v
+    return 0
+
+
 def get_all_collections_status(
     qdrant_host: str | None = None,
     qdrant_port: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Return status for all Qdrant collections: name, points_count, indexed_vectors_count, segments_count."""
+    """Return status for all Qdrant collections: name, points_count, indexed_vectors_count, segments_count.
+    Always reads current state from Qdrant API (no cache)."""
     if QdrantClient is None:
         return []
     host = qdrant_host or os.environ.get("QDRANT_HOST", "localhost")
@@ -600,22 +615,22 @@ def get_all_collections_status(
     result: list[dict[str, Any]] = []
     try:
         resp = client.get_collections()
-        collections = getattr(resp, "collections", None) or []
-        for c in collections:
-            name = getattr(c, "name", None) or str(c)
+        raw_list = getattr(resp, "collections", None) or []
+        for c in raw_list:
+            name = getattr(c, "name", None)
+            if name is None and isinstance(c, dict):
+                name = c.get("name")
+            if not name:
+                name = str(c) if c else ""
             if not name:
                 continue
             try:
                 info = client.get_collection(name)
-                pts = getattr(info, "points_count", None) or getattr(info, "pointsCount", 0) or 0
-                vecs = (
-                    getattr(info, "indexed_vectors_count", None)
-                    or getattr(info, "indexedVectorsCount", None)
-                    or pts
-                )
-                segs = (
-                    getattr(info, "segments_count", None) or getattr(info, "segmentsCount", 0) or 0
-                )
+                pts = _collection_info_int(info, "points_count", "pointsCount")
+                vecs = _collection_info_int(
+                    info, "indexed_vectors_count", "indexedVectorsCount"
+                ) or pts
+                segs = _collection_info_int(info, "segments_count", "segmentsCount")
                 result.append(
                     {
                         "name": name,

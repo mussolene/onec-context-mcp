@@ -27,15 +27,15 @@
 | 2 | **Python zipfile** | ZIP/deflate без внешних зависимостей |
 | 3 | **ZIP from offset** | .hbk с заголовком: ZIP начинается со смещения (1656, 2048, 1024, 512, 256, 4096, 8192 байт); `truncate_tail` — обрезка хвоста при «data after end» |
 | 4 | **unzip** (команда) | Резервный вариант для чистого ZIP |
-| 5 | **Scan local headers** | Встроенный ZIP с повреждённым/отсутствующим EOCD (schemui_ru, mapui_ru — формат FileStorage): сканирование `PK\x03\x04`, ручной разбор записей, zlib.decompress |
-| 6 | **HBK binary container** | Для .hbk: разбор бинарного контейнера (источник: [alkoleft/hbk-viewer](https://github.com/alkoleft/hbk-viewer)). Извлечение сущности FileStorage (ZIP) в каталог и, при наличии PackBlock, запись оглавления в `.toc.json` в том же каталоге. Индексер использует `.toc.json` для payload: `title`, `breadcrumb`, `section_path`, `entity_type`. |
+| 5 | **Scan local headers** | Встроенный ZIP с повреждённым/отсутствующим EOCD (schemui_ru, mapui_ru — формат FileStorage): сканирование `PK\x03\x04`, ручной разбор записей, zlib.decompress. При дубликатах имён файлов к имени добавляется суффикс `_n` (например `0_0`, `0_1`); TOC при этом не создаётся. |
+| 6 | **HBK binary container** | Для .hbk: разбор бинарного контейнера (источник: [alkoleft/hbk-viewer](https://github.com/alkoleft/hbk-viewer)). Извлечение сущности FileStorage (ZIP) в каталог и, при наличии PackBlock, запись оглавления в `.toc.json` в том же каталоге. Индексер использует `.toc.json` для payload: `title`, `breadcrumb`, `section_path`; поле `entity_type` в payload выводится по `section_path`/`breadcrumb` (см. §1.4), а не из поля `entity_type` в `.toc.json`. |
 
 При ошибке всех методов: `unpack` выводит подсказку; для диагностики — **`unpack-diag <file> -o /tmp/out`**: пробует каждый метод и печатает результат (7z l -slt, returncode, извлечено/нет). Используйте при «All unpack methods failed».
 
 ### 1.4 Оглавление (TOC) и payload
 
-- Если в каталоге распакованной справки есть **`.toc.json`** (список объектов с полями `path`, `title_ru`, `title_en`, `breadcrumb`, `entity_type`), индексер подмешивает их в payload точек: заголовок и цепочка навигации берутся из TOC, а не только из первого заголовка HTML/MD.
-- `.toc.json` создаётся при распаковке через метод 6 (HBK binary container) или вручную. Формат соответствует выходу парсера PackBlock (см. `toc_parser`, источник — hbk-viewer).
+- Если в каталоге распакованной справки есть **`.toc.json`** (список объектов с полями `path`, `title_ru`, `title_en`, `breadcrumb`, `entity_type`), индексер подмешивает в payload точек **заголовок** (`title`) и **цепочку навигации** (`breadcrumb`, `section_path`) из TOC, а не только из первого заголовка HTML/MD. Поле **`entity_type`** в payload индекса вычисляется по `section_path` и `breadcrumb` (по последним сегментам, см. `_infer_entity_type` в indexer), а не берётся из поля `entity_type` в `.toc.json`.
+- `.toc.json` создаётся при распаковке через метод 6 (HBK binary container) или вручную. Формат соответствует выходу парсера PackBlock (см. `toc_parser`, источник — hbk-viewer). При нескольких записях с одним `path` в flat-списке для сопоставления используется последнее вхождение («last wins»).
 
 ### 1.5 Поведение проекта
 
