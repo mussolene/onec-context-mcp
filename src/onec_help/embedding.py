@@ -38,6 +38,7 @@ RETRY_BASE_DELAY = 1.0
 _embedding_model = None
 
 _EMBEDDING_BACKEND = os.environ.get("EMBEDDING_BACKEND", "local").strip().lower()
+# Должна совпадать при индексации (ingest) и при поиске (MCP/search_index), иначе семантика ломается
 _EMBEDDING_MODEL = (
     os.environ.get("EMBEDDING_MODEL") or "paraphrase-multilingual-MiniLM-L12-v2"
 ).strip()

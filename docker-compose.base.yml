@@ -41,7 +41,7 @@ services:
       INGEST_CACHE_FILE: ${INGEST_CACHE_FILE:-/app/var/ingest_cache/ingest_cache.db}
       INGEST_FAILED_LOG: ${INGEST_FAILED_LOG:-/var/log/ingest_failed.log}
       EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-openai_api}
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-text-embedding-mxbai-embed-large-v1}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-paraphrase-multilingual-minilm-l12-v2.gguf}
       EMBEDDING_API_URL: ${EMBEDDING_API_URL:-http://host.docker.internal:1234/v1}
       EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
       EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-}
@@ -68,7 +68,7 @@ services:
       - ./data/standards:/data/standards
       - ./data/backup:/data/backup
       - ./data/bm25_vocab:/app/data/bm25_vocab
-    command: ["python", "-m", "onec_help", "mcp", "/data", "--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8050"]
+    command: ["python", "-m", "onec_help", "mcp", "/data", "--transport", "streamable-http", "--host", "0.0.0.0", "--port", "8050", "--path", "/mcp"]
     depends_on:
       qdrant:
         condition: service_healthy

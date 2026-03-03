@@ -8,6 +8,11 @@ services:
   mcp:
     environment:
       MCP_MODE: api
+      # Та же модель и бэкенд, что и у ingest-worker — иначе поиск (MCP) и индекс (ingest) будут в разных пространствах
+      EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-openai_api}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-paraphrase-multilingual-minilm-l12-v2.gguf}
+      EMBEDDING_API_URL: ${EMBEDDING_API_URL:-http://host.docker.internal:1234/v1}
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-}
 
   ingest-worker:
     build:
