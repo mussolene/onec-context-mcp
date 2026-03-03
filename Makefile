@@ -34,7 +34,7 @@ INGEST_SERVICE = ingest-worker
 INDEX_STATUS_SERVICE = mcp
 
 .PHONY: build build-full fetch-bsl-bridge parse-fastcode parse-helpf load-snippets load-snippets-from-project load-standards snippets
-.PHONY: up down up-full down-full bsl-start bsl-stop qdrant-logs qdrant-reset qdrant-backup qdrant-restore
+.PHONY: up down up-full down-full bsl-start bsl-stop qdrant-logs qdrant-reset qdrant-backup qdrant-restore ensure-data
 
 # bsl-bridge: локальный клон (Git URL в context не работает на Docker Windows)
 deps/mcp-bsl-lsp-bridge/.git/HEAD:
@@ -162,15 +162,20 @@ bsl-start: deps/mcp-bsl-lsp-bridge/.git/HEAD
 bsl-stop:
 	$(COMPOSE_BSL) stop
 
+# Создать каталоги data/ для bind-mount (qdrant, unpacked, ingest_cache и др.). После потери data/qdrant: make ensure-data && make up && make ingest
+ensure-data:
+	@mkdir -p data/qdrant data/unpacked data/ingest_cache data/snippets data/backup data/bm25_vocab data/standards
+	@echo "data/qdrant и остальные каталоги созданы."
+
 # При qdrant exit 101: логи и сброс данных. Использовать оба -f!
 qdrant-logs:
 	docker compose -f docker-compose.base.yml -f docker-compose.yml logs qdrant
 
-# Удалить data/qdrant и перезапустить (если qdrant падает с 101 — повреждённые данные)
+# Удалить data/qdrant и перезапустить (если qdrant падает с 101 — повреждённые данные). Индекс будет потерян — затем make ingest
 qdrant-reset:
 	-$(COMPOSE) stop qdrant
 	docker run --rm -v "$(CURDIR)/data:/data" alpine rm -rf /data/qdrant
-	@echo "data/qdrant удалён. Запустите: make up"
+	@echo "data/qdrant удалён. Запустите: make up && make ingest"
 
 # Снапшот коллекции → data/backup/onec_help-{timestamp}.snapshot (для миграции между хостами)
 qdrant-backup:
@@ -206,6 +211,7 @@ help:
 	@echo "  make down             Stop"
 	@echo "  make bsl-start        BSL LS bridge only (отдельно от up)"
 	@echo "  make bsl-stop         Stop BSL bridge"
+	@echo "  make ensure-data      Создать data/qdrant и др. (после потери базы)"
 	@echo "  make qdrant-logs      Логи qdrant (при exit 101)"
 	@echo "  make qdrant-reset     Удалить data/qdrant, перезапустить с пустым индексом"
 	@echo "  make qdrant-backup    Снапшот → data/backup/ (для миграции)"

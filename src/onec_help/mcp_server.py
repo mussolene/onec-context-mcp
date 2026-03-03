@@ -78,10 +78,11 @@ def _get_help_path() -> Path:
     if _HELP_PATH is None:
         import os
 
-        p = os.environ.get("HELP_PATH")
-        if not p:
-            raise RuntimeError("HELP_PATH not set")
-        return Path(p)
+        p = (os.environ.get("HELP_PATH") or "").strip()
+        if p:
+            return Path(p)
+        # Default: data/ relative to cwd — out-of-box without env
+        return Path("data").resolve()
     return _HELP_PATH
 
 

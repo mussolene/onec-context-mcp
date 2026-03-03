@@ -61,6 +61,7 @@ services:
       STANDARDS_DIR: ${STANDARDS_DIR:-}
     volumes:
       - /opt/1cv8:/opt/1cv8:ro
+      - ./data/unpacked:/data
       - ./data/qdrant:/qdrant_storage:ro
       - ./data/ingest_cache:/app/var/ingest_cache
       - ./data/snippets:/data/snippets

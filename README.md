@@ -51,7 +51,7 @@ pip install -e ".[dev]"
 
 ## Точка входа
 
-- **`ingest`** — загрузка и обновление индекса справки: поиск .hbk в каталогах (HELP_SOURCE_BASE / HELP_SOURCE_DIRS), распаковка, конвертация в Markdown, индексация в Qdrant. По хэшу кэшируется — при повторном запуске неизменённые файлы пропускаются.
+- **`ingest`** — загрузка и обновление индекса: поиск .hbk в каталогах (HELP_SOURCE_BASE), распаковка в **data/unpacked** (одна папка), конвертация в Markdown, индексация в Qdrant. По хэшу кэшируется. Чтобы использовать временную папку с удалением после индексации — задайте INGEST_USE_TEMP=1.
 - **`reinit --force`** — полная перезагрузка: очистка коллекций и кэша, затем init (ingest + load-snippets + load-standards). Используйте для «с нуля» или после смены формата данных.
 
 Остальные команды — вспомогательные (диагностика, один файл, только сниппеты и т.д.).
@@ -60,11 +60,11 @@ pip install -e ".[dev]"
 
 | Команда | Описание |
 |--------|----------|
-| **`ingest`** | Единая точка входа: распаковать .hbk из каталогов (HELP_SOURCE_BASE), построить Markdown, проиндексировать в Qdrant. Кэш по хэшу. Опции: `--no-cache`, `--embedding-batch-size`, `--embedding-workers` |
+| **`ingest`** | Распаковать .hbk в data/unpacked (DATA_UNPACKED_DIR), построить Markdown, проиндексировать в Qdrant. Кэш по хэшу. INGEST_USE_TEMP=1 — временная папка с удалением. Опции: `--no-cache`, `--embedding-batch-size`, `--embedding-workers` |
 | **`reinit [--force]`** | init (ingest + load-snippets + load-standards). С `--force` — сначала очистить коллекции и кэш, затем init. |
 | **`init`** | ingest + load-snippets + load-standards (без очистки). |
 | **`index-status`** | Статус индекса: число тем, эмбеддинги, размер БД; при запущенном ingest — прогресс, ETA |
-| **`mcp <directory>`** | MCP-сервер (stdio/HTTP; нужен fastmcp) |
+| **`mcp [directory]`** | MCP-сервер (stdio/HTTP; нужен fastmcp). Каталог по умолчанию: HELP_PATH или `data` |
 | **`unpack <archive> [--output-dir]`** | Распаковать один .hbk (для диагностики) |
 | **`unpack-diag <archive> [-o dir]`** | Диагностика распаковки при ошибках |
 | **`unpack-dir [source_dir] [-o output]`** | Распаковать все .hbk в каталог (без индексации) |
@@ -87,7 +87,9 @@ pip install -e ".[dev]"
 | `HELP_SOURCES_DIR` | То же, альтернативное имя | — |
 | `HELP_SOURCE_DIRS` | Список путей через запятую (ingest) | — |
 | `HELP_LANGUAGES` | Языки справки (ingest) | `ru` |
-| `HELP_INGEST_TEMP` | Временный каталог для ingest (если не задан — `$TMPDIR/help_ingest` или `tempfile.gettempdir()`) | — |
+| `DATA_UNPACKED_DIR` | Каталог распакованной справки (по умолчанию ingest пишет сюда) | `data/unpacked` |
+| `INGEST_USE_TEMP` | `1` — временная папка с удалением после индексации (старый режим) | 0 |
+| `HELP_INGEST_TEMP` | Временный каталог при INGEST_USE_TEMP=1 | — |
 | `INGEST_CACHE_FILE` | Путь к SQLite-кэшу: хэш .hbk, статус ingest. Ingest и index-status читают/пишут в одну БД. В Docker — `/app/var/ingest_cache/ingest_cache.db` (volume `ingest_cache`) | `data/ingest_cache/ingest_cache.db` |
 | `INGEST_SKIP_CACHE` | `1`/`true` — полная переиндексация без кэша (или `ingest --no-cache`) | — |
 | `HBK_LABELS` | Человекочитаемые метки: `1cv8:Справка 1С,shcntx:Синтаксис` | — |
@@ -98,8 +100,8 @@ pip install -e ".[dev]"
 | `MCP_PATH` | URL-путь эндпоинта MCP | `/mcp` |
 | `MCP_SNIPPET_MAX_CHARS` | Макс. символов сниппета в результатах поиска | `1200` |
 | `MCP_MAX_TOPIC_CHARS` | Макс. символов топика в get_1c_code_answer/search_with_content | `4000` |
-| `EMBEDDING_BACKEND` | Эмбеддинги: `local` (sentence-transformers), `openai_api` (внешний API), `deterministic` (детерминированные векторы 384 dim без модели — только БД) или `none` (плейсхолдер, только поиск по ключевым словам) | `openai_api` |
-| `EMBEDDING_MODEL` | Имя модели. Для openai_api (LM Studio): если такой модели нет на сервере, берётся первая из списка или популярная (text-text-embedding-mxbai-embed-large-v1, nomic-embed-text, all-MiniLM-L6-v2); для local — all-MiniLM-L6-v2 | `text-text-embedding-mxbai-embed-large-v1` (openai_api) |
+| `EMBEDDING_BACKEND` | Эмбеддинги: `local` (по умолчанию, sentence-transformers), `openai_api` (внешний API), `deterministic` (384 dim без модели) или `none` (плейсхолдер) | `local` |
+| `EMBEDDING_MODEL` | Имя модели. Для local — HuggingFace (по умолчанию paraphrase-multilingual-MiniLM-L12-v2); для openai_api — id в LM Studio. Размерность для local определяется автоматически. | `paraphrase-multilingual-MiniLM-L12-v2` |
 | `EMBEDDING_API_URL` | Для openai_api: базовый URL (по умолчанию LM Studio: `http://localhost:1234/v1` локально, в контейнере — `http://host.docker.internal:1234/v1`). При недоступности/ошибках используются плейсхолдер-векторы и семантический поиск ограничен | LM Studio: 1234 |
 | `EMBEDDING_API_KEY` | Ключ API (если нужен для openai_api) | — |
 | `EMBEDDING_DIMENSION` | Размерность при openai_api (если не задана — определяется по первому ответу API) | — |
@@ -125,7 +127,7 @@ pip install -e ".[dev]"
 | **docker compose** | Запуск в контейнерах (рекомендуется) |
 | **make** | Обёртки над compose; `make help` — полный список |
 
-**Быстрый старт (Docker):** `make up` → `make ingest` → MCP: http://localhost:8050/mcp. Данные в `./data/`.
+**Быстрый старт (Docker):** `make up` → `make ingest` → MCP: http://localhost:8050/mcp. Данные в `./data/`. Если пропала база (data/qdrant): `make ensure-data && make up && make ingest`. Локально: `python -m onec_help mcp` без аргументов использует каталог `data/` по умолчанию.
 
 ---
 
@@ -173,6 +175,7 @@ python -m onec_help mcp . --transport streamable-http --host 0.0.0.0 --port 8050
 | `make reinit ARGS='--force'` | Полная перезагрузка: очистка + ingest + snippets + standards |
 | `make init` | ingest + load-snippets + load-standards (без очистки) |
 | `make index-status` | Статус индекса |
+| `make ensure-data` | Создать data/qdrant и др. (после потери базы) |
 | `make load-snippets` | Загрузить сниппеты из SNIPPETS_DIR |
 | `make load-standards` | Загрузить стандарты (v8-code-style, v8std) |
 | `make snippets` | parse-fastcode + parse-helpf + load-snippets |

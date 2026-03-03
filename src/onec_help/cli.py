@@ -276,7 +276,7 @@ def _render_index_status_rich(
     header = " index-status " if not spinner else f" {spinner} index-status "
     line(f"┌{header.center(w - 2, '─')}┐")
 
-    # 1. Collections (all Qdrant)
+    # 1. Collections (Qdrant), live from API
     line(f"│ Collections (Qdrant) {''.rjust(w - 24)}│")
     if collections:
         total_pts = sum(
@@ -286,9 +286,11 @@ def _render_index_status_rich(
         )
         for c in collections:
             n = c.get("name", "?")
-            pts = c.get("points_count", "—")
-            vecs = c.get("indexed_vectors_count", pts)
-            segs = c.get("segments_count", "—")
+            pts = c.get("points_count") if c.get("points_count") is not None else "—"
+            vecs = c.get("indexed_vectors_count")
+            if vecs is None:
+                vecs = pts if isinstance(pts, int) else "—"
+            segs = c.get("segments_count") if c.get("segments_count") is not None else "—"
             line(f"│   {n}: {pts} pts, {vecs} vecs, {segs} segs".ljust(w - 1) + "│")
         if total_pts > 0:
             line(f"│   total: {total_pts} pts".ljust(w - 1) + "│")
@@ -885,9 +887,10 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     if getattr(args, "no_cache", False):
         os.environ["INGEST_SKIP_CACHE"] = "1"
     try:
-        if os.environ.get("INGEST_USE_UNPACKED", "").strip() == "1" and not getattr(
-            args, "dry_run", False
-        ):
+        # По умолчанию: распаковка в data/unpacked, индексация из неё (одна папка, без удаления).
+        # INGEST_USE_TEMP=1 — старый режим: временная папка с удалением после индексации.
+        use_temp = os.environ.get("INGEST_USE_TEMP", "").strip().lower() in ("1", "true", "yes")
+        if not use_temp and not getattr(args, "dry_run", False):
             from .ingest import run_ingest_from_unpacked, run_unpack_sync
 
             unpacked_dir = os.environ.get("DATA_UNPACKED_DIR", "data/unpacked")
@@ -1339,7 +1342,7 @@ def cmd_mcp(args: argparse.Namespace) -> int:
     path = getattr(args, "path", None) or os.environ.get("MCP_PATH", "/mcp")
     try:
         run_mcp(
-            help_path=Path(args.directory),
+            help_path=Path(args.directory or "data").resolve(),
             transport=transport,
             host=host,
             port=port,
@@ -2047,7 +2050,13 @@ def main() -> int:
 
     # mcp
     p_mcp = sub.add_parser("mcp", help="Run MCP server (stdio, sse, http, streamable-http)")
-    p_mcp.add_argument("directory", type=str, help="Directory with help (.md or HTML)")
+    p_mcp.add_argument(
+        "directory",
+        type=str,
+        nargs="?",
+        default=os.environ.get("HELP_PATH", "data"),
+        help="Directory with help (.md or HTML); default: HELP_PATH or 'data'",
+    )
     p_mcp.add_argument(
         "--transport",
         "-t",

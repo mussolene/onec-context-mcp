@@ -9,6 +9,15 @@ import pytest
 from onec_help import mcp_server
 
 
+def test_get_help_path_default_when_unset() -> None:
+    """When HELP_PATH is not set, _get_help_path returns data/ resolved from cwd."""
+    mcp_server._HELP_PATH = None
+    with patch.dict(os.environ, {"HELP_PATH": ""}, clear=False):
+        p = mcp_server._get_help_path()
+    assert p.name == "data"
+    assert p.is_absolute()
+
+
 def test_run_mcp_requires_fastmcp(help_sample_dir: Path) -> None:
     with patch.object(mcp_server, "_HAS_FASTMCP", False):
         with pytest.raises(RuntimeError, match="fastmcp"):
