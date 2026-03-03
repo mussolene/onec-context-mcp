@@ -57,6 +57,10 @@
 | EMBEDDING_BATCH_TIMEOUT | Таймаут batch-запроса (с) | max(timeout, 30 + batch/10) |
 | EMBEDDING_FORCE_BATCH | 1/true — макс. батч (256) и воркеры (16) | 0 |
 
+## Stemming и BM25
+
+**Стемминг не используется при эмбеддинге.** Текст в модель/API передаётся как есть (после sanitize и truncation). Стемминг (Snowball Russian) применяется только в **BM25** (sparse vectors для keyword-поиска) — см. `sparse_bm25.py`, переменная окружения `BM25_STEMMING=1`. Для эмбеддингов стемминг не нужен и ухудшил бы качество семантического поиска.
+
 ## Ingest: статус бэкенда
 
 При `ingest` или `index-status` backend отображается как `local`, `openai_api`, `deterministic` или `none`. Раньше deterministic показывался как `none` — исправлено в ingest.py (проверка `"deterministic"` в имени бэкенда).

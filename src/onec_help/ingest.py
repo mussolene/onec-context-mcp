@@ -1348,6 +1348,39 @@ def _collect_unpacked_tasks(unpacked_base: Path) -> list[tuple[Path, str, str, s
     return tasks
 
 
+def _status_writer_loop_from_unpacked(
+    stop_event: threading.Event,
+    state_lock: threading.Lock,
+    state: dict[str, Any],
+    interval_sec: float,
+) -> None:
+    """Background thread: write ingest status to SQLite every interval_sec for run_ingest_from_unpacked."""
+    while not stop_event.wait(timeout=interval_sec):
+        with state_lock:
+            if state.get("status") == "completed":
+                break
+            current = list(state.get("current") or [])
+            done_tasks = state["done_tasks"]
+            total_points = state["total_points"]
+            current_task_points = state.get("current_task_points") or 0
+            current_task_estimated = state.get("current_task_estimated_total")
+            completed_files = list(state.get("completed_files") or [])
+            folders = copy.deepcopy(state.get("folders") or [])
+        _write_ingest_status(
+            started_at=state["started_at"],
+            embedding_backend=state["embedding_backend"],
+            total_tasks=state["total_tasks"],
+            done_tasks=done_tasks,
+            total_points=total_points,
+            folders=folders,
+            status="in_progress",
+            current=current if current else None,
+            current_task_points=current_task_points if current_task_points > 0 else None,
+            current_task_estimated_total=current_task_estimated,
+            completed_files=completed_files,
+        )
+
+
 def run_ingest_from_unpacked(
     unpacked_base: Path | str,
     qdrant_host: str = "localhost",
@@ -1362,6 +1395,7 @@ def run_ingest_from_unpacked(
     """
     Index help from unpacked dir (data/unpacked structure).
     Scans version/stem dirs, uses path_prefix for payload path.
+    Writes ingest status to SQLite so index-status shows current file and progress.
     Returns total points indexed.
     """
     from qdrant_client import QdrantClient
@@ -1375,6 +1409,49 @@ def run_ingest_from_unpacked(
     tasks = _collect_unpacked_tasks(base)
     if not tasks:
         return 0
+
+    embedding_backend = (os.environ.get("EMBEDDING_BACKEND") or "local").strip().lower()
+    if embedding_backend not in ("local", "openai_api", "deterministic"):
+        embedding_backend = "none"
+    started_at = time.time()
+    folders = [
+        {"version": v, "language": lang, "hbk_count": 1, "tasks_done": 0, "points": 0}
+        for _, v, _, lang in tasks
+    ]
+    state_lock = threading.Lock()
+    state: dict[str, Any] = {
+        "started_at": started_at,
+        "embedding_backend": embedding_backend,
+        "total_tasks": len(tasks),
+        "done_tasks": 0,
+        "total_points": 0,
+        "current": [],
+        "current_task_points": 0,
+        "current_task_estimated_total": None,
+        "completed_files": [],
+        "folders": folders,
+        "status": "in_progress",
+    }
+    interval_sec = float(
+        os.environ.get("INDEX_STATUS_INTERVAL_SEC", str(STATUS_UPDATE_INTERVAL_SEC))
+    )
+    stop_event = threading.Event()
+    writer = threading.Thread(
+        target=_status_writer_loop_from_unpacked,
+        args=(stop_event, state_lock, state, interval_sec),
+        daemon=True,
+    )
+    writer.start()
+    _write_ingest_status(
+        started_at=started_at,
+        embedding_backend=embedding_backend,
+        total_tasks=len(tasks),
+        done_tasks=0,
+        total_points=0,
+        folders=folders,
+        status="in_progress",
+    )
+
     if incremental:
         try:
             client = QdrantClient(host=qdrant_host, port=qdrant_port, check_compatibility=False)
@@ -1391,8 +1468,29 @@ def run_ingest_from_unpacked(
             if verbose:
                 _log(f"[ingest-from-unpacked] WARN: {safe_error_message(e)}")
     total = 0
-    for docs_dir, version, stem, language in tasks:
+    for task_index, (docs_dir, version, stem, language) in enumerate(tasks):
         path_prefix = f"{version}/{stem}"
+        current_entry = {
+            "path": path_prefix,
+            "version": version,
+            "language": language,
+            "stage": "indexing",
+        }
+        with state_lock:
+            state["current"] = [current_entry]
+
+        def _on_batch(
+            pts: int,
+            phase: str | None = None,
+            total_estimated: int | None = None,
+        ) -> None:
+            with state_lock:
+                state["current_task_points"] = pts
+                if total_estimated is not None:
+                    state["current_task_estimated_total"] = total_estimated
+                if state["current"] and phase:
+                    state["current"][0]["stage"] = phase or "indexing"
+
         try:
             n = build_index(
                 docs_dir=docs_dir,
@@ -1406,13 +1504,62 @@ def run_ingest_from_unpacked(
                 embedding_batch_size=embedding_batch_size,
                 embedding_workers=embedding_workers,
                 bm25=bm25,
+                progress_callback=_on_batch,
             )
             total += n
+            with state_lock:
+                state["done_tasks"] = task_index + 1
+                state["total_points"] = total
+                state["current"] = []
+                state["current_task_points"] = 0
+                state["current_task_estimated_total"] = None
+                state["completed_files"].append(
+                    {
+                        "path": path_prefix,
+                        "version": version,
+                        "language": language,
+                        "points": n,
+                        "status": "ok",
+                    }
+                )
+                if task_index < len(state["folders"]):
+                    state["folders"][task_index]["tasks_done"] = 1
+                    state["folders"][task_index]["points"] = n
             if verbose:
                 _log(f"[ingest-from-unpacked] {path_prefix}: {n} points")
         except Exception as e:
             if verbose:
                 _log(f"[ingest-from-unpacked] skip {path_prefix}: {safe_error_message(e)}")
+            with state_lock:
+                state["done_tasks"] = task_index + 1
+                state["current"] = []
+                state["current_task_points"] = 0
+                state["current_task_estimated_total"] = None
+                state["completed_files"].append(
+                    {
+                        "path": path_prefix,
+                        "version": version,
+                        "language": language,
+                        "points": 0,
+                        "status": "fail",
+                    }
+                )
+
+    with state_lock:
+        state["status"] = "completed"
+    _write_ingest_status(
+        started_at=started_at,
+        embedding_backend=embedding_backend,
+        total_tasks=len(tasks),
+        done_tasks=len(tasks),
+        total_points=total,
+        folders=state["folders"],
+        status="completed",
+        finished_at=time.time(),
+        completed_files=state["completed_files"],
+    )
+    stop_event.set()
+    writer.join(timeout=interval_sec * 2)
     return total
 
 

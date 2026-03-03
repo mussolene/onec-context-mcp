@@ -109,7 +109,7 @@ pip install -e ".[dev]"
 | `EMBEDDING_WORKERS` | Число параллельных запросов к внешнему API (только openai_api). По умолчанию 4 | `4` |
 | `EMBEDDING_FORCE_BATCH` | Максимальная мощность: `1`/`true`/`yes` — батч 256 и 16 воркеров для любого типа embedding | — |
 | `EMBEDDING_MAX_CONCURRENT` | Макс. одновременных запросов к API (при ingest с несколькими воркерами снижает перегрузку LM Studio) | — |
-| `BM25_ENABLED` | BM25 sparse vectors для keyword-поиска (по умолчанию 1). 0 — отключить. `add-bm25` — миграция без re-ingest | `1` |
+| `BM25_ENABLED` | BM25 sparse vectors для keyword-поиска (по умолчанию 1). 0 — отключить. При инкрементальном ingest BM25 не строится (нужен полный корпус) — после ingest выполните `make add-bm25` | `1` |
 | `EMBEDDING_TIMEOUT` | Таймаут HTTP-запроса к API (секунды). При ошибке — retry с backoff, затем плейсхолдер | `60` |
 | `EMBEDDING_BATCH_TIMEOUT` | Таймаут для batch-запроса (секунды). По умолчанию — формула от размера батча | — |
 | `MCP_MODE` | `api` — только MCP (split, по умолчанию); `full` — всё в mcp (один контейнер) | `api` |

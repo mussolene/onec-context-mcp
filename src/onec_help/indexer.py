@@ -334,6 +334,8 @@ def build_index(
     if embedding_workers is None:
         embedding_workers = embedding._embedding_workers()
 
+    # BM25 requires full corpus (vocab/IDF); with incremental we add folder-by-folder, so skip here.
+    # Use add-bm25 command after ingest to build BM25 on existing collection, or run ingest with --recreate once.
     use_bm25 = (bm25 if bm25 is not None else _bm25_enabled()) and not incremental
     vectors_bm25: list[dict[str, Any]] = []
     vocab_bm25: dict[str, int] = {}
