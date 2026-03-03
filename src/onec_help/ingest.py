@@ -235,6 +235,73 @@ def _init_ingest_status_tables(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _error_category_and_stored_message(err: str) -> tuple[str, str]:
+    """Return (error_category, error_message) for storing in ingest_failed."""
+    err = (err or "")[:500]
+    if "unpack" in err.lower() or "7z" in err:
+        cat = "unpack"
+        return cat, err
+    if "embed" in err.lower() or "429" in err or "timeout" in err.lower():
+        hint = " Рекомендация: проверьте EMBEDDING_API_URL, EMBEDDING_TIMEOUT; перезапустите ingest."
+        stored = (err[:450] + hint) if len(err) + len(hint) > 500 else err + hint
+        return "embed", stored[:500]
+    if "qdrant" in err.lower() or "upsert" in err.lower():
+        return "index", err
+    if "build" in err.lower() or "html" in err.lower():
+        return "build", err
+    return "other", err
+
+
+def _create_ingest_run(started_at: float, embedding_backend: str, total_tasks: int) -> int | None:
+    """Create an in_progress row in ingest_runs; return run_id. Errors -> None."""
+    path = _ingest_cache_path()
+    try:
+        conn = sqlite3.connect(path, timeout=_sqlite_timeout())
+        _init_ingest_status_tables(conn)
+        conn.execute(
+            f"""INSERT INTO {_STATUS_TABLE_RUNS}
+                (started_at, finished_at, status, total_tasks, done_tasks, total_points,
+                 failed_count, embedding_backend, total_elapsed_sec)
+                VALUES (?, ?, 'in_progress', ?, 0, 0, 0, ?, 0)""",
+            (started_at, started_at, total_tasks, embedding_backend or "none"),
+        )
+        run_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        conn.commit()
+        conn.close()
+        return run_id
+    except (OSError, sqlite3.Error) as e:
+        _log_status_error("create run", e)
+        return None
+
+
+def _append_failed_to_cache(run_id: int, task: dict[str, Any]) -> None:
+    """Append one failed task to ingest_failed immediately so errors survive process kill."""
+    path = _ingest_cache_path()
+    err = (task.get("error") or "")[:500]
+    cat, err_stored = _error_category_and_stored_message(err)
+    path_for_db = task.get("path_full") or task.get("path", "")
+    try:
+        conn = sqlite3.connect(path, timeout=_sqlite_timeout())
+        _init_ingest_status_tables(conn)
+        conn.execute(
+            f"""INSERT INTO {_STATUS_TABLE_FAILED}
+                (run_id, version, language, path, error, error_category)
+                VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                run_id,
+                task.get("version", ""),
+                task.get("language", ""),
+                path_for_db,
+                err_stored[:500],
+                cat,
+            ),
+        )
+        conn.commit()
+        conn.close()
+    except (OSError, sqlite3.Error) as e:
+        _log_status_error("append failed", e)
+
+
 def _persist_ingest_status_sqlite(
     *,
     started_at: float,
@@ -252,8 +319,9 @@ def _persist_ingest_status_sqlite(
     completed_files: list[dict[str, Any]] | None = None,
     max_workers: int | None = None,
     embedding_workers: int | None = None,
+    run_id: int | None = None,
 ) -> None:
-    """Persist ingest status to SQLite (ingest_current). On completion, append to ingest_runs."""
+    """Persist ingest status to SQLite (ingest_current). On completion, update ingest_runs if run_id set else insert; failed_tasks already in DB when run_id used."""
     path = _ingest_cache_path()
     elapsed = time.time() - started_at
     payload: dict[str, Any] = {
@@ -309,56 +377,60 @@ def _persist_ingest_status_sqlite(
         payload_json = json.dumps(payload, ensure_ascii=False)
 
         if status == "completed":
-            # Insert into ingest_runs and clear ingest_current
-            run_id = conn.execute(
-                f"""INSERT INTO {_STATUS_TABLE_RUNS}
-                    (started_at, finished_at, status, total_tasks, done_tasks, total_points,
-                     failed_count, embedding_backend, total_elapsed_sec)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    started_at,
-                    finished_at,
-                    status,
-                    total_tasks,
-                    done_tasks,
-                    total_points,
-                    failed_count,
-                    embedding_backend or "none",
-                    finished_at - started_at if finished_at else None,
-                ),
-            ).lastrowid
-            if run_id and failed_tasks:
-                for ft in failed_tasks:
-                    err = ft.get("error", "") or ""
-                    cat = "unpack" if "unpack" in err.lower() or "7z" in err else "other"
-                    if "embed" in err.lower() or "429" in err or "timeout" in err.lower():
-                        cat = "embed"
-                        hint = " Рекомендация: проверьте EMBEDDING_API_URL, EMBEDDING_TIMEOUT; перезапустите ingest."
-                        err_stored = (
-                            (err[:450] + hint) if len(err) + len(hint) > 500 else err + hint
+            # Update existing run (errors already in ingest_failed) or insert new run + failed rows
+            if run_id is not None:
+                conn.execute(
+                    f"""UPDATE {_STATUS_TABLE_RUNS} SET
+                        finished_at = ?, status = ?, done_tasks = ?, total_points = ?,
+                        failed_count = ?, total_elapsed_sec = ?
+                        WHERE id = ?""",
+                    (
+                        finished_at,
+                        status,
+                        done_tasks,
+                        total_points,
+                        failed_count,
+                        finished_at - started_at if finished_at else None,
+                        run_id,
+                    ),
+                )
+            else:
+                conn.execute(
+                    f"""INSERT INTO {_STATUS_TABLE_RUNS}
+                        (started_at, finished_at, status, total_tasks, done_tasks, total_points,
+                         failed_count, embedding_backend, total_elapsed_sec)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        started_at,
+                        finished_at,
+                        status,
+                        total_tasks,
+                        done_tasks,
+                        total_points,
+                        failed_count,
+                        embedding_backend or "none",
+                        finished_at - started_at if finished_at else None,
+                    ),
+                )
+                rid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+                if rid and failed_tasks:
+                    for ft in failed_tasks:
+                        err = ft.get("error", "") or ""
+                        cat, err_stored = _error_category_and_stored_message(err)
+                        path_for_db = ft.get("path_full") or ft.get("path", "")
+                        conn.execute(
+                            f"""INSERT INTO {_STATUS_TABLE_FAILED}
+                                (run_id, version, language, path, error, error_category)
+                                VALUES (?, ?, ?, ?, ?, ?)""",
+                            (
+                                rid,
+                                ft.get("version", ""),
+                                ft.get("language", ""),
+                                path_for_db,
+                                err_stored[:500],
+                                cat,
+                            ),
                         )
-                    elif "qdrant" in err.lower() or "upsert" in err.lower():
-                        cat = "index"
-                        err_stored = err[:500]
-                    elif "build" in err.lower() or "html" in err.lower():
-                        cat = "build"
-                        err_stored = err[:500]
-                    else:
-                        err_stored = err[:500]
-                    path_for_db = ft.get("path_full") or ft.get("path", "")
-                    conn.execute(
-                        f"""INSERT INTO {_STATUS_TABLE_FAILED}
-                            (run_id, version, language, path, error, error_category)
-                            VALUES (?, ?, ?, ?, ?, ?)""",
-                        (
-                            run_id,
-                            ft.get("version", ""),
-                            ft.get("language", ""),
-                            path_for_db,
-                            err_stored[:500],
-                            cat,
-                        ),
-                    )
             # Trim old runs
             cursor = conn.execute(
                 f"SELECT id FROM {_STATUS_TABLE_RUNS} ORDER BY id DESC LIMIT 1 OFFSET {_INGEST_RUNS_LIMIT}"
@@ -458,6 +530,7 @@ def _write_ingest_status(
     completed_files: list[dict[str, Any]] | None = None,
     max_workers: int | None = None,
     embedding_workers: int | None = None,
+    run_id: int | None = None,
 ) -> None:
     """Write ingest status to SQLite cache DB for index-status command."""
     _persist_ingest_status_sqlite(
@@ -476,6 +549,7 @@ def _write_ingest_status(
         completed_files=completed_files,
         max_workers=max_workers,
         embedding_workers=embedding_workers,
+        run_id=run_id,
     )
 
 
@@ -837,6 +911,7 @@ def run_ingest(
     current_work: dict[int, dict[str, Any]] = {}
     failed_tasks_list: list[dict[str, Any]] = []
     completed_files: list[dict[str, Any]] = list(skipped_files)
+    run_id = _create_ingest_run(started_at, embedding_backend, len(tasks))
     state: dict[str, Any] = {
         "done_tasks": 0,
         "total_points": 0,
@@ -852,6 +927,7 @@ def run_ingest(
         "current_task_estimated_total": None,
         "max_workers": max_workers,
         "embedding_workers": embedding_workers,
+        "run_id": run_id,
     }
     interval_sec = float(
         os.environ.get("INDEX_STATUS_INTERVAL_SEC", str(STATUS_UPDATE_INTERVAL_SEC))
@@ -904,16 +980,16 @@ def run_ingest(
                 if md_dir is None or not md_dir.exists():
                     reason = (err_msg or "unknown").split("\n")[0].strip()[:200]
                     failed.append((path_hbk, version, language, err_msg or "unknown"))
+                    fail_entry = {
+                        "path": path_hbk.name,
+                        "path_full": str(path_hbk),
+                        "version": version,
+                        "language": language,
+                        "error": (err_msg or "unknown").split("\n")[0].strip()[:200],
+                    }
                     with state_lock:
-                        failed_tasks_list.append(
-                            {
-                                "path": path_hbk.name,
-                                "path_full": str(path_hbk),
-                                "version": version,
-                                "language": language,
-                                "error": (err_msg or "unknown").split("\n")[0].strip()[:200],
-                            }
-                        )
+                        failed_tasks_list.append(fail_entry)
+                        rid = state.get("run_id")
                         completed_files.append(
                             {
                                 "path": path_hbk.name,
@@ -930,6 +1006,8 @@ def run_ingest(
                             if fo["tasks_done"] + fo["err_count"] >= fo["hbk_count"]:
                                 fo["status"] = "done"
                             break
+                    if rid is not None:
+                        _append_failed_to_cache(rid, fail_entry)
                     with state_lock:
                         state["done_tasks"] = done
                         state["total_points"] = total_indexed
@@ -1063,16 +1141,16 @@ def run_ingest(
                             " [Qdrant 500: проверьте make qdrant-logs; "
                             "размерность векторов (EMBEDDING_DIMENSION); уменьшите index_batch_size]"
                         )
+                    fail_entry = {
+                        "path": path_hbk.name,
+                        "path_full": str(path_hbk),
+                        "version": version,
+                        "language": language,
+                        "error": err_msg,
+                    }
                     with state_lock:
-                        failed_tasks_list.append(
-                            {
-                                "path": path_hbk.name,
-                                "path_full": str(path_hbk),
-                                "version": version,
-                                "language": language,
-                                "error": err_msg,
-                            }
-                        )
+                        failed_tasks_list.append(fail_entry)
+                        rid = state.get("run_id")
                         completed_files.append(
                             {
                                 "path": path_hbk.name,
@@ -1085,6 +1163,8 @@ def run_ingest(
                         failed.append((path_hbk, version, language, err_msg))
                         state["done_tasks"] = done
                         state["total_points"] = total_indexed
+                    if rid is not None:
+                        _append_failed_to_cache(rid, fail_entry)
                     for fo in folders:
                         if fo["version"] == version and fo["language"] == language:
                             fo["err_count"] = fo.get("err_count", 0) + 1
@@ -1137,6 +1217,7 @@ def run_ingest(
             completed_files=completed_files,
             max_workers=max_workers,
             embedding_workers=embedding_workers,
+            run_id=state.get("run_id"),
         )
         _vacuum_cache_db()
         try:
@@ -1420,6 +1501,7 @@ def run_ingest_from_unpacked(
     if embedding_backend not in ("local", "openai_api", "deterministic"):
         embedding_backend = "none"
     started_at = time.time()
+    run_id = _create_ingest_run(started_at, embedding_backend, len(tasks))
     folders = [
         {"version": v, "language": lang, "hbk_count": 1, "tasks_done": 0, "points": 0}
         for _, v, _, lang in tasks
@@ -1437,6 +1519,8 @@ def run_ingest_from_unpacked(
         "completed_files": [],
         "folders": folders,
         "status": "in_progress",
+        "run_id": run_id,
+        "failed": [],
     }
     interval_sec = float(
         os.environ.get("INDEX_STATUS_INTERVAL_SEC", str(STATUS_UPDATE_INTERVAL_SEC))
@@ -1536,7 +1620,17 @@ def run_ingest_from_unpacked(
         except Exception as e:
             if verbose:
                 _log(f"[ingest-from-unpacked] skip {path_prefix}: {safe_error_message(e)}")
+            err_msg = f"{type(e).__name__}: {e}"
+            fail_entry = {
+                "path": path_prefix,
+                "path_full": path_prefix,
+                "version": version,
+                "language": language,
+                "error": err_msg[:500],
+            }
             with state_lock:
+                state["failed"].append(fail_entry)
+                rid = state.get("run_id")
                 state["done_tasks"] = task_index + 1
                 state["current"] = []
                 state["current_task_points"] = 0
@@ -1550,6 +1644,8 @@ def run_ingest_from_unpacked(
                         "status": "fail",
                     }
                 )
+            if rid is not None:
+                _append_failed_to_cache(rid, fail_entry)
 
     with state_lock:
         state["status"] = "completed"
@@ -1563,6 +1659,8 @@ def run_ingest_from_unpacked(
         status="completed",
         finished_at=time.time(),
         completed_files=state["completed_files"],
+        failed_tasks=state.get("failed", []),
+        run_id=state.get("run_id"),
     )
     stop_event.set()
     writer.join(timeout=interval_sec * 2)

@@ -6,7 +6,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from onec_help.ingest import (
+    _append_failed_to_cache,
     _collect_unpacked_tasks,
+    _create_ingest_run,
     _file_sha256,
     _hbk_label_from_stem,
     _ingest_cache_key,
@@ -281,6 +283,28 @@ def test_read_last_ingest_failed(tmp_path: Path) -> None:
     assert out[0]["path"] == "a.hbk"
     assert out[0]["error"] == "unpack failed"
     assert out[0]["version"] == "8.3"
+
+
+def test_failed_tasks_written_to_cache_before_run_completes(tmp_path: Path) -> None:
+    """Errors are written to ingest_failed as they occur; read_last_ingest_failed returns them even for in_progress run."""
+    cache_db = tmp_path / "cache.db"
+    with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_db)}, clear=False):
+        run_id = _create_ingest_run(started_at=1000.0, embedding_backend="openai_api", total_tasks=5)
+        assert run_id is not None
+        _append_failed_to_cache(
+            run_id,
+            {
+                "path": "shcntx_ru.hbk",
+                "path_full": "/sources/8.2/shcntx_ru.hbk",
+                "version": "8.2.19.130",
+                "language": "ru",
+                "error": "TimeoutError: embedding API slot not available within 300s",
+            },
+        )
+        out = read_last_ingest_failed(limit=10)
+    assert len(out) == 1
+    assert "shcntx_ru" in out[0]["path"]
+    assert "embedding" in out[0]["error"].lower() or "timeout" in out[0]["error"].lower()
 
 
 def test_read_last_ingest_failed_empty(tmp_path: Path) -> None:
