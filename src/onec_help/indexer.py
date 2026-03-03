@@ -35,6 +35,10 @@ except ImportError:
     Modifier = None  # type: ignore
 
 from ._utils import path_inside_base, safe_error_message
+from .toc_parser import (
+    load_toc_json,
+    path_to_section_and_title_from_toc,
+)
 
 COLLECTION_NAME = "onec_help"
 SNIPPET_MAX_CHARS = 850
@@ -220,15 +224,25 @@ def build_index(
     max_input_chars = embedding.MAX_EMBEDDING_INPUT_CHARS
 
     path_to_section: dict[str, tuple[str, list[str]]] = {}
+    path_to_title: dict[str, str] = {}
     if source_dir:
-        root = find_categories_root(Path(source_dir))
-        if root:
+        src = Path(source_dir)
+        toc_path = src / ".toc.json"
+        flat = load_toc_json(toc_path)
+        if flat:
             try:
-                struct = parse_content_file(root / "__categories__")
-                tree = build_tree(root, struct)
-                path_to_section = _build_path_to_section(tree)
+                path_to_section, path_to_title = path_to_section_and_title_from_toc(flat)
             except Exception as e:
-                logging.getLogger(__name__).debug("build path_to_section failed: %s", e)
+                logging.getLogger(__name__).debug("load .toc.json failed: %s", e)
+        if not path_to_section:
+            root = find_categories_root(src)
+            if root:
+                try:
+                    struct = parse_content_file(root / "__categories__")
+                    tree = build_tree(root, struct)
+                    path_to_section = _build_path_to_section(tree)
+                except Exception as e:
+                    logging.getLogger(__name__).debug("build path_to_section failed: %s", e)
 
     paths_to_index: list[Path] = []
     for path in docs_dir.rglob("*.md"):
@@ -427,7 +441,18 @@ def build_index(
                 if incremental
                 else point_index
             )
-            payload = {"path": path_for_payload, "text": text[:50000], "title": title}
+            stem = Path(rel_str).stem
+            title_from_toc = None
+            if path_to_title:
+                for key in (rel_str, stem, rel_str.replace(".md", ".html")):
+                    if key in path_to_title:
+                        title_from_toc = path_to_title[key]
+                        break
+            payload = {
+                "path": path_for_payload,
+                "text": text[:50000],
+                "title": title_from_toc if title_from_toc else title,
+            }
             payload.update(extra)
             if outgoing_links:
                 prefix = (path_prefix or "").strip().rstrip("/")
@@ -445,7 +470,6 @@ def build_index(
             )[:50]
             if kw:
                 payload["keywords"] = kw
-            stem = Path(rel_str).stem
             if path_to_section:
                 for key in (rel_str, stem, rel_str.replace(".md", ".html")):
                     if key in path_to_section:

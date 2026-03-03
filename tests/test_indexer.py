@@ -143,6 +143,37 @@ def test_build_index(mock_client: MagicMock, help_sample_dir: Path, tmp_path: Pa
 
 
 @patch("onec_help.indexer.QdrantClient")
+def test_build_index_uses_toc_json(mock_client: MagicMock, tmp_path: Path) -> None:
+    """When source_dir has .toc.json, payload uses title/section_path/breadcrumb from TOC."""
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "one.md").write_text("# Fallback\n\nBody.", encoding="utf-8")
+    toc = tmp_path / "source"
+    toc.mkdir()
+    (toc / ".toc.json").write_text(
+        '[{"path": "one.html", "title_ru": "From TOC", "title_en": "From TOC en", '
+        '"breadcrumb": ["Раздел", "Страница"], "entity_type": "topic"}]',
+        encoding="utf-8",
+    )
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    n = build_index(
+        docs,
+        qdrant_host="localhost",
+        qdrant_port=6333,
+        source_dir=str(toc),
+    )
+    assert n >= 1
+    call = mock_instance.upsert.call_args
+    points = call.kwargs.get("points", call.args[0] if call.args else [])
+    assert points
+    payload = points[0].payload if hasattr(points[0], "payload") else {}
+    assert payload.get("title") == "From TOC"
+    assert payload.get("breadcrumb") == ["Раздел", "Страница"]
+    assert "section_path" in payload
+
+
+@patch("onec_help.indexer.QdrantClient")
 def test_build_index_keywords_in_payload(mock_client: MagicMock, tmp_path: Path) -> None:
     """build_index adds keywords from title and first paragraph to payload."""
     (tmp_path / "func.md").write_text(

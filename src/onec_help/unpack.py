@@ -181,8 +181,41 @@ def unpack_hbk(path_to_hbk, output_dir) -> None:
     if _try_zipfile_scan_local_headers(path_to_hbk, output_dir):
         return
 
+    # 6) HBK binary container (source: alkoleft/hbk-viewer) — FileStorage + PackBlock TOC
+    if path_to_hbk.suffix.lower() == ".hbk":
+        try:
+            from .hbk_container import (
+                extract_filestorage_bytes,
+                extract_packblock_toc_bytes,
+                read_container_from_path,
+            )
+            from .toc_parser import (
+                parse_toc_content,
+                save_toc_json,
+                toc_chunks_to_flat,
+            )
+
+            entities = read_container_from_path(path_to_hbk)
+            fs = extract_filestorage_bytes(entities)
+            if fs:
+                with zipfile.ZipFile(BytesIO(fs), "r") as z:
+                    z.extractall(output_dir)
+                toc_bytes = extract_packblock_toc_bytes(entities)
+                if toc_bytes:
+                    try:
+                        content = toc_bytes.decode("utf-8")
+                        chunks = parse_toc_content(content)
+                        flat = toc_chunks_to_flat(chunks)
+                        if flat:
+                            save_toc_json(output_dir / ".toc.json", flat)
+                    except (ValueError, UnicodeDecodeError):
+                        pass
+                return
+        except (ImportError, FileNotFoundError, ValueError, OSError):
+            pass
+
     err = (result.stderr or result.stdout or "").strip() if result else ""
-    tried = "Tried: 7z, Python zipfile, zip from offset, unzip, scan local headers."
+    tried = "Tried: 7z, Python zipfile, zip from offset, unzip, scan local headers, HBK container."
     if path_to_hbk.suffix.lower() == ".hbk":
         raise RuntimeError(
             f"All unpack methods failed. {tried} "

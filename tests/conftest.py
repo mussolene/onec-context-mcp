@@ -19,6 +19,7 @@ def _ensure_onec_help_submodules():
         "memory",
         "parse_fastcode",
         "standards_loader",
+        "toc_parser",
         "unpack",
         "watchdog",
     ):
