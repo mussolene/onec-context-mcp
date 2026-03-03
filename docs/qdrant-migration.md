@@ -42,15 +42,9 @@ python -m onec_help qdrant-restore -f data/backup/onec_help-20260302-120000.snap
 
 ---
 
-## Миграция на TOC (новый payload)
+## Переиндексация (новый payload, TOC)
 
-После перехода на разбор по TOC (распаковка через HBK binary container или ручное добавление `.toc.json`) нужно переиндексировать справку, чтобы в payload попали `breadcrumb`, `section_path`, `title` из TOC и корректный `entity_type`.
-
-1. Очистить коллекции и кэш: **`reinit --force`** (локально или в контейнере).
-2. Запустить загрузку: **init** или **ingest** / **ingest-from-unpacked** (при использовании `data/unpacked`).
-3. Проверить MCP: вызовы `get_1c_help_topic`, `search_1c_help_*` возвращают в payload поля `breadcrumb`, `entity_type` при наличии .toc.json в каталоге справки.
-
-Без переиндексации старые точки останутся с прежним payload (без breadcrumb из TOC).
+Чтобы обновить payload (breadcrumb, section_path, title, entity_type из TOC): выполните **`reinit --force`** — очистка коллекций и кэша, затем ingest и загрузка сниппетов/стандартов. Отдельные шаги не требуются.
 
 ---
 
