@@ -47,7 +47,8 @@ def test_get_embedding_dimension_local_auto_detect() -> None:
         dim = embedding_mod.get_embedding_dimension()
         assert dim > 0
         assert (
-            dim == embedding_mod._DIMENSION_LAST_RESORT or embedding_mod._cached_local_dimension == dim
+            dim == embedding_mod._DIMENSION_LAST_RESORT
+            or embedding_mod._cached_local_dimension == dim
         )
     importlib.reload(embedding_mod)
 
@@ -544,10 +545,11 @@ def test_get_embedding_api_single_retry_then_fallback() -> None:
         clear=False,
     ):
         importlib.reload(embedding_mod)
-        with patch("onec_help.embedding.urllib.request.urlopen") as mock_open:
-            mock_open.side_effect = OSError("timeout")
-            with patch("onec_help.embedding.time.sleep"):
-                vec = embedding_mod._get_embedding_api_single("x")
+        with patch.object(embedding_mod, "_get_fallback_dim_from_qdrant", return_value=None):
+            with patch("onec_help.embedding.urllib.request.urlopen") as mock_open:
+                mock_open.side_effect = OSError("timeout")
+                with patch("onec_help.embedding.time.sleep"):
+                    vec = embedding_mod._get_embedding_api_single("x")
         assert len(vec) == 4
     importlib.reload(embedding_mod)
 
@@ -599,12 +601,13 @@ def test_get_embedding_api_single_invalid_response() -> None:
         clear=False,
     ):
         importlib.reload(embedding_mod)
-        with patch("onec_help.embedding.urllib.request.urlopen") as mock_open:
-            mock_resp = MagicMock()
-            mock_resp.read.return_value = b'{"data":[{}]}'
-            mock_open.return_value.__enter__.return_value = mock_resp
-            mock_open.return_value.__exit__.return_value = False
-            vec = embedding_mod._get_embedding_api_single("x")
+        with patch.object(embedding_mod, "_get_fallback_dim_from_qdrant", return_value=None):
+            with patch("onec_help.embedding.urllib.request.urlopen") as mock_open:
+                mock_resp = MagicMock()
+                mock_resp.read.return_value = b'{"data":[{}]}'
+                mock_open.return_value.__enter__.return_value = mock_resp
+                mock_open.return_value.__exit__.return_value = False
+                vec = embedding_mod._get_embedding_api_single("x")
         assert len(vec) == 4
     importlib.reload(embedding_mod)
 
@@ -656,11 +659,12 @@ def test_get_embedding_api_batch_fallback_to_deterministic() -> None:
     ):
         importlib.reload(embedding_mod)
         embedding_mod._embedding_api_available = True
-        with patch.object(embedding_mod, "_resolve_openai_api_model", return_value="m"):
-            with patch("onec_help.embedding.urllib.request.urlopen") as mock_open:
-                mock_open.side_effect = OSError("timeout")
-                with patch("onec_help.embedding.time.sleep"):
-                    result = embedding_mod._get_embedding_api_batch(["x", "y"])
+        with patch.object(embedding_mod, "_get_fallback_dim_from_qdrant", return_value=None):
+            with patch.object(embedding_mod, "_resolve_openai_api_model", return_value="m"):
+                with patch("onec_help.embedding.urllib.request.urlopen") as mock_open:
+                    mock_open.side_effect = OSError("timeout")
+                    with patch("onec_help.embedding.time.sleep"):
+                        result = embedding_mod._get_embedding_api_batch(["x", "y"])
         assert len(result) == 2
         assert len(result[0]) == 4 and len(result[1]) == 4
         assert all(isinstance(x, float) for v in result for x in v)
@@ -682,16 +686,23 @@ def test_get_embedding_api_batch_one_item_missing_embedding() -> None:
         clear=False,
     ):
         importlib.reload(embedding_mod)
-        with patch("onec_help.embedding.urllib.request.urlopen") as mock_open:
-            mock_resp = MagicMock()
-            mock_resp.read.return_value = (
-                b'{"data":[{"embedding":[1,2,3,4]},{},{"embedding":[5,6,7,8]}]}'
-            )
-            mock_open.return_value.__enter__.return_value = mock_resp
-            mock_open.return_value.__exit__.return_value = False
-            with patch.object(embedding_mod, "_check_embedding_api_available", return_value=True):
-                with patch.object(embedding_mod, "_resolve_openai_api_model", return_value="m"):
-                    result = embedding_mod._get_embedding_api_batch(["a", "b", "c"])
+        with patch.object(embedding_mod, "_get_fallback_dim_from_qdrant", return_value=None):
+            with patch("onec_help.embedding.urllib.request.urlopen") as mock_open:
+                mock_resp = MagicMock()
+                mock_resp.read.return_value = (
+                    b'{"data":[{"embedding":[1,2,3,4]},{},{"embedding":[5,6,7,8]}]}'
+                )
+                mock_open.return_value.__enter__.return_value = mock_resp
+                mock_open.return_value.__exit__.return_value = False
+                with patch.object(
+                    embedding_mod, "_check_embedding_api_available", return_value=True
+                ):
+                    with patch.object(
+                        embedding_mod,
+                        "_resolve_openai_api_model",
+                        return_value="m",
+                    ):
+                        result = embedding_mod._get_embedding_api_batch(["a", "b", "c"])
         assert len(result) == 3
         assert result[0] == [1, 2, 3, 4]
         assert len(result[1]) == 4

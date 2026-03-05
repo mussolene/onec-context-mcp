@@ -527,13 +527,24 @@ def build_index(
     return total
 
 
+def _index_status_sample_size() -> int:
+    """Sample size for version/language sampling in get_index_status. env INDEX_STATUS_SAMPLE_SIZE (default 100)."""
+    try:
+        v = os.environ.get("INDEX_STATUS_SAMPLE_SIZE", "100")
+        return max(50, min(2000, int(v)))
+    except (TypeError, ValueError):
+        return 100
+
+
 def get_index_status(
     qdrant_host: str | None = None,
     qdrant_port: int | None = None,
     collection: str = COLLECTION_NAME,
-    sample_size: int = 500,
+    sample_size: int | None = None,
 ) -> dict[str, Any]:
     """Return index status: exists, points_count, and optional version/language breakdown from payload."""
+    if sample_size is None:
+        sample_size = _index_status_sample_size()
     if QdrantClient is None:
         return {"error": "qdrant-client not available", "exists": False, "points_count": 0}
     host = qdrant_host or os.environ.get("QDRANT_HOST", "localhost")

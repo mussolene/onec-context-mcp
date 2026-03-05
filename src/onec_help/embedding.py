@@ -430,6 +430,12 @@ def _embedding_fallback_dim() -> int:
     dim = _get_fallback_dim_from_qdrant()
     if dim is not None:
         return dim
+    env_dim = (os.environ.get("EMBEDDING_DIMENSION") or "").strip()
+    if env_dim:
+        try:
+            return int(env_dim)
+        except ValueError:
+            pass
     return get_embedding_dimension()
 
 

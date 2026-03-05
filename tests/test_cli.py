@@ -1172,19 +1172,20 @@ def test_cmd_load_standards_from_repo(mock_fetch, mock_get_store, tmp_path: Path
             return standards_out.resolve()
         return original_resolve(self)
 
-    with patch.dict(
-        "os.environ",
-        {
-            "STANDARDS_DIR": "",
-            "STANDARDS_REPOS": "",
-            "STANDARDS_REPO": "https://github.com/1C-Company/v8-code-style",
-        },
-    ), patch.object(Path, "resolve", resolve_redirect):
+    with (
+        patch.dict(
+            "os.environ",
+            {
+                "STANDARDS_DIR": "",
+                "STANDARDS_REPOS": "",
+                "STANDARDS_REPO": "https://github.com/1C-Company/v8-code-style",
+            },
+        ),
+        patch.object(Path, "resolve", resolve_redirect),
+    ):
         assert cmd_load_standards(args) == 0
     mock_fetch.assert_called_once()
     mock_store.upsert_curated_snippets.assert_called_once()
-
-
 
 
 @patch("onec_help.memory.get_memory_store")
@@ -1215,14 +1216,17 @@ def test_cmd_load_standards_from_repos(mock_fetch, mock_get_store, tmp_path: Pat
             return standards_out.resolve()
         return original_resolve(self)
 
-    with patch.dict(
-        "os.environ",
-        {
-            "STANDARDS_DIR": "",
-            "STANDARDS_REPOS": "1C-Company/v8-code-style:master,zeegin/v8std:main",
-            "STANDARDS_REPO": "",
-        },
-    ), patch.object(Path, "resolve", resolve_redirect):
+    with (
+        patch.dict(
+            "os.environ",
+            {
+                "STANDARDS_DIR": "",
+                "STANDARDS_REPOS": "1C-Company/v8-code-style:master,zeegin/v8std:main",
+                "STANDARDS_REPO": "",
+            },
+        ),
+        patch.object(Path, "resolve", resolve_redirect),
+    ):
         assert cmd_load_standards(args) == 0
     assert mock_fetch.call_count == 2
     mock_store.upsert_curated_snippets.assert_called_once()
