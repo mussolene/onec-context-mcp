@@ -1,4 +1,4 @@
-"""Unpack .hbk (or archive) with 7z, then fallback: Python zipfile, zip from offset, unzip, scan local headers. No hardcoded paths."""
+"""Unpack .hbk: for .hbk try HBK container first (TOC + full content), then 7z, zipfile, offset, unzip, scan. Encodings: TOC and scan filenames try utf-8 then cp1251."""
 
 import os
 import struct
@@ -63,6 +63,16 @@ def _try_unzip(archive_path: Path, output_dir: Path) -> bool:
     return result.returncode == 0
 
 
+def _decode_filename(raw: bytes) -> str:
+    """Decode ZIP local header filename: try utf-8, then cp1251 (1C often uses Windows codepage)."""
+    for enc in ("utf-8", "cp1251"):
+        try:
+            return raw.decode(enc)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return raw.decode("utf-8", errors="replace")
+
+
 def _try_zipfile_scan_local_headers(archive_path: Path, output_dir: Path) -> bool:
     """
     Fallback for embedded ZIP with corrupted EOCD (schemui/mapui .hbk).
@@ -92,7 +102,8 @@ def _try_zipfile_scan_local_headers(archive_path: Path, output_dir: Path) -> boo
             if fn_len > 500 or idx + 30 + fn_len + extra_len + comp_size > len(data):
                 i = idx + 1
                 continue
-            fn = data[idx + 30 : idx + 30 + fn_len].decode("utf-8", errors="replace")
+            fn_raw = data[idx + 30 : idx + 30 + fn_len]
+            fn = _decode_filename(fn_raw)
             fn = fn.replace("..", "_").replace("\\", "_").replace("/", "_").strip()
             if not fn or fn.startswith("__MACOSX"):
                 i = idx + 1
@@ -120,9 +131,54 @@ def _try_zipfile_scan_local_headers(archive_path: Path, output_dir: Path) -> boo
     return count > 0
 
 
+def _try_hbk_container(path_to_hbk: Path, output_dir: Path) -> bool:
+    """
+    Try HBK binary container (FileStorage + PackBlock TOC). Returns True if extracted.
+    Used first for .hbk to get full content + .toc.json when the file is a valid container.
+    """
+    if path_to_hbk.suffix.lower() != ".hbk":
+        return False
+    try:
+        from .hbk_container import (
+            extract_filestorage_bytes,
+            extract_packblock_toc_bytes,
+            read_container_from_path,
+        )
+        from .toc_parser import (
+            parse_toc_content,
+            save_toc_json,
+            toc_chunks_to_flat,
+        )
+    except ImportError:
+        return False
+    try:
+        entities = read_container_from_path(path_to_hbk)
+        fs = extract_filestorage_bytes(entities)
+        if not fs:
+            return False
+        with zipfile.ZipFile(BytesIO(fs), "r") as z:
+            z.extractall(output_dir)
+        toc_bytes = extract_packblock_toc_bytes(entities)
+        if toc_bytes:
+            for enc in ("utf-8", "cp1251"):
+                try:
+                    content = toc_bytes.decode(enc)
+                    chunks = parse_toc_content(content)
+                    flat = toc_chunks_to_flat(chunks)
+                    if flat:
+                        save_toc_json(output_dir / ".toc.json", flat)
+                    break
+                except (ValueError, UnicodeDecodeError):
+                    continue
+        return True
+    except (FileNotFoundError, ValueError, OSError):
+        return False
+
+
 def unpack_hbk(path_to_hbk, output_dir) -> None:
     """
-    Unpack .hbk (or archive): try 7z, then Python zipfile, then unzip.
+    Unpack .hbk (or archive): for .hbk try HBK container first (full content + TOC),
+    then 7z, Python zipfile, zip from offset, unzip, scan local headers.
     Preserves full paths where the format allows.
     """
     path_to_hbk = Path(path_to_hbk).resolve()
@@ -130,6 +186,10 @@ def unpack_hbk(path_to_hbk, output_dir) -> None:
     if not path_to_hbk.is_file():
         raise FileNotFoundError(f"Archive not found: {path_to_hbk}")
     ensure_dir(output_dir)
+
+    # For .hbk: try container first (synergy — get TOC + full FileStorage when format is container)
+    if _try_hbk_container(path_to_hbk, output_dir):
+        return
 
     def _7z_extracted() -> bool:
         """True if output_dir has at least one file (7z may return 2 but still extract)."""
@@ -181,41 +241,8 @@ def unpack_hbk(path_to_hbk, output_dir) -> None:
     if _try_zipfile_scan_local_headers(path_to_hbk, output_dir):
         return
 
-    # 6) HBK binary container (source: alkoleft/hbk-viewer) — FileStorage + PackBlock TOC
-    if path_to_hbk.suffix.lower() == ".hbk":
-        try:
-            from .hbk_container import (
-                extract_filestorage_bytes,
-                extract_packblock_toc_bytes,
-                read_container_from_path,
-            )
-            from .toc_parser import (
-                parse_toc_content,
-                save_toc_json,
-                toc_chunks_to_flat,
-            )
-
-            entities = read_container_from_path(path_to_hbk)
-            fs = extract_filestorage_bytes(entities)
-            if fs:
-                with zipfile.ZipFile(BytesIO(fs), "r") as z:
-                    z.extractall(output_dir)
-                toc_bytes = extract_packblock_toc_bytes(entities)
-                if toc_bytes:
-                    try:
-                        content = toc_bytes.decode("utf-8")
-                        chunks = parse_toc_content(content)
-                        flat = toc_chunks_to_flat(chunks)
-                        if flat:
-                            save_toc_json(output_dir / ".toc.json", flat)
-                    except (ValueError, UnicodeDecodeError):
-                        pass
-                return
-        except (ImportError, FileNotFoundError, ValueError, OSError):
-            pass
-
     err = (result.stderr or result.stdout or "").strip() if result else ""
-    tried = "Tried: 7z, Python zipfile, zip from offset, unzip, scan local headers, HBK container."
+    tried = "Tried: HBK container (first for .hbk), 7z, Python zipfile, zip from offset, unzip, scan local headers."
     if path_to_hbk.suffix.lower() == ".hbk":
         raise RuntimeError(
             f"All unpack methods failed. {tried} "

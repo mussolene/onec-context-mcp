@@ -19,25 +19,29 @@
 
 ### 1.3 Методы распаковки (модуль unpack)
 
-Команда `unpack` и ingest используют каскад fallback-методов:
+Команда `unpack` и ingest используют **синергичный** каскад: для файлов с расширением **.hbk** сначала пробуется метод 6 (HBK binary container), затем методы 1–5. Для остальных архивов — только 1–5.
 
 | № | Метод | Назначение |
 |---|-------|------------|
+| 0 (только .hbk) | **HBK binary container** | Для .hbk **первым**: разбор бинарного контейнера (источник: [alkoleft/hbk-viewer](https://github.com/alkoleft/hbk-viewer)). Извлечение FileStorage (ZIP) и, при наличии PackBlock, запись оглавления в `.toc.json`. При неудаче — переход к методам 1–5. |
 | 1 | **7z** (default, `-t*`, `-tcab`, `-tzip`) | Стандартные архивы; mapui/schemui иногда CAB |
 | 2 | **Python zipfile** | ZIP/deflate без внешних зависимостей |
 | 3 | **ZIP from offset** | .hbk с заголовком: ZIP начинается со смещения (1656, 2048, 1024, 512, 256, 4096, 8192 байт); `truncate_tail` — обрезка хвоста при «data after end» |
 | 4 | **unzip** (команда) | Резервный вариант для чистого ZIP |
-| 5 | **Scan local headers** | Встроенный ZIP с повреждённым/отсутствующим EOCD (schemui_ru, mapui_ru — формат FileStorage): сканирование `PK\x03\x04`, ручной разбор записей, zlib.decompress. При дубликатах имён файлов к имени добавляется суффикс `_n` (например `0_0`, `0_1`); TOC при этом не создаётся. |
-| 6 | **HBK binary container** | Для .hbk: разбор бинарного контейнера (источник: [alkoleft/hbk-viewer](https://github.com/alkoleft/hbk-viewer)). Извлечение сущности FileStorage (ZIP) в каталог и, при наличии PackBlock, запись оглавления в `.toc.json` в том же каталоге. Индексер использует `.toc.json` для payload: `title`, `breadcrumb`, `section_path`; поле `entity_type` в payload выводится по `section_path`/`breadcrumb` (см. §1.4), а не из поля `entity_type` в `.toc.json`. |
+| 5 | **Scan local headers** | Встроенный ZIP с повреждённым/отсутствующим EOCD (schemui_ru, mapui_ru — формат FileStorage): сканирование `PK\x03\x04`, ручной разбор записей, zlib.decompress. Имена файлов декодируются с fallback utf-8 → cp1251. При дубликатах имён к имени добавляется суффикс `_n`; TOC при этом не создаётся. |
 
 При ошибке всех методов: `unpack` выводит подсказку; для диагностики — **`unpack-diag <file> -o /tmp/out`**: пробует каждый метод и печатает результат (7z l -slt, returncode, извлечено/нет). Используйте при «All unpack methods failed».
 
 ### 1.4 Оглавление (TOC) и payload
 
 - Если в каталоге распакованной справки есть **`.toc.json`** (список объектов с полями `path`, `title_ru`, `title_en`, `breadcrumb`, `entity_type`), индексер подмешивает в payload точек **заголовок** (`title`) и **цепочку навигации** (`breadcrumb`, `section_path`) из TOC, а не только из первого заголовка HTML/MD. Поле **`entity_type`** в payload индекса вычисляется по `section_path` и `breadcrumb` (по последним сегментам, см. `_infer_entity_type` в indexer), а не берётся из поля `entity_type` в `.toc.json`.
-- `.toc.json` создаётся при распаковке через метод 6 (HBK binary container) или вручную. Формат соответствует выходу парсера PackBlock (см. `toc_parser`, источник — hbk-viewer). При нескольких записях с одним `path` в flat-списке для сопоставления используется последнее вхождение («last wins»).
+- `.toc.json` создаётся при распаковке через метод HBK binary container (для .hbk пробуется первым) или вручную (`read-hbk-container --toc-json`). Текст TOC в контейнере декодируется с fallback: utf-8, затем cp1251. Формат соответствует выходу парсера PackBlock (см. `toc_parser`, источник — hbk-viewer). При нескольких записях с одним `path` в flat-списке для сопоставления используется последнее вхождение («last wins»).
 
-### 1.5 Поведение проекта
+### 1.5 HTML-сущности и нормализация
+
+- При конвертации HTML → Markdown (`html_to_md_content`) итоговый текст проходит **`_normalize_md_text`**: `html.unescape` (например `&nbsp;`, `&amp;`, `&#160;` → символы Юникода) и нормализацию NFC. В индексере при записи в payload то же применяется к полям **text**, **title**, **section_path** и элементам **breadcrumb**, чтобы в базе и в ответах MCP не оставались литералы вроде `&nbsp;`.
+
+### 1.6 Поведение проекта
 
 - Конвейер (build-docs → build-index) работает с **каталогом HTML** (распакованным из .hbk или полученным иначе).
 

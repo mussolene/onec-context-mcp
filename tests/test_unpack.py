@@ -9,12 +9,25 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from onec_help.unpack import (
+    _decode_filename,
     _try_unzip,
     _try_zipfile_from_offset,
     _try_zipfile_scan_local_headers,
     ensure_dir,
     unpack_hbk,
 )
+
+
+def test_decode_filename_utf8() -> None:
+    """_decode_filename decodes UTF-8 and cp1251 filenames."""
+    assert _decode_filename("page.html".encode("utf-8")) == "page.html"
+    assert _decode_filename("Справка".encode("utf-8")) == "Справка"
+
+
+def test_decode_filename_cp1251() -> None:
+    """_decode_filename falls back to cp1251 when utf-8 fails."""
+    # Cyrillic in Windows-1251
+    assert _decode_filename("Справка".encode("cp1251")) == "Справка"
 
 
 def test_ensure_dir(tmp_path: Path) -> None:

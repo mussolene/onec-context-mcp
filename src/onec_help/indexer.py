@@ -234,6 +234,7 @@ def build_index(
     from .html2md import (
         _ENCODINGS_UTF8_FIRST,
         _looks_like_html,
+        _normalize_md_text,
         extract_links_from_markdown,
         extract_outgoing_links,
         html_to_md_content,
@@ -435,6 +436,8 @@ def build_index(
         batch_bm25_start = batch_start if use_bm25 else 0
         for idx_in_items, (rel_str, text, title, point_index, outgoing_links) in enumerate(items):
             vector = vectors[idx_in_items]
+            # Normalize HTML entities (&nbsp;, &amp;, &#160; etc.) in stored text/title so payload is clean
+            text_norm = _normalize_md_text(text)
             path_for_payload = f"{path_prefix}/{rel_str}" if path_prefix else rel_str
             point_id = (
                 _path_to_point_id(path_for_payload, version=version, language=language)
@@ -448,10 +451,13 @@ def build_index(
                     if key in path_to_title:
                         title_from_toc = path_to_title[key]
                         break
+            title_effective = _normalize_md_text(
+                title_from_toc if title_from_toc else title
+            )
             payload = {
                 "path": path_for_payload,
-                "text": text[:50000],
-                "title": title_from_toc if title_from_toc else title,
+                "text": text_norm[:50000],
+                "title": title_effective,
             }
             payload.update(extra)
             if outgoing_links:
@@ -464,9 +470,11 @@ def build_index(
                     else:
                         links_with_prefix.append(dict(lnk))
                 payload["outgoing_links"] = links_with_prefix
-            first_para = text.split("\n\n")[0] if text else ""
+            first_para = text_norm.split("\n\n")[0] if text_norm else ""
             kw = list(
-                dict.fromkeys(_extract_keywords(title) + _extract_keywords(first_para[:800]))
+                dict.fromkeys(
+                    _extract_keywords(title_effective) + _extract_keywords(first_para[:800])
+                )
             )[:50]
             if kw:
                 payload["keywords"] = kw
@@ -474,8 +482,10 @@ def build_index(
                 for key in (rel_str, stem, rel_str.replace(".md", ".html")):
                     if key in path_to_section:
                         section_path, breadcrumb = path_to_section[key]
-                        payload["section_path"] = section_path
-                        payload["breadcrumb"] = breadcrumb
+                        payload["section_path"] = _normalize_md_text(section_path)
+                        payload["breadcrumb"] = [
+                            _normalize_md_text(b) for b in (breadcrumb or [])
+                        ]
                         break
             entity_type = _infer_entity_type(
                 payload.get("section_path", ""), payload.get("breadcrumb", [])
