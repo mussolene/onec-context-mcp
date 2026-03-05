@@ -1152,13 +1152,26 @@ def test_cmd_load_standards_success(mock_get_store, tmp_path: Path) -> None:
 @patch("onec_help.memory.get_memory_store")
 @patch("onec_help.standards_loader.fetch_repo_archive")
 def test_cmd_load_standards_from_repo(mock_fetch, mock_get_store, tmp_path: Path) -> None:
-    """cmd_load_standards fetches from STANDARDS_REPO when no path given."""
-    (tmp_path / "fetched.md").write_text("# Fetched rule\n\nContent.", encoding="utf-8")
-    mock_fetch.return_value = (tmp_path, Path("/tmp/nonexistent_standards_xxx"))
+    """cmd_load_standards fetches from STANDARDS_REPO when no path given.
+    Redirect copy destination to tmp_path to avoid writing to data/standards (pytest-* pollution)."""
+    fetch_dir = tmp_path / "fetched"
+    fetch_dir.mkdir()
+    (fetch_dir / "fetched.md").write_text("# Fetched rule\n\nContent.", encoding="utf-8")
+    mock_fetch.return_value = (fetch_dir, Path("/tmp/nonexistent_standards_xxx"))
     mock_store = MagicMock()
     mock_store.upsert_curated_snippets.return_value = 1
     mock_get_store.return_value = mock_store
+    standards_out = tmp_path / "standards_out"
+    standards_out.mkdir()
     args = make_args(standards_path=None)
+    original_resolve = Path.resolve
+
+    def resolve_redirect(self: Path) -> Path:
+        # Redirect data/standards to tmp to avoid polluting repo (pytest-* dirs)
+        if len(self.parts) == 2 and self.parts[0] == "data" and self.parts[1] == "standards":
+            return standards_out.resolve()
+        return original_resolve(self)
+
     with patch.dict(
         "os.environ",
         {
@@ -1166,26 +1179,42 @@ def test_cmd_load_standards_from_repo(mock_fetch, mock_get_store, tmp_path: Path
             "STANDARDS_REPOS": "",
             "STANDARDS_REPO": "https://github.com/1C-Company/v8-code-style",
         },
-    ):
+    ), patch.object(Path, "resolve", resolve_redirect):
         assert cmd_load_standards(args) == 0
     mock_fetch.assert_called_once()
     mock_store.upsert_curated_snippets.assert_called_once()
 
 
+
+
 @patch("onec_help.memory.get_memory_store")
 @patch("onec_help.standards_loader.fetch_repo_archive")
 def test_cmd_load_standards_from_repos(mock_fetch, mock_get_store, tmp_path: Path) -> None:
-    """cmd_load_standards fetches from STANDARDS_REPOS (multiple repos) when set."""
-    (tmp_path / "a.md").write_text("# A\n\nFrom first.", encoding="utf-8")
-    (tmp_path / "b.md").write_text("# B\n\nFrom second.", encoding="utf-8")
+    """cmd_load_standards fetches from STANDARDS_REPOS (multiple repos) when set.
+    Redirect copy destination to tmp_path to avoid writing to data/standards."""
+    fetch1 = tmp_path / "repo1"
+    fetch2 = tmp_path / "repo2"
+    fetch1.mkdir()
+    fetch2.mkdir()
+    (fetch1 / "a.md").write_text("# A\n\nFrom first.", encoding="utf-8")
+    (fetch2 / "b.md").write_text("# B\n\nFrom second.", encoding="utf-8")
     mock_fetch.side_effect = [
-        (tmp_path, Path("/tmp/tmp1")),
-        (tmp_path, Path("/tmp/tmp2")),
+        (fetch1, Path("/tmp/tmp1")),
+        (fetch2, Path("/tmp/tmp2")),
     ]
     mock_store = MagicMock()
     mock_store.upsert_curated_snippets.return_value = 2
     mock_get_store.return_value = mock_store
+    standards_out = tmp_path / "standards_out"
+    standards_out.mkdir()
     args = make_args(standards_path=None)
+    original_resolve = Path.resolve
+
+    def resolve_redirect(self: Path) -> Path:
+        if len(self.parts) == 2 and self.parts[0] == "data" and self.parts[1] == "standards":
+            return standards_out.resolve()
+        return original_resolve(self)
+
     with patch.dict(
         "os.environ",
         {
@@ -1193,7 +1222,7 @@ def test_cmd_load_standards_from_repos(mock_fetch, mock_get_store, tmp_path: Pat
             "STANDARDS_REPOS": "1C-Company/v8-code-style:master,zeegin/v8std:main",
             "STANDARDS_REPO": "",
         },
-    ):
+    ), patch.object(Path, "resolve", resolve_redirect):
         assert cmd_load_standards(args) == 0
     assert mock_fetch.call_count == 2
     mock_store.upsert_curated_snippets.assert_called_once()
