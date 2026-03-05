@@ -11,7 +11,7 @@
 | Бэкенд | Плюсы | Минусы | Рекомендация для M1 |
 |--------|--------|--------|----------------------|
 | **local** (sentence-transformers) | Бесплатно, без сети, данные не покидают машину, работает офлайн. На M1 можно использовать MPS (Metal). | Нагрузка на CPU/GPU и память; модель нужно скачать один раз. | **Оптимально** для личной разработки и конфиденциальных данных. |
-| **openai_api** (LM Studio / Ollama / OpenAI) | Лучшее качество при использовании больших моделей (text-embedding-3-large, nomic-embed и т.д.), не нагружает память приложения. | Нужен запущенный сервис; при LM Studio — те же ресурсы M1; при облачном API — трафик и стоимость. | Имеет смысл, если уже поднят LM Studio с тяжёлой моделью или нужен облачный API. |
+| **openai_api** (LM Studio / Ollama / OpenAI) | Лучшее качество при использовании больших моделей (text-embedding-3-large, paraphrase-multilingual и т.д.), не нагружает память приложения. | Нужен запущенный сервис; при LM Studio — те же ресурсы M1; при облачном API — трафик и стоимость. | Имеет смысл, если уже поднят LM Studio с тяжёлой моделью или нужен облачный API. |
 | **deterministic** | Нулевая нагрузка, быстрый ingest. | Нет семантики, только keyword-поиск (BM25). | Только для наполнения индекса без семантического поиска. |
 | **none** | Плейсхолдер при недоступности API. | Семантический поиск отключён. | Резерв при сбоях. |
 
@@ -38,7 +38,7 @@
 |--------|-------------|-----------------|-------------------|
 | text-embedding-3-small | 1536 | Высокое | OpenAI API |
 | text-embedding-3-large | 3072 | Очень высокое | OpenAI API |
-| nomic-embed-text-v1.5 | 768 | Высокое | LM Studio, Ollama, локально |
+| paraphrase-multilingual-MiniLM-L12-v2 | 384 | Хорошее (мультиязычный) | LM Studio, Ollama, sentence-transformers локально |
 | mxbai-embed-large | 1024 | Высокое | LM Studio и др. |
 
 ---
@@ -72,7 +72,7 @@ export PYTORCH_ENABLE_MPS_FALLBACK=1
 
 - **Бэкенд:** `EMBEDDING_BACKEND=openai_api`
 - **EMBEDDING_API_URL:** `http://localhost:1234/v1` (или ваш URL LM Studio)
-- **Модель в LM Studio:** например `nomic-ai/nomic-embed-text-v1.5` или `mxbai-embed-large` (если доступны в вашей сборке).
+- **Модель в LM Studio:** например `paraphrase-multilingual-MiniLM-L12-v2` или `mxbai-embed-large` (если доступны в вашей сборке).
 
 Размерность задаётся через `EMBEDDING_DIMENSION` или определяется по первому ответу API.
 

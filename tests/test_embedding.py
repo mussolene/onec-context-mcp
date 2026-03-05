@@ -435,11 +435,11 @@ def test_resolve_openai_api_model_preferred() -> None:
         importlib.reload(embedding_mod)
         with patch("onec_help.embedding.urllib.request.urlopen") as mock_open:
             mock_resp = MagicMock()
-            mock_resp.read.return_value = b'{"data":[{"id":"nomic-embed-text-v1"}]}'
+            mock_resp.read.return_value = b'{"data":[{"id":"paraphrase-multilingual-MiniLM-L12-v2"}]}'
             mock_open.return_value.__enter__.return_value = mock_resp
             mock_open.return_value.__exit__.return_value = False
             model = embedding_mod._resolve_openai_api_model()
-        assert "nomic" in model or model == "nomic-embed-text-v1"
+        assert "paraphrase" in model or model == "paraphrase-multilingual-MiniLM-L12-v2"
     importlib.reload(embedding_mod)
 
 

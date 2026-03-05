@@ -45,7 +45,7 @@ _EMBEDDING_MODEL = (
     os.environ.get("EMBEDDING_MODEL") or "paraphrase-multilingual-MiniLM-L12-v2"
 ).strip()
 _LMSTUDIO_PREFERRED_EMBEDDING_MODELS = (
-    "nomic-embed-text",
+    "paraphrase-multilingual",
     "all-MiniLM-L6-v2",
     "text-embedding-3-small",
 )
