@@ -49,7 +49,8 @@ services:
       MEMORY_BASE_PATH: ${MEMORY_BASE_PATH:-}
       STANDARDS_REPOS: ${STANDARDS_REPOS:-1C-Company/v8-code-style:master,zeegin/v8std:main}
       STANDARDS_SUBPATH: ${STANDARDS_SUBPATH:-docs}
-      STANDARDS_DIR: ${STANDARDS_DIR:-}
+      # В контейнере standards смонтирован в /data/standards — иначе load-standards пишет в /app/data/standards и Permission denied
+      STANDARDS_DIR: ${STANDARDS_DIR:-/data/standards}
     volumes:
       - /opt/1cv8:/opt/1cv8:ro
       - ./data/unpacked:/app/data/unpacked

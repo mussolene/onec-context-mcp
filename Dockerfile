@@ -25,7 +25,6 @@ RUN pip install --no-cache-dir -r requirements.lock
 
 COPY pyproject.toml .
 COPY src/ src/
-COPY templates/ templates/
 COPY entrypoint.sh entrypoint-mcp-only.sh crontab ./
 RUN chmod +x /app/entrypoint.sh /app/entrypoint-mcp-only.sh \
     && pip install --no-cache-dir -e ".[mcp]" \
