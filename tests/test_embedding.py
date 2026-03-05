@@ -7,9 +7,9 @@ from onec_help import embedding as embedding_mod
 
 
 def test_get_embedding_dimension_default() -> None:
-    """Default backend is local; dimension is auto-detected from model or VECTOR_SIZE fallback."""
+    """Default backend is local; dimension is auto-detected from model or DB/env fallback."""
     dim = embedding_mod.get_embedding_dimension()
-    assert dim == embedding_mod.VECTOR_SIZE or dim > 0
+    assert dim == embedding_mod._DIMENSION_LAST_RESORT or dim > 0
 
 
 def test_get_embedding_dimension_openai_api() -> None:
@@ -31,7 +31,7 @@ def test_get_embedding_dimension_openai_api() -> None:
 
 
 def test_get_embedding_dimension_local_auto_detect() -> None:
-    """Local backend: dimension is auto-detected from model encode (or VECTOR_SIZE on failure)."""
+    """Local backend: dimension is auto-detected from model encode (or DB/env on failure)."""
     import importlib
 
     with patch.dict(
@@ -44,17 +44,18 @@ def test_get_embedding_dimension_local_auto_detect() -> None:
     ):
         importlib.reload(embedding_mod)
         embedding_mod._cached_local_dimension = None
-        # If sentence_transformers available: real dim (e.g. 384); else VECTOR_SIZE fallback
         dim = embedding_mod.get_embedding_dimension()
         assert dim > 0
-        assert dim == embedding_mod.VECTOR_SIZE or embedding_mod._cached_local_dimension == dim
+        assert (
+            dim == embedding_mod._DIMENSION_LAST_RESORT or embedding_mod._cached_local_dimension == dim
+        )
     importlib.reload(embedding_mod)
 
 
 def test_get_embedding() -> None:
     vec = embedding_mod.get_embedding("test text")
     assert isinstance(vec, list)
-    assert len(vec) == embedding_mod.VECTOR_SIZE
+    assert len(vec) == embedding_mod.get_embedding_dimension()
     assert all(isinstance(x, float) for x in vec)
 
 
@@ -69,7 +70,7 @@ def test_get_embedding_backend_none() -> None:
     ):
         importlib.reload(embedding_mod)
         vec = embedding_mod.get_embedding("hello")
-        assert len(vec) == embedding_mod.VECTOR_SIZE
+        assert len(vec) == embedding_mod.get_embedding_dimension()
         assert all(isinstance(x, float) for x in vec)
         vec2 = embedding_mod.get_embedding("hello")
         assert vec == vec2
@@ -77,7 +78,7 @@ def test_get_embedding_backend_none() -> None:
 
 
 def test_get_embedding_deterministic() -> None:
-    """EMBEDDING_BACKEND=deterministic returns 384-dim deterministic vectors."""
+    """EMBEDDING_BACKEND=deterministic returns deterministic vectors; dimension from DB or _DIMENSION_LAST_RESORT."""
     import importlib
 
     with patch.dict(
@@ -86,9 +87,10 @@ def test_get_embedding_deterministic() -> None:
         clear=False,
     ):
         importlib.reload(embedding_mod)
-        assert embedding_mod.get_embedding_dimension() == 384
+        dim = embedding_mod.get_embedding_dimension()
+        assert dim == embedding_mod._DIMENSION_LAST_RESORT or dim > 0
         vec = embedding_mod.get_embedding("test")
-        assert len(vec) == 384
+        assert len(vec) == dim
         assert all(isinstance(x, float) for x in vec)
         vec2 = embedding_mod.get_embedding("test")
         assert vec == vec2
@@ -329,10 +331,10 @@ def test_check_embedding_api_available_unavailable() -> None:
 
 
 def test_embedding_fallback_dim_when_detecting() -> None:
-    """_embedding_fallback_dim returns Qdrant dim when available, else VECTOR_SIZE when detecting."""
+    """_embedding_fallback_dim returns Qdrant dim when available, else _DIMENSION_LAST_RESORT when detecting."""
     with patch.object(embedding_mod, "_dimension_detecting", True):
         with patch.object(embedding_mod, "_get_fallback_dim_from_qdrant", return_value=None):
-            assert embedding_mod._embedding_fallback_dim() == embedding_mod.VECTOR_SIZE
+            assert embedding_mod._embedding_fallback_dim() == embedding_mod._DIMENSION_LAST_RESORT
         with patch.object(embedding_mod, "_get_fallback_dim_from_qdrant", return_value=768):
             assert embedding_mod._embedding_fallback_dim() == 768
 
@@ -391,7 +393,7 @@ def test_get_embedding_dimension_openai_api_detects_from_api() -> None:
 
 
 def test_get_embedding_dimension_openai_api_invalid_dimension() -> None:
-    """When EMBEDDING_DIMENSION is not int, falls through to Qdrant dim or VECTOR_SIZE."""
+    """When EMBEDDING_DIMENSION is not int, falls through to Qdrant dim or _DIMENSION_LAST_RESORT."""
     import importlib
 
     with patch.dict(
@@ -407,8 +409,8 @@ def test_get_embedding_dimension_openai_api_invalid_dimension() -> None:
         with patch("onec_help.embedding._check_embedding_api_available", return_value=False):
             with patch("onec_help.embedding._get_fallback_dim_from_qdrant", return_value=None):
                 dim = embedding_mod.get_embedding_dimension()
-            assert dim == embedding_mod.VECTOR_SIZE
-            embedding_mod._cached_api_dimension = None  # reset so we re-detect
+            assert dim == embedding_mod._DIMENSION_LAST_RESORT
+            embedding_mod._cached_api_dimension = None
             embedding_mod._cached_qdrant_dimension = None
             with patch("onec_help.embedding._get_fallback_dim_from_qdrant", return_value=768):
                 dim = embedding_mod.get_embedding_dimension()
@@ -503,7 +505,7 @@ def test_get_embedding_backend_null_off() -> None:
         with patch.dict("os.environ", {"EMBEDDING_BACKEND": backend}, clear=False):
             importlib.reload(embedding_mod)
             vec = embedding_mod.get_embedding("t")
-            assert len(vec) == embedding_mod.VECTOR_SIZE
+            assert len(vec) == embedding_mod.get_embedding_dimension()
     importlib.reload(embedding_mod)
 
 
@@ -638,8 +640,8 @@ def test_get_embedding_api_batch_success() -> None:
     importlib.reload(embedding_mod)
 
 
-def test_get_embedding_api_batch_fallback_to_single() -> None:
-    """_get_embedding_api_batch on error falls back to single requests."""
+def test_get_embedding_api_batch_fallback_to_deterministic() -> None:
+    """_get_embedding_api_batch on error falls back to deterministic vectors (dimension from env/DB)."""
     import importlib
 
     with patch.dict(
@@ -658,11 +660,10 @@ def test_get_embedding_api_batch_fallback_to_single() -> None:
             with patch("onec_help.embedding.urllib.request.urlopen") as mock_open:
                 mock_open.side_effect = OSError("timeout")
                 with patch("onec_help.embedding.time.sleep"):
-                    with patch.object(embedding_mod, "_get_embedding_api_single") as mock_single:
-                        mock_single.return_value = [0.0, 0.0, 0.0, 0.0]
-                        result = embedding_mod._get_embedding_api_batch(["x", "y"])
+                    result = embedding_mod._get_embedding_api_batch(["x", "y"])
         assert len(result) == 2
-        assert mock_single.call_count == 2
+        assert len(result[0]) == 4 and len(result[1]) == 4
+        assert all(isinstance(x, float) for v in result for x in v)
     importlib.reload(embedding_mod)
 
 
@@ -795,7 +796,7 @@ def test_get_embedding_local_batch_import_error() -> None:
                 mock_import.side_effect = ImportError
                 result = embedding_mod._get_embedding_local_batch(["a", "b"])
         assert len(result) == 2
-        assert len(result[0]) == embedding_mod.VECTOR_SIZE
+        assert len(result[0]) == embedding_mod.get_embedding_dimension()
     importlib.reload(embedding_mod)
 
 

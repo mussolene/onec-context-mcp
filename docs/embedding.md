@@ -10,10 +10,16 @@
 
 | Бэкенд | Описание | Размерность |
 |--------|----------|-------------|
-| **local** | По умолчанию. sentence-transformers, модель **paraphrase-multilingual-MiniLM-L12-v2** (50+ языков, RU). Размерность определяется автоматически по модели. | авто |
-| **openai_api** | LM Studio (localhost:1234), Ollama, OpenAI-совместимый API. Размерность определяется автоматически по ответу API; при недоступности API используется EMBEDDING_DIMENSION. | авто (fallback: EMBEDDING_DIMENSION) |
-| **deterministic** | 384-dim хэш без модели — только для наполнения БД, keyword-поиск | 384 |
-| **none** | Плейсхолдер, только keyword-поиск | 384 |
+| **local** | По умолчанию. sentence-transformers, модель **paraphrase-multilingual-MiniLM-L12-v2** (50+ языков, RU). Размерность определяется автоматически по модели; при недоступности — из Qdrant или EMBEDDING_DIMENSION. | авто |
+| **openai_api** | LM Studio (localhost:1234), Ollama, OpenAI-совместимый API. Размерность — по ответу API; при недоступности API используется deterministic-вектор с размерностью из Qdrant или EMBEDDING_DIMENSION. | авто |
+| **deterministic** | Хэш без модели (NFC, токены). Размерность берётся из коллекции Qdrant, затем EMBEDDING_DIMENSION, иначе последний резерв (384). | из БД / env |
+| **none** | Плейсхолдер (hash). Размерность — как у deterministic. | из БД / env |
+
+## Размерность векторов: при старте и при работе
+
+- **При старте (создание коллекции):** если размерность не задана в env (EMBEDDING_DIMENSION), она берётся из модели: для **local** и **openai_api** — один вызов encode/API для автоопределения; для **deterministic** и **none** — из существующей коллекции Qdrant (onec_help, onec_help_memory) или из EMBEDDING_DIMENSION; последний резорт — 384.
+- **При работе (поиск, запись в память):** размерность везде берётся из БД (Qdrant), если коллекция есть: при пропадании связи с эмбеддером используется deterministic-вектор с размерностью из коллекции, чтобы запрос к базе оставался валидным.
+- Хардкоженная размерность 384 используется только как последний резерв, когда ни коллекция, ни EMBEDDING_DIMENSION недоступны.
 
 ## Одна модель для индекса и поиска
 
@@ -36,8 +42,8 @@
 2. **Truncation** — обрезка до 2000 символов (MAX_EMBEDDING_INPUT_CHARS).
 3. **Batch** — для API: параллельные батчи с ThreadPoolExecutor.
 4. **Retry** — при HTTP 429 используется заголовок Retry-After (1–120 с).
-5. **Fallback** — при ошибке batch: retry с половинным батчем; при провале — по одному.
-6. **Placeholder** — при недоступности API: хэш-вектор для сохранения индекса.
+5. **Fallback** — при ошибке batch: retry с половинным батчем; при провале — deterministic-вектор с размерностью из Qdrant.
+6. **При недоступности API** — используется deterministic-вектор (токен-хэш), размерность из коллекции Qdrant или EMBEDDING_DIMENSION, чтобы поиск по индексу оставался возможным.
 
 ## Retry при len(vectors) != len(items)
 

@@ -24,7 +24,9 @@ def sanitize_text_for_embedding(text: str) -> str:
     return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", " ", text)
 
 
-VECTOR_SIZE = 384  # default for all-MiniLM-L6-v2; overridden when EMBEDDING_BACKEND=openai_api
+# Last resort when no model, no Qdrant collection, no EMBEDDING_DIMENSION (e.g. first run).
+# Dimension is otherwise taken from model (startup) or from DB (when already running).
+_DIMENSION_LAST_RESORT = 384
 MAX_EMBEDDING_INPUT_CHARS = 2000
 DEFAULT_EMBEDDING_BATCH_SIZE = 64
 DEFAULT_EMBEDDING_WORKERS = 4
@@ -269,31 +271,51 @@ def _check_embedding_api_available() -> bool:
         return False
 
 
-def _get_fallback_dim_from_qdrant() -> int | None:
-    """When API is unavailable, get vector size from Qdrant collection for correct-dim placeholder.
-    Cached to avoid repeated Qdrant calls."""
+def _get_dimension_from_qdrant(collection: str | None = None) -> int | None:
+    """Get vector size from Qdrant collection. Tries given collection, then onec_help, then onec_help_memory.
+    Cached for default collection to avoid repeated Qdrant calls."""
     global _cached_qdrant_dimension
-    if _cached_qdrant_dimension is not None:
+    main_coll = collection or os.environ.get("QDRANT_COLLECTION", "onec_help")
+    if collection is None and _cached_qdrant_dimension is not None:
         return _cached_qdrant_dimension
     try:
         from . import indexer
 
-        coll = os.environ.get("QDRANT_COLLECTION", "onec_help")
-        dim = indexer.get_collection_vector_size(collection=coll)
-        if dim and dim > 0:
-            _cached_qdrant_dimension = dim
-            return dim
+        for coll in (main_coll, "onec_help", "onec_help_memory"):
+            dim = indexer.get_collection_vector_size(collection=coll)
+            if dim and dim > 0:
+                if collection is None:
+                    _cached_qdrant_dimension = dim
+                return dim
     except Exception as e:
-        logging.getLogger(__name__).debug("get_fallback_dim_from_qdrant failed: %s", e)
+        logging.getLogger(__name__).debug("get_dimension_from_qdrant failed: %s", e)
     return None
+
+
+def _get_fallback_dim_from_qdrant() -> int | None:
+    """When API is unavailable, get vector size from Qdrant for correct-dim placeholder. See _get_dimension_from_qdrant."""
+    return _get_dimension_from_qdrant()
 
 
 def get_embedding_dimension() -> int:
     """Return vector size for the current embedding backend (for collection creation).
-    For local and openai_api: auto-detect (encode/API once); EMBEDDING_DIMENSION — fallback for API."""
+    On startup: from model (local/openai_api) or from DB/env (deterministic/none).
+    When already running: prefer dimension from Qdrant if collection exists, then EMBEDDING_DIMENSION."""
     global _cached_api_dimension, _cached_local_dimension, _dimension_detecting
+
+    def _from_db_or_env() -> int:
+        dim = _get_dimension_from_qdrant()
+        if dim is not None:
+            return dim
+        if _EMBEDDING_DIMENSION:
+            try:
+                return int(_EMBEDDING_DIMENSION)
+            except ValueError:
+                pass
+        return _DIMENSION_LAST_RESORT
+
     if _EMBEDDING_BACKEND == "deterministic":
-        return 384
+        return _from_db_or_env()
     if _EMBEDDING_BACKEND == "local":
         if _cached_local_dimension is not None:
             return _cached_local_dimension
@@ -303,11 +325,10 @@ def get_embedding_dimension() -> int:
             return _cached_local_dimension
         except Exception as e:
             logging.getLogger(__name__).debug("local embedding dimension detect failed: %s", e)
-        return VECTOR_SIZE
+        return _from_db_or_env()
     if _EMBEDDING_BACKEND == "openai_api":
         if _cached_api_dimension is not None:
             return _cached_api_dimension
-        # Сначала автоопределение по ответу API (не кэшировать размерность плейсхолдера)
         if _EMBEDDING_API_URL:
             _dimension_detecting = True
             try:
@@ -319,7 +340,6 @@ def get_embedding_dimension() -> int:
                 logging.getLogger(__name__).debug("embedding dimension detect failed: %s", e)
             finally:
                 _dimension_detecting = False
-        # Fallback: явная переменная окружения
         if _EMBEDDING_DIMENSION:
             try:
                 return int(_EMBEDDING_DIMENSION)
@@ -328,7 +348,8 @@ def get_embedding_dimension() -> int:
         dim = _get_fallback_dim_from_qdrant()
         if dim is not None:
             return dim
-    return VECTOR_SIZE
+        return _DIMENSION_LAST_RESORT
+    return _from_db_or_env()
 
 
 def _resolve_openai_api_model() -> str:
@@ -402,33 +423,40 @@ def _resolve_openai_api_model() -> str:
 
 
 def _embedding_fallback_dim() -> int:
-    """Dimension for placeholder when API fails. Prefer Qdrant collection size over default 384."""
+    """Dimension when API/model fails: use DB (Qdrant) so placeholder/deterministic matches collection."""
     if _dimension_detecting:
         dim = _get_fallback_dim_from_qdrant()
-        return dim if dim is not None else VECTOR_SIZE
+        return dim if dim is not None else _DIMENSION_LAST_RESORT
+    dim = _get_fallback_dim_from_qdrant()
+    if dim is not None:
+        return dim
     return get_embedding_dimension()
 
 
-def _get_embedding_placeholder(text: str, dimension: int = VECTOR_SIZE) -> list[float]:
-    """Deterministic placeholder vector (no model, no API)."""
+def _get_embedding_placeholder(text: str, dimension: int | None = None) -> list[float]:
+    """Deterministic placeholder vector (no model, no API). Dimension from DB or _embedding_fallback_dim."""
+    if dimension is None:
+        dimension = _embedding_fallback_dim()
     h = hashlib.sha256(text.encode("utf-8", errors="replace")).digest()
     return [(h[i % len(h)] - 128) / 128.0 for i in range(dimension)]
 
 
-def _get_embedding_deterministic(text: str) -> list[float]:
-    """Deterministic embedding (NFC, tokens, hash → 384 dim) for 'only DB' scenario."""
+def _get_embedding_deterministic(text: str, dimension: int | None = None) -> list[float]:
+    """Deterministic embedding (NFC, tokens, hash) for 'only DB' scenario. Dimension from DB or get_embedding_dimension."""
+    if dimension is None:
+        dimension = get_embedding_dimension()
     text = unicodedata.normalize("NFC", sanitize_text_for_embedding(text))
     tokens = re.findall(r"\w+|[^\w\s]", text.lower())
-    vec = [0.0] * 384
+    vec = [0.0] * dimension
     for i, t in enumerate(tokens):
         h = int(hashlib.sha256(t.encode("utf-8", errors="replace")).hexdigest()[:8], 16)
-        vec[i % 384] += (h % 256 - 128) / 128.0
+        vec[i % dimension] += (h % 256 - 128) / 128.0
     n = max(len(tokens), 1)
     return [v / n for v in vec]
 
 
 def _get_embedding_local(text: str) -> list[float]:
-    """Embedding via sentence-transformers (cached); fallback to hash placeholder if unavailable."""
+    """Embedding via sentence-transformers (cached); fallback to deterministic with DB dimension if unavailable."""
     global _embedding_model
     try:
         from sentence_transformers import SentenceTransformer
@@ -437,7 +465,7 @@ def _get_embedding_local(text: str) -> list[float]:
             _embedding_model = SentenceTransformer(_EMBEDDING_MODEL)
         return _embedding_model.encode(text, convert_to_numpy=True).tolist()
     except ImportError:
-        return _get_embedding_placeholder(text, VECTOR_SIZE)
+        return _get_embedding_deterministic(text, _embedding_fallback_dim())
 
 
 def _get_embedding_local_batch(texts: list[str]) -> list[list[float]]:
@@ -454,7 +482,8 @@ def _get_embedding_local_batch(texts: list[str]) -> list[list[float]]:
         matrix = _embedding_model.encode(truncated, convert_to_numpy=True)
         return [row.tolist() for row in matrix]
     except ImportError:
-        return [_get_embedding_placeholder(t, VECTOR_SIZE) for t in texts]
+        dim = _embedding_fallback_dim()
+        return [_get_embedding_deterministic(t, dim) for t in texts]
 
 
 def _get_embedding_api_single(text: str) -> list[float]:
@@ -462,10 +491,10 @@ def _get_embedding_api_single(text: str) -> list[float]:
     global _last_api_embedding_was_placeholder
     if not _EMBEDDING_API_URL:
         _last_api_embedding_was_placeholder = True
-        return _get_embedding_placeholder(text, _embedding_fallback_dim())
+        return _get_embedding_deterministic(text, _embedding_fallback_dim())
     if not _check_embedding_api_available():
         _last_api_embedding_was_placeholder = True
-        return _get_embedding_placeholder(text, _embedding_fallback_dim())
+        return _get_embedding_deterministic(text, _embedding_fallback_dim())
     model_id = _resolve_openai_api_model()
     url = f"{_EMBEDDING_API_URL}/embeddings"
     body = json.dumps(
@@ -510,8 +539,8 @@ def _get_embedding_api_single(text: str) -> list[float]:
     global _resolved_api_model_id
     _resolved_api_model_id = None
     _last_api_embedding_was_placeholder = True
-    _log_fallback(f"embedding API error/timeout, using placeholder: {type(last_err).__name__}")
-    return _get_embedding_placeholder(text, _embedding_fallback_dim())
+    _log_fallback(f"embedding API error/timeout, using deterministic: {type(last_err).__name__}")
+    return _get_embedding_deterministic(text, _embedding_fallback_dim())
 
 
 def _get_embedding_api_batch(texts: list[str]) -> list[list[float]]:
@@ -519,9 +548,11 @@ def _get_embedding_api_batch(texts: list[str]) -> list[list[float]]:
     if not texts:
         return []
     if not _EMBEDDING_API_URL:
-        return [_get_embedding_placeholder(t, _embedding_fallback_dim()) for t in texts]
+        dim = _embedding_fallback_dim()
+        return [_get_embedding_deterministic(t, dim) for t in texts]
     if not _check_embedding_api_available():
-        return [_get_embedding_placeholder(t, _embedding_fallback_dim()) for t in texts]
+        dim = _embedding_fallback_dim()
+        return [_get_embedding_deterministic(t, dim) for t in texts]
     model_id = _resolve_openai_api_model()
     truncated = [t[:MAX_EMBEDDING_INPUT_CHARS] for t in texts]
     url = f"{_EMBEDDING_API_URL}/embeddings"
@@ -554,7 +585,7 @@ def _get_embedding_api_batch(texts: list[str]) -> list[list[float]]:
                         result.append(list(item["embedding"]))
                     else:
                         result.append(
-                            _get_embedding_placeholder(truncated[i], _embedding_fallback_dim())
+                            _get_embedding_deterministic(truncated[i], _embedding_fallback_dim())
                         )
                 return result
             break
@@ -577,7 +608,8 @@ def _get_embedding_api_batch(texts: list[str]) -> list[list[float]]:
     _log_fallback(
         f"embedding API batch error, falling back to single request: {type(last_err).__name__}"
     )
-    return [_get_embedding_api_single(t) for t in texts]
+    dim = _embedding_fallback_dim()
+    return [_get_embedding_deterministic(t, dim) for t in texts]
 
 
 def _get_embedding_api_batch_parallel(
