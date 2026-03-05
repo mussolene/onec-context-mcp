@@ -193,6 +193,12 @@ python -m onec_help mcp . --transport streamable-http --host 0.0.0.0 --port 8050
 
 ---
 
+### BSL LS (диагностика и рефакторинг 1С)
+
+Для статического анализа и навигации по коду 1С используется **BSL Language Server** через отдельный MCP — **lsp-bsl-bridge**. Запуск: `make bsl-start` (или `docker compose -f docker-compose.bsl.yml up -d`). Требуется клон репозитория mcp-bsl-lsp-bridge в `deps/` (`make fetch-bsl-bridge`). В Cursor в `.cursor/mcp.json` добавляют оба сервера: 1c-help (справка, сниппеты) и lsp-bsl-bridge (document_diagnostics, code_actions, call_graph и др.). Подробнее: [docs/bsl-ls-mcp-setup.md](docs/bsl-ls-mcp-setup.md), [docs/cursor-examples/](docs/cursor-examples/README.md).
+
+---
+
 ### Ingest: мультикаталоги и расписание
 
 Ingest берёт .hbk из `HELP_SOURCE_BASE` (подпапки = версии 1С). Путь к .hbk: `/opt/1cv8/8.3.27.../1cv8_ru.hbk` или `.../bin/1cv8_ru.hbk` (поиск рекурсивный).
@@ -201,7 +207,7 @@ Ingest берёт .hbk из `HELP_SOURCE_BASE` (подпапки = версии 
 - **Cron:** full — 3:00; split — настраивается в ingest-worker
 - **Watchdog** (`WATCHDOG_ENABLED=1`): мониторинг новых .hbk + pending memory
 
-Кэш: volume `ingest_cache`. При `[ingest] WARN: ingest cache read failed` — права, диск. `reinit --force` стирает кэш.
+Кэш: в Docker путь к файлу кэша — `/app/var/ingest_cache/ingest_cache.db` (volume `ingest_cache` → обычно `./data/ingest_cache` на хосте). Переменная `INGEST_CACHE_FILE` задаёт путь внутри контейнера. При `[ingest] WARN: ingest cache read failed` — проверьте права, существование каталога и место на диске. `reinit --force` стирает кэш.
 
 ---
 
@@ -284,8 +290,10 @@ ruff check src tests && ruff format --check src tests
 - [docs/embedding.md](docs/embedding.md) — embedding-пайплайн: бэкенды, batch/single, retry, 429, переменные окружения.
 - [docs/run.md](docs/run.md) — запуск локально и в Docker.
 - [docs/search-and-mcp.md](docs/search-and-mcp.md) — поиск и рекомендации по MCP.
+- [docs/mcp-tools-reference.md](docs/mcp-tools-reference.md) — справочник MCP-инструментов 1c-help: параметры, лимиты, рекомендуемый порядок вызовов.
 - [docs/help_formats.md](docs/help_formats.md) — форматы справки (.hbk, HTML, Markdown).
 - [docs/mcp.json.example](docs/mcp.json.example) — пример конфига MCP для Cursor.
+- [docs/bsl-ls-mcp-setup.md](docs/bsl-ls-mcp-setup.md) — подключение BSL LS как MCP (make bsl-start, URI для document_diagnostics).
 - [docs/cursor-examples/](docs/cursor-examples/README.md) — Skill и Rules для Cursor (1c-help + BSL LS); эталон для индексации; при доработке MCP обновлять как зависимость.
 
 ## Дальнейшие этапы
