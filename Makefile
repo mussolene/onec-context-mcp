@@ -1,5 +1,5 @@
 # 1C Help MCP — Docker commands
-# По умолчанию: split (mcp + ingest-worker). Для одного контейнера: make up-full, make ingest-full.
+# По умолчанию: make up = qdrant + mcp; make ingest-up = + ingest-worker (watchdog). Full: make up-full.
 # Usage: make parse-fastcode | make load-snippets | make snippets
 # Pages: auto by default. Limit: ARGS="--pages 1-5 --no-fetch-detail"
 
@@ -34,7 +34,7 @@ INGEST_SERVICE = ingest-worker
 INDEX_STATUS_SERVICE = mcp
 
 .PHONY: build build-full fetch-bsl-bridge parse-fastcode parse-helpf load-snippets load-snippets-from-project load-standards snippets
-.PHONY: up down up-full down-full bsl-start bsl-stop qdrant-logs qdrant-reset qdrant-backup qdrant-restore ensure-data
+.PHONY: up down ingest-up ingest-down up-full down-full bsl-start bsl-stop qdrant-logs qdrant-reset qdrant-backup qdrant-restore ensure-data
 
 # bsl-bridge: локальный клон (Git URL в context не работает на Docker Windows)
 deps/mcp-bsl-lsp-bridge/.git/HEAD:
@@ -142,8 +142,17 @@ ingest-from-unpacked:
 
 # Start (split: qdrant + mcp + ingest-worker)
 # Каталоги data/* создаются Docker при volume mount — кросс-платформенно
+# По умолчанию только qdrant + mcp
 up:
 	$(COMPOSE) up -d
+
+# Запустить ingest-worker (watchdog): нужен после make up, если нужна индексация/стандарты/сниппеты
+ingest-up:
+	$(COMPOSE) --profile ingest up -d
+
+# Остановить только ingest-worker (qdrant и mcp остаются)
+ingest-down:
+	$(COMPOSE) stop ingest-worker
 
 # Start full (один контейнер mcp)
 up-full:
@@ -163,7 +172,7 @@ bsl-start: deps/mcp-bsl-lsp-bridge/.git/HEAD
 bsl-stop:
 	$(COMPOSE_BSL) stop
 
-# Создать каталоги data/ для bind-mount (qdrant, unpacked, ingest_cache и др.). После потери data/qdrant: make ensure-data && make up && make ingest
+# Создать каталоги data/ для bind-mount. После потери data/qdrant: make ensure-data && make up; для индекса: make ingest-up
 ensure-data:
 	@mkdir -p data/qdrant data/unpacked data/ingest_cache data/snippets data/backup data/bm25_vocab data/standards
 	@echo "data/qdrant и остальные каталоги созданы."
@@ -176,7 +185,7 @@ qdrant-logs:
 qdrant-reset:
 	-$(COMPOSE) stop qdrant
 	docker run --rm -v "$(CURDIR)/data:/data" alpine rm -rf /data/qdrant
-	@echo "data/qdrant удалён. Запустите: make up && make ingest"
+	@echo "data/qdrant удалён. Запустите: make up; для индексации: make ingest-up"
 
 # Снапшот коллекции → data/backup/onec_help-{timestamp}.snapshot (для миграции между хостами)
 qdrant-backup:
@@ -200,16 +209,18 @@ help:
 	@echo "  make init             ingest + load-snippets + load-standards (не стирает)"
 	@echo "  make reinit           init (если индекс есть — без стирания). reinit ARGS='--force' — стереть и init"
 	@echo "  make unpack-help      Распаковка .hbk без индексации"
-	@echo "  make ingest           Индексация .hbk (split, ingest-worker)"
+	@echo "  make ingest           Индексация .hbk (требует make ingest-up)"
 	@echo "  make ingest-full      Индексация (full, mcp)"
 	@echo "  make build-index      Индексация из папки (ARGS=путь)"
 	@echo "  make add-bm25         Добавить BM25 sparse vectors (без re-ingest)"
 	@echo "  make index-status     Статус индекса"
 	@echo "  make watch-index-status  Статус в реальном времени"
 	@echo "  make fetch-bsl-bridge  Клонировать mcp-bsl-lsp-bridge (для Windows)"
-	@echo "  make up               Start split (qdrant + mcp + ingest-worker)"
+	@echo "  make up               Start qdrant + mcp (по умолчанию только эти два)"
+	@echo "  make ingest-up        Start + ingest-worker (watchdog, индексация)"
+	@echo "  make ingest-down      Stop ingest-worker"
 	@echo "  make up-full          Start full (один контейнер mcp)"
-	@echo "  make down             Stop"
+	@echo "  make down             Stop все сервисы"
 	@echo "  make bsl-start        BSL LS bridge only (отдельно от up)"
 	@echo "  make bsl-stop         Stop BSL bridge"
 	@echo "  make ensure-data      Создать data/qdrant и др. (после потери базы)"

@@ -39,7 +39,7 @@ docker compose up -d
 # или: make up
 ```
 
-Индексация: `make ingest` или `docker compose exec ingest-worker python -m onec_help ingest`.
+Индексация: `make ingest-up` (поднять ingest-worker), затем `make ingest` или через watchdog.
 
 ### Full (один контейнер)
 
@@ -115,7 +115,7 @@ make up-full
 |------------|-----------------|----------------|
 | Код Python (onec_help) | `make build && make up` | `make build-full && make up-full` |
 | Только MCP API | `make build SERVICE=mcp && make up` | `make build-full && make up-full` |
-| Только ingest/cron | `make build SERVICE=ingest-worker && make up` | `make build-full && make up-full` |
+| Только ingest/cron | `make build && make ingest-up` | `make build-full && make up-full` |
 | Dockerfile, requirements | `make build && make up` | `make build-full && make up-full` |
 | Только env/volumes в compose | `make up` | `make up-full` |
 

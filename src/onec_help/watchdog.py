@@ -1,7 +1,8 @@
 """
 Watchdog: monitor new .hbk files, incremental ingest; process pending memory embeddings.
-Uses same discovery as ingest (discover_version_dirs + collect_hbk_tasks) so new platform
-installations are detected reliably.
+Also monitors STANDARDS_DIR and SNIPPETS_DIR: on change runs load-standards / load-snippets
+(so standards and snippets from disk are reloaded automatically like ingest for .hbk).
+Uses same discovery as ingest (discover_version_dirs + collect_hbk_tasks) for .hbk.
 """
 
 import json
@@ -14,6 +15,9 @@ from pathlib import Path
 from ._utils import safe_error_message
 from .ingest import _ingest_cache_path, collect_hbk_tasks, discover_version_dirs
 
+_STANDARDS_EXT = frozenset({".md"})
+_SNIPPETS_EXT = frozenset({".json", ".bsl", ".1c", ".md"})
+
 
 def _parse_languages() -> list[str] | None:
     raw = os.environ.get("HELP_LANGUAGES", "").strip()
@@ -25,6 +29,38 @@ def _parse_languages() -> list[str] | None:
 def _watchdog_state_path() -> Path:
     """State file path: same directory as ingest cache (persists across container restarts)."""
     return Path(_ingest_cache_path()).parent / "watchdog_hbk_cache.json"
+
+
+def _watchdog_standards_state_path() -> Path:
+    return Path(_ingest_cache_path()).parent / "watchdog_standards_cache.json"
+
+
+def _watchdog_snippets_state_path() -> Path:
+    return Path(_ingest_cache_path()).parent / "watchdog_snippets_cache.json"
+
+
+def _scan_dir_by_ext(dir_path: Path, exts: frozenset[str]) -> dict[str, float]:
+    """Scan directory recursively for files with given extensions; return path -> mtime."""
+    out: dict[str, float] = {}
+    if not dir_path.exists() or not dir_path.is_dir():
+        return out
+    for f in dir_path.rglob("*"):
+        if f.is_file() and f.suffix.lower() in exts:
+            try:
+                out[str(f.resolve())] = f.stat().st_mtime
+            except OSError:
+                pass
+    return out
+
+
+def _scan_standards_dir(standards_dir: Path) -> dict[str, float]:
+    """Scan STANDARDS_DIR for .md files (same as load-standards / collect_from_folder)."""
+    return _scan_dir_by_ext(standards_dir, _STANDARDS_EXT)
+
+
+def _scan_snippets_dir(snippets_dir: Path) -> dict[str, float]:
+    """Scan SNIPPETS_DIR for .json, .bsl, .1c, .md (sources used by load-snippets)."""
+    return _scan_dir_by_ext(snippets_dir, _SNIPPETS_EXT)
 
 
 def _scan_hbk_like_ingest(base: Path | None = None) -> dict[str, float]:
@@ -59,7 +95,8 @@ def run_watchdog(
 ) -> None:
     """
     Infinite loop: (1) check for new/changed .hbk (same discovery as ingest), trigger ingest;
-    (2) process pending memory embeddings periodically.
+    (2) check STANDARDS_DIR and SNIPPETS_DIR, on change run load-standards / load-snippets;
+    (3) process pending memory embeddings periodically.
     """
     if help_source_base is not None:
         base = Path(help_source_base).resolve()
@@ -80,6 +117,30 @@ def run_watchdog(
             last_hbk = json.loads(cache_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             pass
+
+    def _load_state(state_path: Path) -> dict[str, float]:
+        out: dict[str, float] = {}
+        if state_path.exists():
+            try:
+                out = json.loads(state_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                pass
+        return out
+
+    def _save_state(state_path: Path, data: dict[str, float]) -> None:
+        try:
+            state_path.write_text(json.dumps(data, indent=0), encoding="utf-8")
+        except OSError:
+            pass
+
+    standards_dir_str = (os.environ.get("STANDARDS_DIR") or "data/standards").strip()
+    standards_dir = Path(standards_dir_str).resolve()
+    last_standards = _load_state(_watchdog_standards_state_path())
+
+    snippets_dir_str = (os.environ.get("SNIPPETS_DIR") or "data/snippets").strip()
+    snippets_dir = Path(snippets_dir_str).resolve()
+    last_snippets = _load_state(_watchdog_snippets_state_path())
+
     last_pending = 0.0
     poll = max(60, poll_interval_sec)
     pending_int = max(60, pending_interval_sec)
@@ -100,12 +161,36 @@ def run_watchdog(
                         flush=True,
                     )
                 last_hbk = current
-                try:
-                    cache_path.write_text(json.dumps(current, indent=0), encoding="utf-8")
-                except OSError:
-                    pass
+                _save_state(cache_path, current)
                 if current:
                     _run_ingest()
+
+            if standards_dir.exists():
+                current_std = _scan_standards_dir(standards_dir)
+                if current_std != last_standards:
+                    if last_standards or current_std:
+                        print(
+                            "[watchdog] standards dir changed, running load-standards",
+                            file=sys.stderr,
+                            flush=True,
+                        )
+                    last_standards = current_std
+                    _save_state(_watchdog_standards_state_path(), current_std)
+                    _run_load_standards(standards_dir_str)
+
+            if snippets_dir.exists():
+                current_snip = _scan_snippets_dir(snippets_dir)
+                if current_snip != last_snippets:
+                    if last_snippets or current_snip:
+                        print(
+                            "[watchdog] snippets dir changed, running load-snippets",
+                            file=sys.stderr,
+                            flush=True,
+                        )
+                    last_snippets = current_snip
+                    _save_state(_watchdog_snippets_state_path(), current_snip)
+                    _run_load_snippets(snippets_dir_str)
+
             if now - last_pending >= pending_int:
                 last_pending = now
                 _process_pending_memory()
@@ -125,6 +210,40 @@ def _run_ingest() -> None:
         )
     except (subprocess.TimeoutExpired, OSError) as e:
         print(f"[watchdog] ingest failed: {safe_error_message(e)}", file=sys.stderr, flush=True)
+
+
+def _run_load_standards(standards_dir: str) -> None:
+    """Run load-standards from given path (loads from disk only, no GitHub fetch)."""
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "onec_help", "load-standards", standards_dir],
+            capture_output=True,
+            timeout=1800,
+            env=os.environ.copy(),
+        )
+    except (subprocess.TimeoutExpired, OSError) as e:
+        print(
+            f"[watchdog] load-standards failed: {safe_error_message(e)}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+
+def _run_load_snippets(snippets_dir: str) -> None:
+    """Run load-snippets from given path (folder with .json / .bsl / .1c / .md)."""
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "onec_help", "load-snippets", snippets_dir],
+            capture_output=True,
+            timeout=1800,
+            env=os.environ.copy(),
+        )
+    except (subprocess.TimeoutExpired, OSError) as e:
+        print(
+            f"[watchdog] load-snippets failed: {safe_error_message(e)}",
+            file=sys.stderr,
+            flush=True,
+        )
 
 
 def _process_pending_memory() -> None:

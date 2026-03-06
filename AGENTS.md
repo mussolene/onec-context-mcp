@@ -12,7 +12,7 @@
 - **Локально:** `python -m onec_help ingest|reinit|init|index-status|mcp|unpack|build-index|load-snippets|load-standards|watchdog ...`
 - **init** — ingest + load-snippets + load-standards (HELP_SOURCE_BASE, SNIPPETS_DIR, STANDARDS_REPOS). Не стирает данные.
 - **reinit --force** — очистка коллекций и cache, затем init. Для перезапуска «с нуля».
-- **Docker:** `docker-compose up` (qdrant + mcp). Индексация: `make ingest`. Полная перезагрузка: `make reinit ARGS='--force'`. Cron в 3:00 — ingest; при WATCHDOG_ENABLED=1 — watchdog в фоне. BSL LS — `make bsl-start`.
+- **Docker:** по умолчанию `make up` — только **qdrant** и **mcp**. Для индексации и watchdog: **`make ingest-up`** (поднимает ingest-worker с watchdog). Индексация вручную: `make ingest` (требует запущенный ingest-worker). Полная перезагрузка: `make reinit ARGS='--force'`. Cron в 3:00 — в full-режиме. BSL LS — `make bsl-start`.
 - **read-hbk-container** — чтение .hbk как бинарного контейнера (alkoleft/hbk-viewer): сущности, извлечение в каталог, TOC в JSON (вспомогательная команда).
 - **Сниппеты:** ./data/snippets, parse-fastcode/parse-helpf пишут туда, `load-snippets` загружает. `make snippets` — оба сайта; `make parse-helpf` — только FAQ.
 - **Стандарты:** `make load-standards` — v8-code-style и v8std (STANDARDS_REPOS).
@@ -24,7 +24,7 @@
 1. **INGEST_CACHE_FILE** — в Docker: `/app/var/ingest_cache/ingest_cache.db` (→ ./data/ingest_cache).
 2. **Ошибка чтения кэша** — при `[ingest] WARN: ingest cache read failed` проверьте права, существование файла, место на диске. В логе будет подсказка.
 3. **Распаковка по умолчанию** — ingest пишет в **data/unpacked** (DATA_UNPACKED_DIR) структуру **version/stem** (run_unpack_sync), затем run_ingest_from_unpacked индексирует из неё. Команда **ingest-from-unpacked** ожидает именно эту структуру; вывод **unpack-dir** (version/lang/name) с ней не совместим. INGEST_USE_TEMP=1 — временная папка с удалением после индексации.
-4. **Watchdog** — state в INGEST_CACHE (watchdog_hbk_cache.json); при рестарте неизменённые .hbk пропускаются по кэшу.
+4. **Watchdog** — state в INGEST_CACHE (watchdog_hbk_cache.json); при рестарте неизменённые .hbk пропускаются по кэшу. Также следит за **STANDARDS_DIR** и **SNIPPETS_DIR**: при изменении файлов (.md в standards, .json/.bsl/.1c/.md в snippets) автоматически запускает load-standards и load-snippets (как ingest для .hbk).
 5. **reinit --force** — стирает коллекции и кэш, затем init; полная переиндексация ожидаема.
 
 ## Embedding и индексация

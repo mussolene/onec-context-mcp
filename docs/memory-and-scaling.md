@@ -15,7 +15,7 @@
 ## Watchdog и Cron
 
 - **Cron (3:00)** — полная индексация по расписанию
-- **Watchdog** (при `WATCHDOG_ENABLED=1`) — мониторинг новых .hbk в HELP_SOURCE_BASE; при изменении — ingest; каждые N минут — обработка pending memory
+- **Watchdog** (по умолчанию включён, `WATCHDOG_ENABLED=1`) — мониторинг .hbk, STANDARDS_DIR и SNIPPETS_DIR; при изменении — ingest / load-standards / load-snippets; каждые N минут — обработка pending memory. Отключить: `WATCHDOG_ENABLED=0`.
 
 Переменные: `WATCHDOG_ENABLED`, `WATCHDOG_POLL_INTERVAL`, `WATCHDOG_PENDING_INTERVAL`.
 

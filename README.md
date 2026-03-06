@@ -118,7 +118,7 @@ pip install -e ".[dev]"
 | `EMBEDDING_TIMEOUT` | Таймаут HTTP-запроса к API (секунды). При ошибке — retry с backoff, затем плейсхолдер | `60` |
 | `EMBEDDING_BATCH_TIMEOUT` | Таймаут для batch-запроса (секунды). По умолчанию — формула от размера батча | — |
 | `MCP_MODE` | `api` — только MCP (split, по умолчанию); `full` — всё в mcp (один контейнер) | `api` |
-| `WATCHDOG_ENABLED` | `1` — запустить watchdog в фоне: мониторинг .hbk и обработка pending memory | `0` |
+| `WATCHDOG_ENABLED` | По умолчанию `1` — watchdog включён (split: ingest-worker; full: в фоне). `0` — отключить | `1` |
 | `WATCHDOG_POLL_INTERVAL` | Интервал проверки новых .hbk (секунды) | `600` |
 | `WATCHDOG_PENDING_INTERVAL` | Интервал обработки pending embeddings (секунды) | `600` |
 
@@ -134,7 +134,7 @@ pip install -e ".[dev]"
 | **docker compose** | Запуск в контейнерах (рекомендуется) |
 | **make** | Обёртки над compose; `make help` — полный список |
 
-**Быстрый старт (Docker):** `make up` → `make ingest` → MCP: http://localhost:8050/mcp. Данные в `./data/`. Если пропала база (data/qdrant): `make ensure-data && make up && make ingest`. Локально: `python -m onec_help mcp` без аргументов использует каталог `data/` по умолчанию.
+**Быстрый старт (Docker):** `make up` (qdrant + mcp) → при необходимости индексации: `make ingest-up` → MCP: http://localhost:8050/mcp. Данные в `./data/`. Если пропала база (data/qdrant): `make ensure-data && make up`; для индекса: `make ingest-up`. Локально: `python -m onec_help mcp` без аргументов использует каталог `data/` по умолчанию.
 
 ---
 
@@ -156,16 +156,19 @@ python -m onec_help mcp . --transport streamable-http --host 0.0.0.0 --port 8050
 
 Данные в `./data/`. MCP: http://localhost:8050/mcp.
 
+**Важно:** проект использует два файла: `docker-compose.base.yml` (образы, сервисы) и `docker-compose.yml` (переменные). Команда **`docker compose up -d` без `-f` выдаст ошибку** «service "mcp" has neither an image nor a build context». Используйте **`make up`** или явно: **`docker compose -f docker-compose.base.yml -f docker-compose.yml up -d`**.
+
 **macOS:** Docker Desktop → Settings → Resources → File sharing — добавьте `/opt` (или `/opt/1cv8`).
 
 | Действие | Команда |
 |----------|---------|
-| Запуск (split) | `docker compose up -d` |
-| Запуск full (один контейнер) | `docker compose -f docker-compose.full.yml up -d` |
-| Индексация (split) | `docker compose exec ingest-worker python -m onec_help ingest` |
-| Индексация (full) | `docker compose -f docker-compose.full.yml exec mcp python -m onec_help ingest` |
-| Полная перезагрузка | `docker compose exec ingest-worker python -m onec_help reinit --force` (или для full: `exec mcp ...`) |
-| Статус индекса | `docker compose exec mcp python -m onec_help index-status` |
+| Запуск (qdrant + mcp) | `make up` или `docker compose -f docker-compose.base.yml -f docker-compose.yml up -d` |
+| Запуск ingest-worker | `make ingest-up` (профиль ingest) |
+| Запуск full (один контейнер) | `docker compose -f docker-compose.base.yml -f docker-compose.full.yml up -d` |
+| Индексация | `make ingest` (нужен запущенный ingest-worker: `make ingest-up`) |
+| Индексация (full) | `docker compose -f docker-compose.base.yml -f docker-compose.full.yml exec mcp python -m onec_help ingest` |
+| Полная перезагрузка | `docker compose -f docker-compose.base.yml -f docker-compose.yml exec ingest-worker python -m onec_help reinit --force` (или для full: `exec mcp ...`) |
+| Статус индекса | `docker compose -f docker-compose.base.yml -f docker-compose.yml exec mcp python -m onec_help index-status` |
 
 ---
 
@@ -175,7 +178,9 @@ python -m onec_help mcp . --transport streamable-http --host 0.0.0.0 --port 8050
 
 | Команда | Описание |
 |---------|----------|
-| `make up` | Запуск split (qdrant + mcp + ingest-worker) |
+| `make up` | Запуск qdrant + mcp (по умолчанию только эти два сервиса) |
+| `make ingest-up` | Запуск ingest-worker (watchdog, индексация) |
+| `make ingest-down` | Остановка ingest-worker |
 | `make up-full` | Запуск full (один контейнер mcp) |
 | `make ingest` | Индексация справки (единая точка входа) |
 | `make ingest-full` | Индексация в режиме full |
@@ -193,7 +198,7 @@ python -m onec_help mcp . --transport streamable-http --host 0.0.0.0 --port 8050
 
 ### Режимы развёртывания
 
-- **Split (по умолчанию):** mcp (API) + ingest-worker (batch). Cron в ingest-worker.
+- **По умолчанию (`make up`):** только qdrant + mcp. Для индексации и watchdog: **`make ingest-up`** (поднимает ingest-worker).
 - **Full:** один контейнер mcp; cron раз в сутки. `make up-full`, `make ingest-full`.
 
 Просмотр справки в браузере может быть реализован в будущем отдельным контейнером (по аналогии с BSL LS).
@@ -210,9 +215,9 @@ python -m onec_help mcp . --transport streamable-http --host 0.0.0.0 --port 8050
 
 Ingest берёт .hbk из `HELP_SOURCE_BASE` (подпапки = версии 1С). Путь к .hbk: `/opt/1cv8/8.3.27.../1cv8_ru.hbk` или `.../bin/1cv8_ru.hbk` (поиск рекурсивный).
 
-- **Вручную:** `make ingest` или `docker compose exec ingest-worker python -m onec_help ingest`
-- **Cron:** full — 3:00; split — настраивается в ingest-worker
-- **Watchdog** (`WATCHDOG_ENABLED=1`): мониторинг новых .hbk + pending memory
+- **Вручную:** сначала `make ingest-up`, затем `make ingest` (или `docker compose exec ingest-worker python -m onec_help ingest`)
+- **Cron:** full — 3:00; при `make ingest-up` в ingest-worker работает watchdog
+- **Watchdog** (по умолчанию включён): мониторинг .hbk, STANDARDS_DIR и SNIPPETS_DIR; при изменениях — ingest / load-standards / load-snippets; периодически — pending memory. Отключить: `WATCHDOG_ENABLED=0`.
 
 Кэш: в Docker путь к файлу кэша — `/app/var/ingest_cache/ingest_cache.db` (volume `ingest_cache` → обычно `./data/ingest_cache` на хосте). Переменная `INGEST_CACHE_FILE` задаёт путь внутри контейнера. При `[ingest] WARN: ingest cache read failed` — проверьте права, существование каталога и место на диске. `reinit --force` стирает кэш.
 
@@ -266,7 +271,7 @@ docker run --rm -d -p 8050:8050 \
 **Сервер запущен, но Cursor не показывает tools или «No server info found»:** в base compose по умолчанию задано `MCP_TRANSPORT=sse` (лучше совместим с Cursor). Убедитесь: (1) контейнер перезапущен после смены транспорта: `docker compose -f docker-compose.base.yml up -d mcp`; (2) в Cursor URL именно `http://localhost:8050/mcp`; (3) **полностью перезапустите Cursor** (Quit и снова открыть), не только перезагрузка окна; (4) в настройках MCP дождитесь появления сервера и списка tools (иногда 5–10 с). Если по-прежнему пусто — в логах Cursor (Output → MCP) смотрите ошибки; при `ECONNRESET` проверьте, что порт 8050 не занят и файрвол не режет соединение.
 
 **MCP подключается, но не работает или отваливается:**
-1. Контейнер mcp запущен: `docker compose ps` — сервис `mcp` (или `ingest-worker` в split) в состоянии Up.
+1. Контейнер mcp запущен: `docker compose ps` — сервис `mcp` в состоянии Up (ingest-worker опционален: `make ingest-up`).
 2. Порт 8050 слушается: `curl -s -o /dev/null -w "%{http_code}" http://localhost:8050/` (ожидается ответ от сервера, не 000).
 3. Конфиг Cursor: в `.cursor/mcp.json` для 1c-help указано `"url": "http://localhost:8050/mcp"` (без опечаток; порт совпадает с MCP_PORT).
 4. После смены конфига или порта — полностью перезапустить Cursor (не только перезагрузка окна).

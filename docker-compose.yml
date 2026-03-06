@@ -1,5 +1,5 @@
-# По умолчанию: split mode — mcp только API, ingest-worker — batch (ingest, cron, load-snippets).
-# usage: docker compose -f docker-compose.base.yml -f docker-compose.yml up -d   или   make up
+# По умолчанию: только qdrant + mcp (make up). Ingest-worker — по профилю: make ingest-up.
+# usage: make up → qdrant + mcp; make ingest-up → + ingest-worker (watchdog).
 #
 # Для одного контейнера: make up-full   или   docker compose -f docker-compose.base.yml -f docker-compose.full.yml up -d
 #
@@ -15,6 +15,8 @@ services:
       EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-}
 
   ingest-worker:
+    profiles:
+      - ingest
     build:
       context: .
       args:
@@ -40,7 +42,7 @@ services:
       EMBEDDING_WORKERS: ${EMBEDDING_WORKERS:-4}
       EMBEDDING_FORCE_BATCH: ${EMBEDDING_FORCE_BATCH:-0}
       EMBEDDING_TIMEOUT: ${EMBEDDING_TIMEOUT:-60}
-      WATCHDOG_ENABLED: ${WATCHDOG_ENABLED:-0}
+      WATCHDOG_ENABLED: ${WATCHDOG_ENABLED:-1}
       WATCHDOG_POLL_INTERVAL: ${WATCHDOG_POLL_INTERVAL:-600}
       WATCHDOG_PENDING_INTERVAL: ${WATCHDOG_PENDING_INTERVAL:-600}
       SNIPPETS_DIR: ${SNIPPETS_DIR:-/data/snippets}
@@ -60,7 +62,8 @@ services:
       - ./data/standards:/data/standards
       - ./data/backup:/data/backup
       - ./data/bm25_vocab:/app/data/bm25_vocab
-    command: ["sh", "-c", "sleep infinity"]
+    # По умолчанию watchdog включён (WATCHDOG_ENABLED=1). При 0 — только sleep (make ingest вручную).
+    command: ["sh", "-c", "if [ \"$${WATCHDOG_ENABLED:-1}\" = \"1\" ]; then exec python -m onec_help watchdog; else exec sleep infinity; fi"]
     depends_on:
       qdrant:
         condition: service_healthy
