@@ -1,0 +1,32 @@
+[
+  {
+    "id": "crypto_manager",
+    "tool": "search_1c_help_keyword",
+    "args": {"query": "МенеджерКриптографии", "limit": 5},
+    "expected_markers": ["МенеджерКриптографии", "Криптограф", "path", ".md"]
+  },
+  {
+    "id": "crypto_sign",
+    "tool": "search_1c_help_keyword",
+    "args": {"query": "КриптоГраф.Подписать", "limit": 5},
+    "expected_markers": ["Подписать", "Криптограф", "подпис"]
+  },
+  {
+    "id": "hash",
+    "tool": "get_1c_code_answer",
+    "args": {"query": "как получить хеш данных в 1С", "limit": 3, "include_memory": false},
+    "expected_markers": ["Хеш", "хеш", "Хеширование", "данн"]
+  },
+  {
+    "id": "certificates",
+    "tool": "search_1c_help_keyword",
+    "args": {"query": "Сертификат", "limit": 5},
+    "expected_markers": ["Сертификат", "сертификат", "path", ".md"]
+  },
+  {
+    "id": "code_answer_crypto",
+    "tool": "get_1c_code_answer",
+    "args": {"query": "как подписать данные", "limit": 3, "include_memory": false},
+    "expected_markers": ["подпис", "Криптограф", "МенеджерКриптографии", "search_1c_help_keyword", "No results"]
+  }
+]

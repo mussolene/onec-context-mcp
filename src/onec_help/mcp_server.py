@@ -751,27 +751,9 @@ def _build_mcp_app(help_path: Path) -> Any:
         )
 
     @mcp.tool()
-    def trigger_reindex() -> str:
-        """Trigger full reindex (ingest) in the background. Use when help sources changed.
-        Returns immediately; indexing runs asynchronously. Check progress with get_1c_help_index_status."""
-        import subprocess
-        import sys
-
-        try:
-            subprocess.Popen(
-                [sys.executable, "-m", "onec_help", "ingest"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
-            return "Reindex started in background. Check get_1c_help_index_status for progress."
-        except Exception as e:
-            return f"Failed to start reindex: {safe_error_message(e)}"
-
-    @mcp.tool()
     def get_1c_help_index_status() -> str:
         """Returns index status (topics count, collection, versions, languages) and ingest progress.
-        When ingest is running: current file, ETA, speed, errors. Use after trigger_reindex to check progress."""
+        When ingest is running: current file, ETA, speed, errors."""
         s = _index_status()
         err = s.get("error")
         if err:

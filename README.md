@@ -288,6 +288,21 @@ ruff check src tests && ruff format --check src tests
 
 Покрытие не менее 70% (исключены из расчёта: `__main__.py`, `tests/`).
 
+### Интеграционные и нагрузочные тесты MCP
+
+Требуют запущенные MCP и Qdrant (например `make up` или `make ingest-up`).
+
+- **Интеграционные тесты (в т.ч. крипто-сценарии):**  
+  `MCP_INTEGRATION=1 PYTHONPATH=src python -m pytest tests/test_mcp_integration.py tests/test_mcp_functional_crypto.py -v`  
+  Список запросов для функциональных проверок: [tests/fixtures/mcp_crypto_queries.json](tests/fixtures/mcp_crypto_queries.json).
+
+- **Нагрузочный тест MCP:**  
+  `python scripts/load_test_mcp.py [--workers 10] [--duration 60] [--url URL]`  
+  Выводит RPS, латентность (avg, p50, p95, p99), число ошибок и срабатываний rate limit. Учёт лимита: `MCP_RATE_LIMIT_PER_MIN` (см. [docs/mcp-quality-test-report.md](docs/mcp-quality-test-report.md)).
+
+- **Релевантность и полнота ответов, верификация скиллов/правил:**  
+  [docs/mcp-quality-test-report.md](docs/mcp-quality-test-report.md), [docs/skills-rules-verification.md](docs/skills-rules-verification.md). Для тестов с проектом из `.nosync` (библиотека криптографии) задайте при необходимости `NOSYNC_DIR` (путь к корню проекта).
+
 ## CI
 
 - **test** — pytest, покрытие ≥70%, матрица Python 3.10–3.14; Codecov (`CODECOV_TOKEN` в secrets).
@@ -307,6 +322,8 @@ ruff check src tests && ruff format --check src tests
 - [docs/mcp.json.example](docs/mcp.json.example) — пример конфига MCP для Cursor.
 - [docs/bsl-ls-mcp-setup.md](docs/bsl-ls-mcp-setup.md) — подключение BSL LS как MCP (make bsl-start, URI для document_diagnostics).
 - [docs/cursor-examples/](docs/cursor-examples/README.md) — Skill и Rules для Cursor (1c-help + BSL LS); эталон для индексации; при доработке MCP обновлять как зависимость.
+- [docs/mcp-quality-test-report.md](docs/mcp-quality-test-report.md) — шаблон отчёта по релевантности и полноте ответов MCP.
+- [docs/skills-rules-verification.md](docs/skills-rules-verification.md) — верификация скиллов и правил (workflow агента).
 
 ## Дальнейшие этапы
 

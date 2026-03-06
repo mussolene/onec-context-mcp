@@ -59,6 +59,25 @@ def categories_file(help_sample_dir: Path) -> Path:
     return help_sample_dir / "__categories__"
 
 
+def _nosync_root() -> Path:
+    """Root of .nosync / nosync project (crypto library). Env NOSYNC_DIR overrides."""
+    root = Path(__file__).resolve().parent.parent
+    env_path = __import__("os").environ.get("NOSYNC_DIR")
+    if env_path:
+        return Path(env_path).resolve()
+    for name in (".nosync", "nosync"):
+        p = root / name
+        if p.is_dir():
+            return p
+    return root / ".nosync"
+
+
+@pytest.fixture
+def nosync_root() -> Path:
+    """Path to .nosync (or nosync) project root for crypto library tests."""
+    return _nosync_root()
+
+
 @pytest.fixture(autouse=True)
 def embedding_backend_none_for_network_tests(request):
     """Use EMBEDDING_BACKEND=none in indexer/embedding tests to avoid HuggingFace download."""

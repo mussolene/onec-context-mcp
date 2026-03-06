@@ -456,15 +456,6 @@ def test_mcp_tool_list_1c_help_titles_via_app(help_sample_dir: Path) -> None:
     assert "p1" in text or "P1" in text or "p2" in text
 
 
-def test_mcp_tool_trigger_reindex_via_app(help_sample_dir: Path) -> None:
-    """Call trigger_reindex tool via app (patch Popen to avoid subprocess)."""
-    app = mcp_server._build_mcp_app(help_sample_dir)
-    with patch("subprocess.Popen"):
-        result = asyncio.run(app.call_tool("trigger_reindex", {}))
-    text = result.content[0].text if result.content else ""
-    assert "reindex" in text.lower() or "started" in text.lower() or "background" in text.lower()
-
-
 def test_mcp_tool_save_1c_snippet_via_app(help_sample_dir: Path, tmp_path: Path) -> None:
     """Call save_1c_snippet tool via app."""
     app = mcp_server._build_mcp_app(help_sample_dir)
