@@ -34,7 +34,7 @@ INGEST_SERVICE = ingest-worker
 INDEX_STATUS_SERVICE = mcp
 
 .PHONY: build build-full fetch-bsl-bridge parse-fastcode parse-helpf load-snippets load-snippets-from-project load-standards snippets
-.PHONY: up down ingest-up ingest-down up-full down-full bsl-start bsl-stop qdrant-logs qdrant-reset qdrant-backup qdrant-restore ensure-data
+.PHONY: up down ingest-up ingest-down ingest-worker up-full down-full bsl-start bsl-stop qdrant-logs qdrant-reset qdrant-backup qdrant-restore ensure-data
 
 # bsl-bridge: локальный клон (Git URL в context не работает на Docker Windows)
 deps/mcp-bsl-lsp-bridge/.git/HEAD:
@@ -153,6 +153,9 @@ ingest-up:
 # Остановить только ingest-worker (qdrant и mcp остаются)
 ingest-down:
 	$(COMPOSE) stop ingest-worker
+
+# Алиас: make ingest-worker = make ingest-up (поднять с профилем ingest)
+ingest-worker: ingest-up
 
 # Start full (один контейнер mcp)
 up-full:

@@ -15,7 +15,9 @@ from onec_help.ingest import (
     _ingest_cache_key,
     _language_from_filename,
     _load_ingest_cache,
+    _load_ingest_cache_indexed_set,
     _persist_ingest_status_sqlite,
+    _read_unpacked_hash,
     _safe_stem,
     _sqlite_timeout,
     _update_ingest_cache_entry,
@@ -227,6 +229,27 @@ def test_load_save_ingest_cache(tmp_path: Path) -> None:
         _update_ingest_cache_entry("v/ru/1cv8.hbk", "abc", 10)
         c2 = _load_ingest_cache()
         assert c2["v/ru/1cv8.hbk"] == {"hash": "abc", "indexed": True, "points": 10}
+
+
+def test_load_ingest_cache_indexed_set(tmp_path: Path) -> None:
+    """_load_ingest_cache_indexed_set returns (version, lang, hash) for indexed entries; parses key with or without |path_id."""
+    cache_db = tmp_path / "cache.db"
+    with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_db)}, clear=False):
+        _load_ingest_cache()  # create table
+        _update_ingest_cache_entry("8.3/ru/1cv8_ru.hbk|abc123", "h1", 10)
+        _update_ingest_cache_entry("8.5/en/1cv8_en", "h2", 5)
+        idx = _load_ingest_cache_indexed_set()
+    assert idx == {("8.3", "ru", "h1"), ("8.5", "en", "h2")}
+
+
+def test_read_unpacked_hash(tmp_path: Path) -> None:
+    """_read_unpacked_hash returns hash from .hbk_info.json or empty string."""
+    (tmp_path / ".hbk_info.json").write_text('{"hash": "abc123", "language": "ru"}', encoding="utf-8")
+    assert _read_unpacked_hash(tmp_path) == "abc123"
+    (tmp_path / "no_hash").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "no_hash" / ".hbk_info.json").write_text("{}", encoding="utf-8")
+    assert _read_unpacked_hash(tmp_path / "no_hash") == ""
+    assert _read_unpacked_hash(tmp_path / "missing") == ""
 
 
 def test_run_ingest_skips_cached(tmp_path: Path) -> None:

@@ -63,3 +63,4 @@
 - [AGENTS.md](../AGENTS.md) — порядок вызовов, два MCP (1c-help + lsp-bsl-bridge), workflow.
 - [docs/cursor-examples/](cursor-examples/README.md) — Skill и Rules для Cursor.
 - [docs/mcp-analysis.md](mcp-analysis.md) — анализ использования и типовые просадки.
+- [docs/quality-and-pitfalls-analysis.md](quality-and-pitfalls-analysis.md) — влияние индексации, обрезка эмбеддингов, как получать готовый код и типичные подводные камни.

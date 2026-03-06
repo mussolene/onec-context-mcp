@@ -164,6 +164,29 @@ def _load_ingest_cache() -> dict[str, dict[str, Any]]:
     return entries
 
 
+def _load_ingest_cache_indexed_set() -> set[tuple[str, str, str]]:
+    """Load set of (version, language, hash) for all indexed entries. Used by run_ingest_from_unpacked to skip already indexed help."""
+    out: set[tuple[str, str, str]] = set()
+    path = _ingest_cache_path()
+    try:
+        conn = sqlite3.connect(path, timeout=_sqlite_timeout())
+        conn.execute(
+            f"CREATE TABLE IF NOT EXISTS {_CACHE_TABLE} "
+            "(key TEXT PRIMARY KEY, hash TEXT NOT NULL, indexed INTEGER NOT NULL, points INTEGER)"
+        )
+        for row in conn.execute(
+            f"SELECT key, hash FROM {_CACHE_TABLE} WHERE indexed = 1 AND hash != ''"
+        ):
+            key, file_hash = row[0], row[1]
+            parts = key.split("|", 1)[0].split("/")
+            if len(parts) >= 2:
+                out.add((parts[0], parts[1], file_hash))
+        conn.close()
+    except (OSError, sqlite3.Error):
+        pass
+    return out
+
+
 def _update_ingest_cache_entry(key: str, file_hash: str, points: int) -> None:
     """Persist one cache entry (SQLite INSERT OR REPLACE). No full rewrite."""
     path = _ingest_cache_path()
@@ -1490,6 +1513,18 @@ def _status_writer_loop_from_unpacked(
         )
 
 
+def _read_unpacked_hash(docs_dir: Path) -> str:
+    """Read hash from .hbk_info.json in unpacked stem dir. Returns empty string if missing or invalid."""
+    info_path = docs_dir / ".hbk_info.json"
+    if not info_path.exists():
+        return ""
+    try:
+        info = json.loads(info_path.read_text(encoding="utf-8"))
+        return (info.get("hash") or "").strip()
+    except (json.JSONDecodeError, OSError):
+        return ""
+
+
 def run_ingest_from_unpacked(
     unpacked_base: Path | str,
     qdrant_host: str = "localhost",
@@ -1504,6 +1539,7 @@ def run_ingest_from_unpacked(
     """
     Index help from unpacked dir (data/unpacked structure).
     Scans version/stem dirs, uses path_prefix for payload path.
+    Skips tasks already in ingest cache (same version, language, content hash).
     Writes ingest status to SQLite so index-status shows current file and progress.
     Returns total points indexed.
     """
@@ -1516,6 +1552,28 @@ def run_ingest_from_unpacked(
     if not base.is_dir():
         return 0
     tasks = _collect_unpacked_tasks(base)
+    if not tasks:
+        return 0
+
+    skip_cache = (os.environ.get("INGEST_SKIP_CACHE") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    cache_indexed: set[tuple[str, str, str]] = set()
+    if not skip_cache:
+        cache_indexed = _load_ingest_cache_indexed_set()
+    tasks_to_do: list[tuple[Path, str, str, str]] = []
+    for docs_dir, version, stem, language in tasks:
+        h = _read_unpacked_hash(docs_dir)
+        if not skip_cache and h and (version, language, h) in cache_indexed:
+            continue
+        tasks_to_do.append((docs_dir, version, stem, language))
+    skipped = len(tasks) - len(tasks_to_do)
+    if verbose and skipped > 0:
+        _log(f"[ingest-from-unpacked] Cache hit: skip {skipped} already indexed (unchanged)")
+    tasks = tasks_to_do
     if not tasks:
         return 0
 
@@ -1619,6 +1677,10 @@ def run_ingest_from_unpacked(
                 progress_callback=_on_batch,
             )
             total += n
+            file_hash = _read_unpacked_hash(docs_dir)
+            if file_hash:
+                cache_key = f"{version}/{language}/{stem}"
+                _update_ingest_cache_entry(cache_key, file_hash, n)
             with state_lock:
                 state["done_tasks"] = task_index + 1
                 state["total_points"] = total
