@@ -38,8 +38,8 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Target 90% (AGENTS.md). Current ~79%; to reach 90% expand tests for: indexer (281), cli (218), mcp_server (150), ingest (184), parse_helpf, embedding, html2md, unpack, hbk_container.
-addopts = "-v --cov=src/onec_help --cov-report=term-missing --cov-fail-under=78"
+# Target 90% (AGENTS.md). Current ~80%; to reach 90% expand tests for: indexer, cli, mcp_server, ingest, parse_helpf, embedding, html2md, unpack, hbk_container.
+addopts = "-v --cov=src/onec_help --cov-report=term-missing --cov-fail-under=80"
 filterwarnings = ["ignore::DeprecationWarning"]
 
 [tool.coverage.run]

@@ -189,6 +189,10 @@ def test_embedding_batch_timeout() -> None:
         importlib.reload(embedding_mod)
         t = embedding_mod._embedding_batch_timeout(100)
         assert t >= 30 + 10  # 30 + 100//10
+    with patch.dict("os.environ", {"EMBEDDING_BATCH_TIMEOUT": "invalid"}, clear=False):
+        importlib.reload(embedding_mod)
+        t = embedding_mod._embedding_batch_timeout(50)
+        assert t >= 10  # fallback to formula
     importlib.reload(embedding_mod)
 
 

@@ -45,6 +45,14 @@ def test_stem_to_label() -> None:
     assert _stem_to_label("unknown_stem") == "unknown_stem"
 
 
+def test_stem_to_label_env_hbk_labels() -> None:
+    """_stem_to_label uses HBK_LABELS env for custom stem -> label mapping."""
+    with patch.dict("os.environ", {"HBK_LABELS": "mystem:My Label, other:Other"}, clear=False):
+        assert _stem_to_label("mystem_ru") == "My Label"
+        assert _stem_to_label("other") == "Other"
+        assert _stem_to_label("unknown") == "unknown"
+
+
 def test_stem_to_label_all_prefixes() -> None:
     """_stem_to_label returns correct label for all known stem prefixes."""
     assert _stem_to_label("shclang_ru") == "Встроенный язык"

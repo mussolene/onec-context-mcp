@@ -323,6 +323,14 @@ def _make_embedded_zip_local_entry(filename: str, content: bytes) -> bytes:
     return hdr + fn + compressed
 
 
+def test_try_zipfile_scan_local_headers_read_raises(tmp_path: Path) -> None:
+    """_try_zipfile_scan_local_headers returns False when read_bytes raises OSError."""
+    archive = tmp_path / "missing.zip"
+    out = tmp_path / "out"
+    out.mkdir()
+    assert _try_zipfile_scan_local_headers(archive, out) is False
+
+
 def test_try_zipfile_scan_local_headers(tmp_path: Path) -> None:
     """Scan extracts entries from embedded ZIP with corrupted EOCD (schemui-style)."""
     # 1C-style header padding + embedded ZIP (no valid EOCD)

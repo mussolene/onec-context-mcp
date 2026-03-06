@@ -59,6 +59,16 @@ def test_extract_freelance_links() -> None:
     assert items[0][0] == "Проект на фрилансе"
 
 
+def test_is_title_plus_noise() -> None:
+    """_is_title_plus_noise: desc equals title or title + short tail."""
+    assert _is_title_plus_noise("", "") is True
+    assert _is_title_plus_noise("Same", "Same") is True
+    assert _is_title_plus_noise("Title", "Other") is False
+    assert _is_title_plus_noise("Title <tags>", "Title") is True
+    assert _is_title_plus_noise("Title" + " x" * 40, "Title") is False
+    assert _is_title_plus_noise("Заголовок Категория", "Заголовок") is True
+
+
 def test_extract_faq_links_regex_fallback() -> None:
     """When BeautifulSoup finds no <a> with matching href, regex fallback extracts URLs."""
     # HTML without proper <a> structure (e.g. JS-rendered or bot-blocked)

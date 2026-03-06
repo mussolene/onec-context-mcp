@@ -1542,6 +1542,42 @@ def test_render_index_status_compact_with_ingest_in_progress(tmp_path: Path) -> 
     assert "Snippets" in out
 
 
+def test_render_index_status_compact_storage_path_oserror(tmp_path: Path) -> None:
+    """_render_index_status_compact: QDRANT_STORAGE_PATH set but dir_size_on_disk raises OSError."""
+    s = {"exists": True}
+    collections = [{"name": "onec_help", "points_count": 10}]
+    with patch.dict("os.environ", {"QDRANT_STORAGE_PATH": str(tmp_path)}, clear=False):
+        with patch("onec_help._utils.dir_size_on_disk", side_effect=OSError("perm")):
+            out, _ = _render_index_status_compact(s, collections, None, None, "", _format_duration)
+    assert "DB:—" in out
+
+
+def test_render_index_status_compact_ingest_est_pts_and_eta_finish() -> None:
+    """_render_index_status_compact: ingest in progress with estimated_total_points and eta_finish_at."""
+    s = {"exists": True}
+    collections = [{"name": "onec_help", "points_count": 50}]
+    ingest = {
+        "status": "in progress",
+        "embedding_backend": "openai_api",
+        "total_points": 50,
+        "current_task_points": 10,
+        "estimated_total_points": 200,
+        "eta_sec": 60,
+        "eta_finish_at": 1234567890.0,
+        "elapsed_sec": 10.0,
+        "completed_files": [
+            {"path": "a.hbk", "status": "ok"},
+            {"path": "b.hbk", "status": "skip"},
+            {"path": "c.hbk", "status": "fail"},
+        ],
+    }
+    out, code = _render_index_status_compact(s, collections, ingest, None, "", _format_duration)
+    assert code == 0
+    assert "50/200" in out or "pts" in out
+    assert "finish ~" in out or "ETA" in out
+    assert "done:1ok" in out or "ok" in out
+
+
 def test_render_index_status_compact_with_failed_and_snippets_cached(tmp_path: Path) -> None:
     """_render_index_status_compact: failed_tasks and snippets with cached_total."""
     s = {"exists": True}

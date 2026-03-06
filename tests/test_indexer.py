@@ -7,6 +7,7 @@ import pytest
 
 from onec_help import indexer as indexer_mod
 from onec_help.indexer import (
+    _apply_outgoing_links,
     _bm25_enabled,
     _build_path_to_section,
     _collection_info_int,
@@ -26,6 +27,7 @@ from onec_help.indexer import (
     get_topic_by_path,
     get_topic_content,
     get_topic_from_index,
+    get_topic_metadata,
     list_index_nav_items,
     list_index_titles,
     search_hybrid,
@@ -525,6 +527,16 @@ def test_get_topic_content_from_disk(help_sample_dir: Path) -> None:
     assert "реквизит" in content.lower() or "field" in content.lower()
 
 
+@patch("onec_help.indexer.get_topic_from_index", return_value="# From index\nContent")
+def test_get_topic_content_prefer_index(mock_from_index: MagicMock) -> None:
+    """get_topic_content with prefer_index=True skips disk and uses index only."""
+    content = get_topic_content(
+        "/any/path", "topic.md", qdrant_host="localhost", qdrant_port=6333, prefer_index=True
+    )
+    assert "From index" in content
+    mock_from_index.assert_called_once()
+
+
 @patch("onec_help.indexer.get_topic_by_path")
 @patch("onec_help.indexer.get_topic_from_index")
 def test_get_topic_content_fallback_to_index(
@@ -927,6 +939,106 @@ def test_list_index_titles_scroll_exception(mock_client: MagicMock) -> None:
     ]
     out = list_index_titles(qdrant_host="localhost", qdrant_port=6333, limit=10)
     assert len(out) == 1
+
+
+def test_apply_outgoing_links_substitutes_and_appends_section() -> None:
+    """_apply_outgoing_links substitutes href with resolved_path and appends Связанные темы."""
+    text = "See [link](old/path.html) for details."
+    payload = {
+        "outgoing_links": [
+            {"href": "old/path.html", "resolved_path": "new/path.md", "target_title": "New"},
+        ],
+    }
+    out = _apply_outgoing_links(text, payload)
+    assert "new/path.md" in out
+    assert "Связанные темы" in out
+    assert "- [New](new/path.md)" in out
+
+
+@patch("onec_help.indexer.QdrantClient")
+def test_get_topic_metadata_returns_payload_fields(mock_client: MagicMock) -> None:
+    """get_topic_metadata returns breadcrumb, outgoing_links, entity_type, hbk_slug from scroll."""
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    mock_instance.scroll.return_value = (
+        [
+            MagicMock(
+                payload={
+                    "path": "doc.md",
+                    "breadcrumb": ["Справка", "Типы"],
+                    "outgoing_links": [{"href": "a.html", "resolved_path": "a.md"}],
+                    "entity_type": "topic",
+                    "hbk_slug": "doc",
+                }
+            )
+        ],
+        None,
+    )
+    out = get_topic_metadata("doc.md", qdrant_host="localhost", qdrant_port=6333)
+    assert out["breadcrumb"] == ["Справка", "Типы"]
+    assert len(out["outgoing_links"]) == 1
+    assert out["entity_type"] == "topic"
+    assert out["hbk_slug"] == "doc"
+
+
+@patch("onec_help.indexer.QdrantClient")
+def test_get_topic_metadata_no_match_returns_defaults(mock_client: MagicMock) -> None:
+    """get_topic_metadata returns default dict when no point matches."""
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    mock_instance.scroll.return_value = ([], None)
+    out = get_topic_metadata("missing.md", qdrant_host="localhost", qdrant_port=6333)
+    assert out["breadcrumb"] == []
+    assert out["outgoing_links"] == []
+    assert out["entity_type"] == "topic"
+    assert out["hbk_slug"] == ""
+
+
+@patch("onec_help.indexer.QdrantClient")
+def test_get_topic_metadata_fallback_suffix_match(mock_client: MagicMock) -> None:
+    """get_topic_metadata fallback: scroll without filter finds point by path suffix."""
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    mock_instance.scroll.side_effect = [
+        ([], None),
+        (
+            [
+                MagicMock(
+                    payload={
+                        "path": "8.3/ru/doc.md",
+                        "breadcrumb": ["A", "B"],
+                        "outgoing_links": [],
+                        "entity_type": "topic",
+                        "hbk_slug": "doc",
+                    }
+                )
+            ],
+            None,
+        ),
+    ]
+    out = get_topic_metadata("doc.md", qdrant_host="localhost", qdrant_port=6333)
+    assert out["breadcrumb"] == ["A", "B"]
+    assert out["hbk_slug"] == "doc"
+
+
+@patch("onec_help.indexer.QdrantClient")
+def test_list_index_nav_items_scroll_raises_returns_partial(mock_client: MagicMock) -> None:
+    """list_index_nav_items returns partial list when scroll raises after first batch."""
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    mock_instance.collection_exists.return_value = True
+    mock_instance.scroll.side_effect = [
+        (
+            [
+                MagicMock(payload={"path": "a.md", "title": "A", "breadcrumb": []}),
+            ],
+            "next",
+        ),
+        RuntimeError("conn"),
+    ]
+    out = list_index_nav_items(qdrant_host="localhost", qdrant_port=6333, limit=10)
+    assert len(out) == 1
+    assert out[0]["path"] == "a.md"
 
 
 @patch("onec_help.indexer.QdrantClient", None)
