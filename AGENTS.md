@@ -27,6 +27,16 @@
 4. **Watchdog** — state в INGEST_CACHE (watchdog_hbk_cache.json); при рестарте неизменённые .hbk пропускаются по кэшу. Также следит за **STANDARDS_DIR** и **SNIPPETS_DIR**: при изменении файлов (.md в standards, .json/.bsl/.1c/.md в snippets) автоматически запускает load-standards и load-snippets (как ingest для .hbk).
 5. **reinit --force** — стирает коллекции и кэш, затем init; полная переиндексация ожидаема.
 
+### Ingest завис (0 done, прогресс не растёт)
+
+Если **index-status** показывает «embedding», 4500/25503 pts и **Summary: 13 tasks │ 0 done** долго без изменений:
+
+1. **Проверить, жив ли процесс и логи:** Docker — основной лог ingest в контейнере: `docker exec <ingest-worker-container> tail -200 /app/var/log/ingest.log`. Ищите ошибки: **Bus error** (часто OOM — уменьшить батч/воркеры или память контейнера), 429 (rate limit), timeout, connection refused.
+2. **Если воркер упал** — статус в кэше (ingest_current) остаётся последним записанным; новый запуск ingest перезапишет его. Запустите ingest заново: `make ingest` (или `make ingest-up` и дождитесь выполнения).
+3. **Rate limit (429)** — уменьшите `EMBEDDING_BATCH_SIZE` (например 32) и/или `EMBEDDING_WORKERS` (1–2); при необходимости увеличьте `EMBEDDING_TIMEOUT`.
+4. **Долгая пауза на одном файле** — API эмбеддингов может отвечать медленно или с Retry-After; после 3 попыток и fallback на deterministic индексация продолжается. Если процесс не пишет логи — возможен deadlock (редко при семафоре 300 с).
+5. Подробнее: `docs/ingest-troubleshooting.md`.
+
 ## Embedding и индексация
 
 - **Точки интеграции:** indexer (справка), memory.upsert_curated_snippets (snippets, community_help, standards), memory.process_pending, memory._write_long_or_pending (real-time). Все batch-операции используют `get_embedding_batch`; только real-time события — `get_embedding`.
@@ -52,6 +62,7 @@
   5. Несколько совпадений в `get_1c_function_info` — указывать `choose_index`.
   6. После генерации рабочего кода — обязательно вызывать `save_1c_snippet` для сохранения полезных примеров (улучшает последующие ответы get_1c_code_answer).
 - **Типовые ловушки:** ПрочитатьJSON возвращает Структуру по умолчанию — для Соответствия указывать `ПрочитатьВСоответствие=Истина`. HTTPСоединение.Получить — только на сервере. Имена методов вида `Тип.Метод` передавать целиком в `search_1c_help_keyword`.
+- **Качество ответов и индексация:** при частичной индексации в выдаче только уже проиндексированные версии/разделы; для точных фактов и имён API предпочитать `search_1c_help_keyword` + `get_1c_help_topic`. Подробно: `docs/quality-and-pitfalls-analysis.md`.
 - **При добавлении новых MCP-сервисов** их нужно прописать в `.cursor/mcp.json`: для удалённого сервера — запись в `mcpServers` с полем `url`; для локального — `command`, `args`, при необходимости `env`. После изменений конфига Cursor перезапускают.
 
 ## Безопасность

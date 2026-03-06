@@ -17,7 +17,8 @@ if [ "$(id -u)" = "0" ]; then
     if [ -d /opt/1cv8 ]; then
       crontab -u app /app/crontab 2>/dev/null || true
       cron
-      ( gosu app sh -c '. /app/.ingest_env 2>/dev/null; cd /app && python -m onec_help ingest >> /app/var/log/ingest.log 2>&1' ) &
+      # Restart ingest on exit (e.g. Bus error / OOM) so index keeps progressing
+      ( gosu app sh -c '. /app/.ingest_env 2>/dev/null; cd /app && while true; do python -m onec_help ingest >> /app/var/log/ingest.log 2>&1; _e=$?; echo "[ingest] exit $_e, restart in 60s" >> /app/var/log/ingest.log; sleep 60; done' ) &
     fi
     if [ "$WATCHDOG_ENABLED" = "1" ]; then
       ( gosu app sh -c '. /app/.ingest_env 2>/dev/null; cd /app && python -m onec_help watchdog >> /app/var/log/watchdog.log 2>&1' ) &

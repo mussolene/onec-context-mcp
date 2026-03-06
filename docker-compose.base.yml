@@ -7,6 +7,7 @@
 services:
   qdrant:
     image: qdrant/qdrant:v1.12.0
+    restart: unless-stopped
     ports:
       - "${QDRANT_PORT:-6333}:6333"
     volumes:
@@ -23,6 +24,7 @@ services:
       context: .
       args:
         EMBEDDING_BACKEND: "${EMBEDDING_BACKEND:-openai_api}"
+    restart: unless-stopped
     ports:
       - "${MCP_PORT:-8050}:8050"
     environment:
