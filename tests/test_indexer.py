@@ -862,6 +862,55 @@ def test_compare_1c_help_with_path(mock_client: MagicMock, mock_get_content: Mag
     assert mock_get_content.call_count == 2
 
 
+@patch("onec_help.indexer.get_topic_content")
+@patch("onec_help.indexer.search_index")
+def test_compare_1c_help_query_resolves_path_then_compares(
+    mock_search: MagicMock, mock_get_content: MagicMock
+) -> None:
+    """compare_1c_help with query (no .md/.html) resolves path via search_index then compares."""
+    mock_search.return_value = [{"path": "Format.md", "title": "Format"}]
+    mock_get_content.side_effect = ["Left", "Right"]
+    out = compare_1c_help(
+        "Format",
+        version_left="8.3",
+        version_right="8.3.27",
+        qdrant_host="localhost",
+        qdrant_port=6333,
+    )
+    assert "8.3" in out and "8.3.27" in out
+    assert "Left" in out and "Right" in out
+    mock_search.assert_called()
+    assert mock_get_content.call_count == 2
+
+
+@patch("onec_help.indexer.get_topic_content")
+def test_compare_1c_help_topic_not_found_returns_message(mock_get_content: MagicMock) -> None:
+    """compare_1c_help when both contents empty returns not found message."""
+    mock_get_content.return_value = ""
+    out = compare_1c_help(
+        "Missing.md",
+        version_left="8.3",
+        version_right="8.3.27",
+        qdrant_host="localhost",
+        qdrant_port=6333,
+    )
+    assert "Topic not found" in out or "нет контента" in out
+
+
+@patch("onec_help.indexer.search_index")
+def test_compare_1c_help_query_no_results_returns_not_found(mock_search: MagicMock) -> None:
+    """compare_1c_help when query has no .md/.html and search returns empty."""
+    mock_search.return_value = []
+    out = compare_1c_help(
+        "NonexistentTopic",
+        version_left="8.3",
+        version_right="8.3.27",
+        qdrant_host="localhost",
+        qdrant_port=6333,
+    )
+    assert "Topic not found" in out or "not found" in out
+
+
 @patch("onec_help.indexer.QdrantClient")
 def test_add_bm25_to_collection_not_exists(mock_client: MagicMock) -> None:
     """add_bm25_to_collection raises when collection does not exist."""
