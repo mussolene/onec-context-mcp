@@ -146,6 +146,16 @@ def test_safe_stem() -> None:
     assert _safe_stem(Path("path with spaces.txt")) == "path_with_spaces"
 
 
+def test_clear_ingest_cache_remove_raises(tmp_path: Path) -> None:
+    """clear_ingest_cache returns False when os.remove raises OSError."""
+    cache_file = tmp_path / "cache.db"
+    cache_file.write_bytes(b"x")
+    with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_file)}, clear=False):
+        with patch("os.remove", side_effect=OSError("Permission denied")):
+            assert clear_ingest_cache() is False
+    assert cache_file.exists()
+
+
 def test_clear_ingest_cache(tmp_path: Path) -> None:
     """clear_ingest_cache removes cache file when present; returns True when absent."""
     cache_file = tmp_path / "cache.db"

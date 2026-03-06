@@ -6,6 +6,9 @@ from pathlib import Path
 import pytest
 
 from onec_help.hbk_container import (
+    extract_book_bytes,
+    extract_filestorage_bytes,
+    extract_packblock_toc_bytes,
     read_block_chain,
     read_block_header,
     read_container,
@@ -81,3 +84,22 @@ def test_read_container_too_short() -> None:
     """read_container on too short data raises ValueError."""
     with pytest.raises(ValueError, match="too short"):
         read_container(b"\x00" * 10)
+
+
+def test_extract_packblock_toc_bytes_no_entity() -> None:
+    """extract_packblock_toc_bytes returns None when PackBlock not in entities."""
+    assert extract_packblock_toc_bytes({}) is None
+    assert extract_packblock_toc_bytes({"Book": b"x"}) is None
+
+
+def test_extract_filestorage_bytes() -> None:
+    """extract_filestorage_bytes returns FileStorage body or None."""
+    assert extract_filestorage_bytes({}) is None
+    assert extract_filestorage_bytes({"FileStorage": b"zipdata"}) == b"zipdata"
+
+
+def test_extract_book_bytes() -> None:
+    """extract_book_bytes returns decoded Book body or None."""
+    assert extract_book_bytes({}) is None
+    assert extract_book_bytes({"Book": "Текст".encode()}) == "Текст"
+    assert extract_book_bytes({"Book": b"ascii"}) == "ascii"

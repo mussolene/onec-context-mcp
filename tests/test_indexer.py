@@ -1131,3 +1131,36 @@ def test_search_index_keyword_bm25_with_filters(
     assert isinstance(result, list)
     if result:
         assert result[0].get("path") == "doc.md"
+
+
+@patch("onec_help.indexer._collection_has_sparse", return_value=False)
+@patch("onec_help.indexer.QdrantClient")
+def test_search_index_keyword_fallback_scroll_substring(
+    mock_client: MagicMock, mock_has_sparse: MagicMock
+) -> None:
+    """search_index_keyword fallback: keyword scroll returns no points, retry scroll finds by _matches."""
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    # First scroll (with keyword filter) returns empty -> out_dict empty -> fallback
+    # Second scroll (no keyword filter) returns point that matches substring
+    point = MagicMock(
+        payload={
+            "path": "doc.md",
+            "title": "Запрос к данным",
+            "text": "Описание запроса",
+            "version": "8.3",
+        }
+    )
+    mock_instance.scroll.side_effect = [
+        ([], None),  # keyword filter returns no points
+        ([point], None),
+    ]
+    result = search_index_keyword(
+        "Запрос",
+        qdrant_host="localhost",
+        qdrant_port=6333,
+        limit=5,
+    )
+    assert isinstance(result, list)
+    assert len(result) >= 1
+    assert result[0]["path"] == "doc.md"
