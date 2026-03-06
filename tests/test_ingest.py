@@ -210,6 +210,14 @@ def test_read_ingest_cache_entries_key_fewer_than_three_parts(tmp_path: Path) ->
     assert "8.3/ru" in paths or "only" in paths
 
 
+def test_load_ingest_cache_connect_raises_returns_empty(tmp_path: Path) -> None:
+    """_load_ingest_cache returns {} and logs when sqlite3.connect raises."""
+    with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(tmp_path / "cache.db")}, clear=False):
+        with patch("onec_help.ingest.sqlite3.connect", side_effect=OSError("read only")):
+            entries = _load_ingest_cache()
+    assert entries == {}
+
+
 def test_load_save_ingest_cache(tmp_path: Path) -> None:
     """_load_ingest_cache returns entries from SQLite; _update_ingest_cache_entry persists one row."""
     cache_file = tmp_path / "cache.db"
