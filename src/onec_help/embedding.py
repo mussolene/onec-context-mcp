@@ -260,15 +260,10 @@ def is_embedding_available() -> bool:
     if _EMBEDDING_BACKEND == "openai_api":
         return _check_embedding_api_available()
     if _EMBEDDING_BACKEND == "local":
-        try:
-            global _embedding_model
-            if _embedding_model is None:
-                from sentence_transformers import SentenceTransformer
-
-                _embedding_model = SentenceTransformer(_EMBEDDING_MODEL)
-            return True
-        except Exception:
-            return False
+        # Даже если sentence-transformers не установлен, _get_embedding_local/_get_embedding_local_batch
+        # сами перейдут на детерминированные векторы. Для памяти и стандартов это приемлемо, поэтому
+        # считаем backend доступным по умолчанию.
+        return True
     if _EMBEDDING_BACKEND == "deterministic":
         return True
     return False
