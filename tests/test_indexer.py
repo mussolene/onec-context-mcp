@@ -654,10 +654,19 @@ def test_build_index_multiple_batches(mock_client: MagicMock, tmp_path: Path) ->
     assert mock_instance.upsert.call_count >= 2
 
 
+def test_get_1c_help_related_no_qdrant_returns_empty() -> None:
+    """get_1c_help_related returns [] when Filter is unavailable."""
+    with patch.object(indexer_mod, "Filter", None):
+        out = get_1c_help_related("topic.md", qdrant_host="localhost", qdrant_port=6333)
+    assert out == []
+
+
 @patch("onec_help.indexer.QdrantClient")
 @patch("onec_help.indexer.Filter")
 @patch("onec_help.indexer.FieldCondition")
 @patch("onec_help.indexer.MatchValue")
+
+
 def test_get_1c_help_related(
     _mock_mv: MagicMock,
     _mock_fc: MagicMock,
@@ -1002,6 +1011,16 @@ def test_apply_outgoing_links_substitutes_and_appends_section() -> None:
     assert "new/path.md" in out
     assert "Связанные темы" in out
     assert "- [New](new/path.md)" in out
+
+
+def test_get_topic_metadata_no_qdrant_returns_defaults() -> None:
+    """get_topic_metadata returns default dict when Filter/FieldCondition/MatchValue unavailable."""
+    with patch.object(indexer_mod, "Filter", None):
+        out = get_topic_metadata("doc.md", qdrant_host="localhost", qdrant_port=6333)
+    assert out["breadcrumb"] == []
+    assert out["outgoing_links"] == []
+    assert out["entity_type"] == "topic"
+    assert out["hbk_slug"] == ""
 
 
 @patch("onec_help.indexer.QdrantClient")

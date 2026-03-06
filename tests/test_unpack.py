@@ -10,6 +10,7 @@ import pytest
 
 from onec_help.unpack import (
     _decode_filename,
+    _try_hbk_container,
     _try_unzip,
     _try_zipfile,
     _try_zipfile_from_offset,
@@ -329,6 +330,15 @@ def test_try_zipfile_scan_local_headers_read_raises(tmp_path: Path) -> None:
     out = tmp_path / "out"
     out.mkdir()
     assert _try_zipfile_scan_local_headers(archive, out) is False
+
+
+def test_try_hbk_container_non_hbk_returns_false(tmp_path: Path) -> None:
+    """_try_hbk_container returns False when path suffix is not .hbk."""
+    out = tmp_path / "out"
+    out.mkdir()
+    (tmp_path / "file.zip").write_bytes(b"x")
+    assert _try_hbk_container(tmp_path / "file.zip", out) is False
+    assert _try_hbk_container(tmp_path / "file.HTM", out) is False
 
 
 def test_try_zipfile_scan_local_headers(tmp_path: Path) -> None:
