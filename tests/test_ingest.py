@@ -27,6 +27,7 @@ from onec_help.ingest import (
     discover_version_dirs,
     parse_languages_env,
     parse_source_dirs_env,
+    read_ingest_cache_entries,
     read_ingest_failed_log,
     read_ingest_status,
     read_last_ingest_failed,
@@ -181,6 +182,32 @@ def test_update_ingest_cache_entry_write_error(tmp_path: Path) -> None:
     with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_file)}, clear=False):
         with patch("onec_help.ingest.sqlite3.connect", side_effect=OSError("read-only")):
             _update_ingest_cache_entry("v/ru/file.hbk", "hash123", 1)
+
+
+def test_read_ingest_cache_entries_key_fewer_than_three_parts(tmp_path: Path) -> None:
+    """read_ingest_cache_entries handles cache keys with fewer than 3 parts (version/lang/path)."""
+    import sqlite3
+
+    cache_file = tmp_path / "cache.db"
+    with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_file)}, clear=False):
+        conn = sqlite3.connect(str(cache_file))
+        conn.execute(
+            "CREATE TABLE ingest_cache (key TEXT PRIMARY KEY, hash TEXT NOT NULL, indexed INTEGER NOT NULL, points INTEGER)"
+        )
+        conn.execute(
+            "INSERT INTO ingest_cache (key, hash, indexed, points) VALUES (?, ?, 1, 5)",
+            ("8.3/ru", "abc"),
+        )
+        conn.execute(
+            "INSERT INTO ingest_cache (key, hash, indexed, points) VALUES (?, ?, 1, 10)",
+            ("only", "def"),
+        )
+        conn.commit()
+        conn.close()
+        entries = read_ingest_cache_entries(limit=10)
+    assert len(entries) == 2
+    paths = [e.get("path") or e.get("language") or e.get("version") for e in entries]
+    assert "8.3/ru" in paths or "only" in paths
 
 
 def test_load_save_ingest_cache(tmp_path: Path) -> None:

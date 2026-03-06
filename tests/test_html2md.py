@@ -49,6 +49,14 @@ def test_extract_links_from_markdown_skips_empty_href(tmp_path: Path) -> None:
     assert result == []
 
 
+def test_extract_outgoing_links_read_fails_returns_empty(tmp_path: Path) -> None:
+    """extract_outgoing_links returns [] when _read_html_file raises."""
+    base = tmp_path.resolve()
+    missing = tmp_path / "missing.html"
+    result = extract_outgoing_links(missing, base)
+    assert result == []
+
+
 def test_normalize_md_text() -> None:
     """HTML entities and Unicode are normalized for consistent display and search."""
     assert _normalize_md_text("a&amp;b") == "a&b"

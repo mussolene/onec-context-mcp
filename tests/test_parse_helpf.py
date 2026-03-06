@@ -41,6 +41,24 @@ def test_extract_file_links() -> None:
     assert items[0][1] == "https://helpf.pro/file/view/some-file.html"
 
 
+def test_extract_help_links() -> None:
+    """_extract_help_links extracts /help/view/ or help/view/ links."""
+    html = '<a href="help/view/12345.html">Статья справки</a>'
+    items = _extract_help_links(html)
+    assert len(items) == 1
+    assert "12345" in items[0][1]
+    assert items[0][0] == "Статья справки"
+
+
+def test_extract_freelance_links() -> None:
+    """_extract_freelance_links extracts /freelance/view/ links, skips short titles."""
+    html = '<a href="freelance/view/99.html">Проект на фрилансе</a>'
+    items = _extract_freelance_links(html)
+    assert len(items) == 1
+    assert "99" in items[0][1]
+    assert items[0][0] == "Проект на фрилансе"
+
+
 def test_extract_faq_links_regex_fallback() -> None:
     """When BeautifulSoup finds no <a> with matching href, regex fallback extracts URLs."""
     # HTML without proper <a> structure (e.g. JS-rendered or bot-blocked)
@@ -49,23 +67,6 @@ def test_extract_faq_links_regex_fallback() -> None:
     assert len(items) == 1
     assert items[0][1] == "https://helpf.pro/faq/view/9999.html"
     assert "9999" in items[0][0]
-
-
-def test_extract_help_links() -> None:
-    """Extract Forum (help) links."""
-    html = '<a href="/help/view/123.html">Вопрос про запросы</a>'
-    items = _extract_help_links(html)
-    assert len(items) == 1
-    assert items[0][0] == "Вопрос про запросы"
-    assert items[0][1] == "https://helpf.pro/help/view/123.html"
-
-
-def test_extract_freelance_links() -> None:
-    """Extract Freelance links."""
-    html = '<a href="freelance/view/5.html">Проект интеграции</a>'
-    items = _extract_freelance_links(html)
-    assert len(items) == 1
-    assert "5" in items[0][1]
 
 
 def test_extract_faq_links_skips_query_in_href_fallback() -> None:

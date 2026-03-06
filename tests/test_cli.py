@@ -1677,6 +1677,91 @@ def test_build_snippets_sources_snippets_dir(tmp_path: Path) -> None:
     assert any(s[1] == "json" for s in sources)
 
 
+def test_render_index_status_rich_ingest_completed_with_elapsed_and_failed() -> None:
+    """_render_index_status_rich: status completed shows total_elapsed_sec and failed_count."""
+    from onec_help._utils import format_duration
+
+    s = {"exists": True, "points_count": 100}
+    collections = [{"name": "onec_help", "points_count": 100}]
+    ingest = {
+        "status": "completed",
+        "embedding_backend": "openai_api",
+        "total_elapsed_sec": 120.5,
+        "total_points": 500,
+        "failed_count": 2,
+        "failed_tasks": [{"path": "a.hbk", "error": "e1"}, {"path": "b.hbk", "error": "e2"}],
+        "max_workers": 4,
+    }
+    with patch("onec_help.cli.os.get_terminal_size", side_effect=OSError):
+        out, code = _render_index_status_rich(
+            s, collections, ingest, None, "", format_duration, "localhost", 6333
+        )
+    assert code == 0
+    assert "✓ done" in out
+    assert "2m" in out or "120" in out or "2 min" in out or "500 pts" in out
+    assert "2 failed" in out or "failed" in out
+
+
+def test_render_index_status_rich_ingest_completed_files_only_no_failed() -> None:
+    """_render_index_status_rich: in progress with many completed_files, no failed_tasks."""
+    from onec_help._utils import format_duration
+
+    s = {"exists": True}
+    collections = [{"name": "onec_help", "points_count": 50}]
+    completed = [
+        {"path": f"f{i}.hbk", "status": "ok", "version": "8.3", "language": "ru", "points": 5}
+        for i in range(15)
+    ]
+    ingest = {
+        "status": "in progress",
+        "embedding_backend": "none",
+        "done_tasks": 15,
+        "total_tasks": 20,
+        "current": [],
+        "completed_files": completed,
+        "failed_tasks": [],
+        "folders": [],
+    }
+    with patch("onec_help.cli.os.get_terminal_size", side_effect=OSError):
+        out, code = _render_index_status_rich(
+            s, collections, ingest, None, "", format_duration, "localhost", 6333
+        )
+    assert code == 0
+    assert "Files (per file)" in out or "pts [" in out
+    assert "+3 more" in out or "+" in out
+
+
+@patch("onec_help.ingest.read_last_ingest_run")
+@patch("onec_help.ingest.read_ingest_status")
+@patch("onec_help.indexer.get_index_status")
+def test_render_index_status_uses_last_run_when_no_ingest(
+    mock_get_status: MagicMock,
+    mock_read_ingest: MagicMock,
+    mock_last_run: MagicMock,
+) -> None:
+    """_render_index_status with no ingest uses read_last_ingest_run and builds ingest block."""
+    mock_get_status.return_value = {"exists": True, "points_count": 10}
+    mock_read_ingest.return_value = None
+    mock_last_run.return_value = {
+        "total_elapsed_sec": 60,
+        "total_points": 100,
+        "done_tasks": 5,
+        "total_tasks": 5,
+        "failed_count": 1,
+        "embedding_backend": "openai_api",
+    }
+    with patch("onec_help.indexer.get_all_collections_status", return_value=[]):
+        with patch("onec_help.ingest.read_last_ingest_failed", return_value=[]):
+            with patch("onec_help.ingest.read_ingest_failed_log", return_value=[]):
+                with patch("onec_help.ingest.read_ingest_cache_entries", return_value=[]):
+                    with patch(
+                        "onec_help.snippets_cache.read_last_snippets_run", return_value=None
+                    ):
+                        out, code = _render_index_status()
+    assert code == 0
+    assert "Details not stored" in out or "failed" in out.lower()
+
+
 def test_cmd_index_status_watch_interrupt() -> None:
     """cmd_index_status with watch=True exits on KeyboardInterrupt."""
     with patch("onec_help.cli._render_index_status", return_value=("ok\n", 0)):

@@ -1164,3 +1164,31 @@ def test_search_index_keyword_fallback_scroll_substring(
     assert isinstance(result, list)
     assert len(result) >= 1
     assert result[0]["path"] == "doc.md"
+
+
+@patch("onec_help.sparse_bm25.load_vocab", side_effect=OSError("vocab read failed"))
+@patch("onec_help.sparse_bm25.bm25_vocab_path", return_value=MagicMock(exists=True))
+@patch("onec_help.indexer._collection_has_sparse", return_value=True)
+@patch("onec_help.indexer.QdrantClient")
+def test_search_index_keyword_bm25_exception_falls_back_to_scroll(
+    mock_client: MagicMock,
+    mock_has_sparse: MagicMock,
+    _mock_vocab_path: MagicMock,
+    _mock_load_vocab: MagicMock,
+) -> None:
+    """When BM25 path raises (e.g. load_vocab), search_index_keyword falls back to scroll."""
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    point = MagicMock(
+        payload={
+            "path": "doc.md",
+            "title": "Запрос",
+            "text": "Text",
+            "version": "8.3",
+        }
+    )
+    mock_instance.scroll.side_effect = [([], None), ([point], None)]
+    result = search_index_keyword("Запрос", qdrant_host="localhost", qdrant_port=6333)
+    assert isinstance(result, list)
+    assert len(result) >= 1
+    assert result[0]["path"] == "doc.md"

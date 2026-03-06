@@ -205,6 +205,24 @@ def test_check_rate_limit_disabled() -> None:
         assert mcp_server._check_rate_limit() is None
 
 
+def test_check_rate_limit_exceeded() -> None:
+    """When requests >= limit, _check_rate_limit returns error message."""
+    with patch.dict(os.environ, {"MCP_RATE_LIMIT_PER_MIN": "2"}, clear=False):
+        mcp_server._rate_timestamps.clear()
+        assert mcp_server._check_rate_limit() is None
+        assert mcp_server._check_rate_limit() is None
+        err = mcp_server._check_rate_limit()
+        assert err is not None
+        assert "Rate limit" in err and "2" in err
+    mcp_server._rate_timestamps.clear()
+
+
+def test_snippet_max_chars_invalid_env_returns_default() -> None:
+    """_snippet_max_chars with invalid env (non-int) returns default 1200."""
+    with patch.dict(os.environ, {"MCP_SNIPPET_MAX_CHARS": "not_a_number"}, clear=False):
+        assert mcp_server._snippet_max_chars() == 1200
+
+
 def test_truncate_if_needed_ok() -> None:
     """_truncate_if_needed returns value when within limit."""
     val, err = mcp_server._truncate_if_needed("short", 100, "query")
