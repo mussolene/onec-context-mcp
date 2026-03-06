@@ -38,7 +38,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Target 90% (AGENTS.md). Current ~80%; to reach 90% expand tests for: indexer, cli, mcp_server, ingest, parse_helpf, embedding, html2md, unpack, hbk_container.
+# Target 90% (AGENTS.md). Raise to 90 when coverage reaches it.
 addopts = "-v --cov=src/onec_help --cov-report=term-missing --cov-fail-under=80"
 filterwarnings = ["ignore::DeprecationWarning"]
 

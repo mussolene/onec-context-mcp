@@ -151,6 +151,22 @@ def test_trim_medium_json_decode_error(tmp_path: Path) -> None:
     assert store.medium_path.exists()
 
 
+def test_trim_medium_path_not_exists_no_op(tmp_path: Path) -> None:
+    """_trim_medium returns early when medium_path does not exist."""
+    store = MemoryStore(tmp_path, short_limit=5, medium_limit=10, medium_ttl_days=7)
+    assert not store.medium_path.exists()
+    store._trim_medium()
+    assert not store.medium_path.exists()
+
+
+def test_trim_medium_oserror_handled(tmp_path: Path) -> None:
+    """_trim_medium handles OSError on read without raising."""
+    store = MemoryStore(tmp_path, short_limit=5, medium_limit=10, medium_ttl_days=7)
+    store.medium_path.write_text('{"ts": 1, "summary": "x"}\n', encoding="utf-8")
+    with patch.object(Path, "read_text", side_effect=OSError("perm")):
+        store._trim_medium()
+
+
 def test_write_long_or_pending_embedding_available(tmp_path: Path) -> None:
     """When embedding available, _write_long_or_pending upserts to Qdrant."""
     with patch.dict(
@@ -171,6 +187,19 @@ def test_write_long_or_pending_embedding_available(tmp_path: Path) -> None:
                         "get_topic", {"topic_path": "a.md", "title": "A"}, 1.0
                     )
                     mock_client.upsert.assert_called_once()
+
+
+def test_write_long_or_pending_embedding_unavailable_appends_pending(tmp_path: Path) -> None:
+    """When is_embedding_available is False, _write_long_or_pending appends to pending only."""
+    with patch.dict("os.environ", {"MEMORY_ENABLED": "1"}, clear=False):
+        with patch("onec_help.embedding.is_embedding_available", return_value=False):
+            store = MemoryStore(tmp_path, short_limit=5, medium_limit=100, medium_ttl_days=7)
+            store._write_long_or_pending(
+                "save_snippet", {"topic_path": "b.md", "code_snippet": "x"}, 2.0
+            )
+            assert store.pending_path.exists()
+            data = json.loads(store.pending_path.read_text())
+            assert len(data) == 1
 
 
 def test_write_long_or_pending_embedding_fails_appends_pending(tmp_path: Path) -> None:

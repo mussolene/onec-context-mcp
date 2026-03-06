@@ -665,8 +665,6 @@ def test_get_1c_help_related_no_qdrant_returns_empty() -> None:
 @patch("onec_help.indexer.Filter")
 @patch("onec_help.indexer.FieldCondition")
 @patch("onec_help.indexer.MatchValue")
-
-
 def test_get_1c_help_related(
     _mock_mv: MagicMock,
     _mock_fc: MagicMock,
@@ -1212,6 +1210,16 @@ def test_get_collection_vector_size_params_none(mock_client: MagicMock) -> None:
     mock_instance.collection_exists.return_value = True
     mock_config = MagicMock(params=None)
     mock_instance.get_collection.return_value = MagicMock(config=mock_config)
+    assert get_collection_vector_size(collection="onec_help") is None
+
+
+@patch("onec_help.indexer.QdrantClient")
+def test_get_collection_vector_size_exception_returns_none(mock_client: MagicMock) -> None:
+    """get_collection_vector_size returns None when get_collection raises."""
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    mock_instance.collection_exists.return_value = True
+    mock_instance.get_collection.side_effect = RuntimeError("connection failed")
     assert get_collection_vector_size(collection="onec_help") is None
 
 
