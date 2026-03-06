@@ -70,7 +70,8 @@ load-snippets:
 load-snippets-from-project:
 	$(COMPOSE) run --rm -v "$${PROJECT_PATH:=$(CURDIR)}:/project:ro" mcp python -m onec_help load-snippets --from-project /project $(ARGS)
 
-# Load standards into onec_help_memory
+# Load standards into onec_help_memory. ARGS: --its-v8std to also fetch from its.1c.ru/db/v8std.
+# If you get "unrecognized arguments" for new options, rebuild the image: make build
 load-standards:
 	$(COMPOSE) run --rm mcp python -m onec_help load-standards $(ARGS)
 

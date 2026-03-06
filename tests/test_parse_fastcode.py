@@ -177,13 +177,13 @@ def test_run_parse_fastcode_mocked(tmp_path) -> None:
     out = tmp_path / "fastcode_snippets.json"
 
     with (
-        patch("onec_help.parse_fastcode._create_opener", return_value=MagicMock()),
+        patch("onec_help.parse_fastcode._get_opener", return_value=MagicMock()),
         patch(
             "onec_help.parse_fastcode._fetch_page",
             side_effect=lambda _p, _o: listing_html,
         ),
         patch(
-            "onec_help.parse_fastcode._fetch_url",
+            "onec_help.parse_fastcode.fetch_url",
             side_effect=lambda _url, _o: detail_html,
         ),
         patch("onec_help.parse_fastcode.time.sleep"),

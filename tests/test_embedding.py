@@ -26,6 +26,11 @@ def test_get_embedding_dimension_openai_api() -> None:
         clear=False,
     ):
         importlib.reload(embedding_mod)
+        # Set module globals so get_embedding_dimension() takes the env fallback path (no API call)
+        embedding_mod._cached_api_dimension = None
+        embedding_mod._EMBEDDING_BACKEND = "openai_api"
+        embedding_mod._EMBEDDING_API_URL = ""
+        embedding_mod._EMBEDDING_DIMENSION = "768"
         assert embedding_mod.get_embedding_dimension() == 768
     importlib.reload(embedding_mod)
 
@@ -435,7 +440,9 @@ def test_resolve_openai_api_model_preferred() -> None:
         importlib.reload(embedding_mod)
         with patch("onec_help.embedding.urllib.request.urlopen") as mock_open:
             mock_resp = MagicMock()
-            mock_resp.read.return_value = b'{"data":[{"id":"paraphrase-multilingual-MiniLM-L12-v2"}]}'
+            mock_resp.read.return_value = (
+                b'{"data":[{"id":"paraphrase-multilingual-MiniLM-L12-v2"}]}'
+            )
             mock_open.return_value.__enter__.return_value = mock_resp
             mock_open.return_value.__exit__.return_value = False
             model = embedding_mod._resolve_openai_api_model()

@@ -7,13 +7,13 @@ from __future__ import annotations
 
 import json
 import re
-import ssl
 import time
 import urllib.request
 from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin
 
+from ._http import fetch_url, get_opener_for_base_url
 from ._utils import progress_done, progress_line
 
 _BASE_URL = "https://helpf.pro"
@@ -81,39 +81,9 @@ def _detect_freelance_pages(opener: urllib.request.OpenerDirector) -> list[int]:
     return sorted(pages) if pages else [1]
 
 
-def _create_opener() -> urllib.request.OpenerDirector:
-    ctx = ssl.create_default_context()
-    return urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx))
-
-
-def _create_opener_unverified() -> urllib.request.OpenerDirector:
-    """Fallback when default SSL verification fails (e.g. Mac, missing CA bundle)."""
-    ctx = ssl._create_unverified_context()  # noqa: S323
-    return urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx))
-
-
 def _get_opener() -> urllib.request.OpenerDirector:
     """Return opener; use unverified SSL if default fails (certificate verify issues)."""
-    opener = _create_opener()
-    try:
-        req = urllib.request.Request(
-            f"{_BASE_URL}/faq.html",
-            headers={"User-Agent": "Mozilla/5.0 (compatible; 1c-help-parser)"},
-        )
-        opener.open(req, timeout=10)
-        return opener
-    except (urllib.error.URLError, OSError) as e:
-        if "SSL" in str(e) or "certificate" in str(e).lower():
-            return _create_opener_unverified()
-        raise
-
-
-def _fetch_url(url: str, opener: urllib.request.OpenerDirector) -> str:
-    req = urllib.request.Request(
-        url, headers={"User-Agent": "Mozilla/5.0 (compatible; 1c-help-parser)"}
-    )
-    with opener.open(req, timeout=30) as r:
-        return r.read().decode("utf-8")
+    return get_opener_for_base_url(_BASE_URL, "/faq.html", timeout=10)
 
 
 def _fetch_faq_listing(page: int, opener: urllib.request.OpenerDirector) -> str:
@@ -121,7 +91,7 @@ def _fetch_faq_listing(page: int, opener: urllib.request.OpenerDirector) -> str:
         url = f"{_BASE_URL}/faq.html"
     else:
         url = f"{_BASE_URL}/faq/{page}.html"
-    return _fetch_url(url, opener)
+    return fetch_url(url, opener)
 
 
 def _fetch_file_listing(page: int, opener: urllib.request.OpenerDirector) -> str:
@@ -129,7 +99,7 @@ def _fetch_file_listing(page: int, opener: urllib.request.OpenerDirector) -> str
         url = f"{_BASE_URL}/file.html"
     else:
         url = f"{_BASE_URL}/file/{page}.html"
-    return _fetch_url(url, opener)
+    return fetch_url(url, opener)
 
 
 def _fetch_help_listing(page: int, opener: urllib.request.OpenerDirector) -> str:
@@ -137,7 +107,7 @@ def _fetch_help_listing(page: int, opener: urllib.request.OpenerDirector) -> str
         url = f"{_BASE_URL}/help.html"
     else:
         url = f"{_BASE_URL}/help/{page}.html"
-    return _fetch_url(url, opener)
+    return fetch_url(url, opener)
 
 
 def _fetch_freelance_listing(page: int, opener: urllib.request.OpenerDirector) -> str:
@@ -145,7 +115,7 @@ def _fetch_freelance_listing(page: int, opener: urllib.request.OpenerDirector) -
         url = f"{_BASE_URL}/freelance.html"
     else:
         url = f"{_BASE_URL}/freelance/{page}.html"
-    return _fetch_url(url, opener)
+    return fetch_url(url, opener)
 
 
 def _extract_links_regex_fallback(
@@ -556,7 +526,7 @@ def run_parse(
                 continue
             parse_fn = _SOURCE_CONFIG.get(it.get("source"), (None, None, None, parse_faq_detail))[3]
             try:
-                detail_html = _fetch_url(url, opener)
+                detail_html = fetch_url(url, opener)
                 desc, code = parse_fn(detail_html, it.get("title", ""))
                 if desc:
                     all_items[idx]["description"] = desc

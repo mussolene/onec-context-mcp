@@ -38,13 +38,12 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v --cov=src/onec_help --cov-report=term-missing --cov-fail-under=70"
+# Target 90% (AGENTS.md). Current ~79%; to reach 90% expand tests for: indexer (281), cli (218), mcp_server (150), ingest (184), parse_helpf, embedding, html2md, unpack, hbk_container.
+addopts = "-v --cov=src/onec_help --cov-report=term-missing --cov-fail-under=78"
 filterwarnings = ["ignore::DeprecationWarning"]
 
 [tool.coverage.run]
 omit = [
-    "src/onec_help/__main__.py",  # entry point, delegates to cli
-    "src/onec_help/mcp_server.py",  # MCP tools — integration, tested via MCP clients
     "*/tests/*",
 ]
 source = ["src/onec_help"]
@@ -70,6 +69,8 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101"]  # assert is standard in pytest
 "src/onec_help/form_metadata.py" = ["S314", "S405"]  # defusedxml fallback; XML from MCP/user
+"src/onec_help/cli.py" = ["S324"]  # md5 for slug/filename only, not security
+"src/onec_help/parse_its_v8std.py" = ["S324"]  # md5 for safe_folder_name fallback only
 
 [tool.ruff.lint.isort]
 known-first-party = ["onec_help"]

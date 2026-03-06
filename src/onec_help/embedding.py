@@ -49,9 +49,11 @@ _LMSTUDIO_PREFERRED_EMBEDDING_MODELS = (
     "all-MiniLM-L6-v2",
     "text-embedding-3-small",
 )
-_EMBEDDING_API_URL = (
-    (os.environ.get("EMBEDDING_API_URL") or "http://localhost:1234/v1").strip().rstrip("/")
-)
+# Empty string means "no API"; only use default when env var is absent
+if "EMBEDDING_API_URL" in os.environ:
+    _EMBEDDING_API_URL = (os.environ.get("EMBEDDING_API_URL") or "").strip().rstrip("/")
+else:
+    _EMBEDDING_API_URL = "http://localhost:1234/v1"
 
 
 def _is_safe_embedding_url(url: str) -> bool:
@@ -168,6 +170,49 @@ _dimension_detecting: bool = False
 _last_api_embedding_was_placeholder: bool = False
 _embedding_api_available: bool | None = None
 _fallback_log_count = 0
+
+# In-memory cache for embedding vectors keyed by hash(sanitized+truncated text) to avoid repeated API calls.
+_embedding_cache: dict[str, list[float]] = {}
+_embedding_cache_order: list[str] = []  # FIFO eviction
+_embedding_cache_lock = threading.Lock()
+_EMBEDDING_CACHE_MAX: int | None = None  # None = not yet read; 0 = disabled
+
+
+def _embedding_cache_max_size() -> int:
+    """Max cache entries (EMBEDDING_CACHE_SIZE). 0 = disabled."""
+    global _EMBEDDING_CACHE_MAX
+    if _EMBEDDING_CACHE_MAX is None:
+        try:
+            v = (os.environ.get("EMBEDDING_CACHE_SIZE") or "10000").strip()
+            _EMBEDDING_CACHE_MAX = max(0, int(v))
+        except ValueError:
+            _EMBEDDING_CACHE_MAX = 10000
+    return _EMBEDDING_CACHE_MAX
+
+
+def _embedding_cache_key(text: str) -> str:
+    """Cache key from sanitized and truncated text (same as sent to backend)."""
+    t = sanitize_text_for_embedding(text)[:MAX_EMBEDDING_INPUT_CHARS]
+    return hashlib.sha256(t.encode("utf-8", errors="replace")).hexdigest()
+
+
+def _embedding_cache_get(key: str) -> list[float] | None:
+    with _embedding_cache_lock:
+        return _embedding_cache.get(key)
+
+
+def _embedding_cache_set(key: str, vec: list[float]) -> None:
+    max_sz = _embedding_cache_max_size()
+    if max_sz <= 0:
+        return
+    with _embedding_cache_lock:
+        if key in _embedding_cache:
+            return
+        while len(_embedding_cache) >= max_sz and _embedding_cache_order:
+            old = _embedding_cache_order.pop(0)
+            _embedding_cache.pop(old, None)
+        _embedding_cache[key] = vec
+        _embedding_cache_order.append(key)
 
 
 def _retry_after_delay(err: BaseException) -> float | None:
@@ -340,6 +385,13 @@ def get_embedding_dimension() -> int:
                 logging.getLogger(__name__).debug("embedding dimension detect failed: %s", e)
             finally:
                 _dimension_detecting = False
+        # When API URL is empty or API failed: use env at call time (so tests can patch and reload)
+        env_dim = (os.environ.get("EMBEDDING_DIMENSION") or "").strip()
+        if env_dim:
+            try:
+                return int(env_dim)
+            except ValueError:
+                pass
         if _EMBEDDING_DIMENSION:
             try:
                 return int(_EMBEDDING_DIMENSION)
@@ -649,7 +701,8 @@ def _get_embedding_api_batch_parallel(
 def get_embedding(text: str, target_dimension: int | None = None) -> list[float]:
     """Produce embedding for one text; backend from env: local, openai_api, deterministic, or none (placeholder).
     If target_dimension is set and the backend returns a vector of different length, a placeholder vector
-    of target_dimension is returned so the caller (e.g. search) can use the collection's vector size."""
+    of target_dimension is returned so the caller (e.g. search) can use the collection's vector size.
+    When EMBEDDING_CACHE_SIZE > 0, results for local/openai_api are cached by text hash to avoid repeated API calls."""
     text = sanitize_text_for_embedding(text)
     dim_fallback = target_dimension if target_dimension is not None else None
     if _EMBEDDING_BACKEND in ("none", "null", "off"):
@@ -657,10 +710,22 @@ def get_embedding(text: str, target_dimension: int | None = None) -> list[float]
         return _get_embedding_placeholder(text, dim)
     if _EMBEDDING_BACKEND == "deterministic":
         vec = _get_embedding_deterministic(text)
-    elif _EMBEDDING_BACKEND == "openai_api":
-        vec = _get_embedding_api_single(text)
     else:
-        vec = _get_embedding_local(text)
+        use_cache = _embedding_cache_max_size() > 0 and _EMBEDDING_BACKEND in (
+            "local",
+            "openai_api",
+        )
+        if use_cache:
+            key = _embedding_cache_key(text)
+            cached = _embedding_cache_get(key)
+            if cached is not None:
+                return list(cached)
+        if _EMBEDDING_BACKEND == "openai_api":
+            vec = _get_embedding_api_single(text)
+        else:
+            vec = _get_embedding_local(text)
+        if use_cache:
+            _embedding_cache_set(key, vec)
     if target_dimension is not None and len(vec) != target_dimension:
         return _get_embedding_placeholder(text, target_dimension)
     return vec
@@ -674,6 +739,7 @@ def get_embedding_batch(
     """
     Produce embeddings for a list of texts. Uses batch API where supported;
     for openai_api, workers > 1 runs batches in parallel.
+    When EMBEDDING_CACHE_SIZE > 0, results for local/openai_api are cached by text hash.
     """
     if not texts:
         return []
@@ -688,11 +754,36 @@ def get_embedding_batch(
     if _EMBEDDING_BACKEND == "deterministic":
         return [_get_embedding_deterministic(t) for t in texts]
 
-    if _EMBEDDING_BACKEND == "openai_api":
-        return _get_embedding_api_batch_parallel(texts, size, w)
+    use_cache = _embedding_cache_max_size() > 0 and _EMBEDDING_BACKEND in ("local", "openai_api")
+    if use_cache:
+        keys = [_embedding_cache_key(t) for t in texts]
+        cached = [_embedding_cache_get(k) for k in keys]
+        uncached_idx = [i for i in range(len(texts)) if cached[i] is None]
+        if not uncached_idx:
+            return [list(cached[i]) for i in range(len(texts))]
+        uncached_texts = [texts[i] for i in uncached_idx]
+    else:
+        uncached_idx = list(range(len(texts)))
+        uncached_texts = texts
 
-    results = []
-    for i in range(0, len(texts), size):
-        chunk = texts[i : i + size]
-        results.extend(_get_embedding_local_batch(chunk))
-    return results
+    if _EMBEDDING_BACKEND == "openai_api":
+        uncached_vecs = _get_embedding_api_batch_parallel(uncached_texts, size, w)
+    else:
+        uncached_vecs = []
+        for i in range(0, len(uncached_texts), size):
+            chunk = uncached_texts[i : i + size]
+            uncached_vecs.extend(_get_embedding_local_batch(chunk))
+
+    if use_cache:
+        for j, i in enumerate(uncached_idx):
+            _embedding_cache_set(keys[i], uncached_vecs[j])
+        result = []
+        j = 0
+        for i in range(len(texts)):
+            if cached[i] is not None:
+                result.append(list(cached[i]))
+            else:
+                result.append(uncached_vecs[j])
+                j += 1
+        return result
+    return uncached_vecs

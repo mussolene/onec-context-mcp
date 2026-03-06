@@ -9,16 +9,20 @@ from onec_help.ingest import (
     _append_failed_to_cache,
     _collect_unpacked_tasks,
     _create_ingest_run,
+    _default_workers,
     _file_sha256,
     _hbk_label_from_stem,
     _ingest_cache_key,
     _language_from_filename,
     _load_ingest_cache,
     _persist_ingest_status_sqlite,
+    _safe_stem,
+    _sqlite_timeout,
     _update_ingest_cache_entry,
     _vacuum_cache_db,
     _write_hbk_info,
     _write_ingest_status,
+    clear_ingest_cache,
     collect_hbk_tasks,
     discover_version_dirs,
     parse_languages_env,
@@ -122,6 +126,36 @@ def test_file_sha256_missing() -> None:
     assert _file_sha256(Path("/nonexistent/file.hbk")) is None
 
 
+def test_sqlite_timeout() -> None:
+    """_sqlite_timeout reads env and clamps; invalid value falls back to 15."""
+    with patch.dict("os.environ", {"SQLITE_BUSY_TIMEOUT": "30"}, clear=False):
+        assert _sqlite_timeout() == 30.0
+    with patch.dict("os.environ", {"SQLITE_BUSY_TIMEOUT": "invalid"}, clear=False):
+        assert _sqlite_timeout() == 15.0
+
+
+def test_default_workers() -> None:
+    """_default_workers returns at least 1 (half of cpu_count or 4)."""
+    w = _default_workers()
+    assert w >= 1
+
+
+def test_safe_stem() -> None:
+    """_safe_stem replaces non-alphanumeric with underscore."""
+    assert _safe_stem(Path("1cv8_ru.hbk")) == "1cv8_ru"
+    assert _safe_stem(Path("path with spaces.txt")) == "path_with_spaces"
+
+
+def test_clear_ingest_cache(tmp_path: Path) -> None:
+    """clear_ingest_cache removes cache file when present; returns True when absent."""
+    cache_file = tmp_path / "cache.db"
+    cache_file.write_bytes(b"x")
+    with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_file)}, clear=False):
+        assert clear_ingest_cache() is True
+        assert not cache_file.exists()
+        assert clear_ingest_cache() is True
+
+
 def test_load_ingest_cache_error_returns_empty(tmp_path: Path) -> None:
     """When cache read raises, _load_ingest_cache returns empty dict."""
     cache_file = tmp_path / "cache.db"
@@ -129,6 +163,14 @@ def test_load_ingest_cache_error_returns_empty(tmp_path: Path) -> None:
         with patch("onec_help.ingest.sqlite3.connect", side_effect=OSError("read-only")):
             c = _load_ingest_cache()
     assert c == {}
+
+
+def test_update_ingest_cache_entry_write_error(tmp_path: Path) -> None:
+    """When cache write raises, _update_ingest_cache_entry calls _log_cache_error and does not raise."""
+    cache_file = tmp_path / "cache.db"
+    with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_file)}, clear=False):
+        with patch("onec_help.ingest.sqlite3.connect", side_effect=OSError("read-only")):
+            _update_ingest_cache_entry("v/ru/file.hbk", "hash123", 1)
 
 
 def test_load_save_ingest_cache(tmp_path: Path) -> None:

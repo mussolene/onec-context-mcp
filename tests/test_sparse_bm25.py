@@ -10,15 +10,15 @@ from onec_help.sparse_bm25 import (
     load_vocab,
     query_vector,
     save_vocab,
-    tokenize,
+    tokenize_bm25,
 )
 
 
 def test_tokenize_empty_or_invalid() -> None:
-    """tokenize returns [] for empty, None, or non-string."""
-    assert tokenize("") == []
-    assert tokenize(None) == []
-    assert tokenize(123) == []
+    """tokenize_bm25 returns [] for empty, None, or non-string."""
+    assert tokenize_bm25("") == []
+    assert tokenize_bm25(None) == []
+    assert tokenize_bm25(123) == []
 
 
 def test_query_vector_empty_toks_returns_empty() -> None:

@@ -37,7 +37,7 @@ def _stemmer():
     return _STEMMER if _STEMMER else None
 
 
-def tokenize(text: str) -> list[str]:
+def tokenize_bm25(text: str) -> list[str]:
     """Extract tokens (Cyrillic, Latin, digits, min 2 chars). Optionally stem (BM25_STEMMING=1)."""
     if not text or not isinstance(text, str):
         return []
@@ -56,7 +56,7 @@ def _bm25_build_vocab_and_stats(
     doc_tokens: list[list[str]] = []
     doc_lens: list[int] = []
     for text in corpus_texts:
-        toks = tokenize((text or "").lower())
+        toks = tokenize_bm25((text or "").lower())
         doc_tokens.append(toks)
         doc_lens.append(len(toks))
         for t in set(toks):
@@ -121,7 +121,7 @@ def query_vector(
     Returns {"indices": [...], "values": [...]} for SparseVector.
     Dot product with doc vector yields BM25 score.
     """
-    toks = tokenize((query or "").lower())
+    toks = tokenize_bm25((query or "").lower())
     if not toks or not vocab or N <= 0:
         return {"indices": [], "values": []}
     seen: set[int] = set()

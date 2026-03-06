@@ -68,6 +68,49 @@ def test_extract_freelance_links() -> None:
     assert "5" in items[0][1]
 
 
+def test_extract_faq_links_skips_query_in_href_fallback() -> None:
+    """_extract_faq_links skips href with ? in soup path; regex fallback still finds URL."""
+    html = '<a href="/faq/view/1922.html?foo=1">Title</a>'
+    items = _extract_faq_links(html)
+    assert len(items) == 1
+    assert items[0][0] == "HelpF #1922"
+
+
+def test_extract_faq_links_skips_short_title_fallback() -> None:
+    """_extract_faq_links skips short title in soup; regex fallback adds entry."""
+    html = '<a href="/faq/view/99.html">Ab</a>'
+    items = _extract_faq_links(html)
+    assert len(items) == 1
+    assert "99" in items[0][0]
+
+
+def test_extract_file_links_skips_submit_button_title_fallback() -> None:
+    """_extract_file_links skips 'Подробнее' in soup; regex fallback adds entry."""
+    html = '<a href="/file/view/x.html">Подробнее</a>'
+    items = _extract_file_links(html)
+    assert len(items) == 1
+    assert items[0][1] == "https://helpf.pro/file/view/x.html"
+
+
+def test_detect_faq_pages_via_run_parse_pages_none(tmp_path: Path) -> None:
+    """run_parse with pages=None calls _detect_faq_pages (html with 'на N страницах')."""
+    listing_html = '<html><body>на 2 страницах <a href="/faq/view/1.html">One</a></body></html>'
+    out = tmp_path / "out.json"
+
+    def mock_fetch_url(url: str, _opener) -> str:
+        return listing_html if "faq" in url else "<html><body></body></html>"
+
+    with (
+        patch.object(parse_helpf_module, "_get_opener", return_value=MagicMock()),
+        patch.object(parse_helpf_module, "fetch_url", side_effect=mock_fetch_url),
+        patch("time.sleep"),
+    ):
+        run_parse(out, source="faq", pages=None, fetch_detail=False, max_items=10)
+    assert out.exists()
+    data = __import__("json").loads(out.read_text(encoding="utf-8"))
+    assert isinstance(data, list)
+
+
 def test_is_title_plus_noise_true() -> None:
     """Title + short tag suffix is noise."""
     assert _is_title_plus_noise("ИР Найти в спискеTurboConf ИР", "ИР Найти в списке") is True
@@ -173,7 +216,7 @@ def test_run_parse_faq_mocked(tmp_path: Path) -> None:
         patch.object(parse_helpf_module, "_SOURCE_CONFIG", patched_config),
         patch.object(
             parse_helpf_module,
-            "_fetch_url",
+            "fetch_url",
             side_effect=lambda _url, _o: detail_html,
         ),
         patch("time.sleep"),
@@ -215,7 +258,7 @@ def test_run_parse_file_mocked(tmp_path: Path) -> None:
         patch.object(parse_helpf_module, "_SOURCE_CONFIG", patched_config),
         patch.object(
             parse_helpf_module,
-            "_fetch_url",
+            "fetch_url",
             side_effect=lambda _url, _o: detail_html,
         ),
         patch("time.sleep"),

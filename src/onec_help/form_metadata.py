@@ -65,7 +65,8 @@ def parse_form_xml(xml_content: str) -> dict:
 
 
 def get_form_metadata(form_xml_path: Path) -> dict:
-    """Parse Form.xml file and return attributes and commands."""
+    """Parse Form.xml file and return attributes and commands.
+    Used by tests and file-based callers; MCP uses parse_form_xml(str) with in-memory content."""
     try:
         content = form_xml_path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as e:

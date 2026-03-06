@@ -4,7 +4,68 @@ from pathlib import Path
 from unittest.mock import patch
 
 from onec_help._utils import path_inside_base
-from onec_help.tree import build_tree, build_tree_for_web, get_html_content
+from onec_help.tree import (
+    _detect_unpacked_layout,
+    _prepend_path_prefix,
+    _stem_to_label,
+    build_tree,
+    build_tree_for_web,
+    get_html_content,
+)
+
+
+def test_detect_unpacked_layout_false_for_file(tmp_path: Path) -> None:
+    """_detect_unpacked_layout returns False for non-directory."""
+    (tmp_path / "file.txt").write_text("x")
+    assert _detect_unpacked_layout(tmp_path / "file.txt") is False
+
+
+def test_detect_unpacked_layout_true_when_version_and_categories(tmp_path: Path) -> None:
+    """_detect_unpacked_layout returns True when version dir has stem with __categories__."""
+    v_dir = tmp_path / "8.3.27.1"
+    v_dir.mkdir()
+    stem = v_dir / "ru"
+    stem.mkdir()
+    (stem / "__categories__").write_text("")
+    assert _detect_unpacked_layout(tmp_path) is True
+
+
+def test_detect_unpacked_layout_false_when_no_version_dirs(tmp_path: Path) -> None:
+    """_detect_unpacked_layout returns False when no version-like subdirs."""
+    (tmp_path / "other").mkdir()
+    (tmp_path / "other" / "file.html").write_text("<html></html>")
+    assert _detect_unpacked_layout(tmp_path) is False
+
+
+def test_stem_to_label() -> None:
+    """_stem_to_label converts known stems to display labels."""
+    assert _stem_to_label("shcntx_ru") == "Синтаксис"
+    assert _stem_to_label("1cv8_ru") == "Справка 1С:Предприятие 8"
+    assert _stem_to_label("shquery_ru") == "Язык запросов"
+    assert _stem_to_label("unknown_stem") == "unknown_stem"
+
+
+def test_stem_to_label_all_prefixes() -> None:
+    """_stem_to_label returns correct label for all known stem prefixes."""
+    assert _stem_to_label("shclang_ru") == "Встроенный язык"
+    assert _stem_to_label("perform_ru") == "Выполнение кода на стороне клиента"
+    assert _stem_to_label("designer_ru") == "Конфигуратор"
+    assert _stem_to_label("mapui_ru") == "Схема компоновки данных"
+    assert _stem_to_label("accntui_ru") == "Интерфейс бухгалтерии"
+    assert _stem_to_label("basicui_ru") == "Основной интерфейс"
+    assert _stem_to_label("helpui_ru") == "Помощь"
+    assert _stem_to_label("config_ru") == "Конфигурация"
+    assert _stem_to_label("debug_ru") == "Отладка"
+    assert _stem_to_label("devtool_ru") == "Инструменты разработки"
+    assert _stem_to_label("frame_ru") == "Фрейм"
+
+
+def test_prepend_path_prefix() -> None:
+    """_prepend_path_prefix adds prefix to html_path and recurses children."""
+    node = {"html_path": "page.html", "children": [{"html_path": "child.html", "children": []}]}
+    _prepend_path_prefix(node, "8.3/ru")
+    assert node["html_path"] == "8.3/ru/page.html"
+    assert node["children"][0]["html_path"] == "8.3/ru/child.html"
 
 
 def test_build_tree_for_web_uses_categories(help_sample_dir: Path) -> None:
@@ -132,6 +193,21 @@ def test_resolve_v8help_not_uri_returns_none(tmp_path: Path) -> None:
 
     assert _resolve_v8help("http://example.com/", tmp_path, tmp_path / "x.html") is None
     assert _resolve_v8help("v8help://", tmp_path, tmp_path / "x.html") is None
+
+
+def test_build_tree_for_web_multiversion_extensionless_file(tmp_path: Path) -> None:
+    """_build_unpacked_multiversion_tree: stem with no .html but extensionless file is included."""
+    v_dir = tmp_path / "8.3.27.1"
+    v_dir.mkdir()
+    stem_dir = v_dir / "ru"
+    stem_dir.mkdir()
+    (stem_dir / "noext").write_text("<html><body>Content</body></html>")  # no extension
+    (stem_dir / "page.html").write_text("<html></html>")
+    nodes = build_tree_for_web(tmp_path)
+    assert len(nodes) >= 1
+    version_node = next((n for n in nodes if n.get("identifier") == "8.3.27.1"), None)
+    assert version_node is not None
+    assert len(version_node.get("children", [])) >= 1
 
 
 def test_build_tree_for_web_multiversion_uses_hbk_labels(tmp_path: Path) -> None:

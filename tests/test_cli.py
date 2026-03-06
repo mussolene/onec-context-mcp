@@ -8,7 +8,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from onec_help.cli import (
+    _build_snippets_sources,
+    _categorize_error,
     _env_path,
+    _render_index_status,
+    _render_index_status_compact,
+    _render_index_status_rich,
+    _short_error,
+    cmd_add_bm25,
     cmd_build_docs,
     cmd_build_index,
     cmd_index_status,
@@ -22,7 +29,9 @@ from onec_help.cli import (
     cmd_qdrant_backup,
     cmd_qdrant_restore,
     cmd_read_hbk_container,
+    cmd_reinit,
     cmd_unpack,
+    cmd_unpack_diag,
     cmd_unpack_dir,
     cmd_unpack_sync,
     cmd_watchdog,
@@ -69,6 +78,54 @@ def test_cmd_read_hbk_container_empty_toc(
     assert cmd_read_hbk_container(args) == 0
     out = capsys.readouterr().out
     assert "Entities:" in out
+
+
+def test_cmd_unpack_diag_success(tmp_path: Path) -> None:
+    out = tmp_path / "diag_out"
+    with patch("onec_help.unpack.unpack_diag"):
+        args = make_args(archive="/nonexistent.hbk", output_dir=str(out))
+        assert cmd_unpack_diag(args) == 0
+
+
+def test_cmd_unpack_diag_error(tmp_path: Path) -> None:
+    with patch("onec_help.unpack.unpack_diag", side_effect=RuntimeError("diag failed")):
+        args = make_args(archive="/nonexistent.hbk", output_dir=str(tmp_path))
+        assert cmd_unpack_diag(args) == 1
+
+
+def test_cmd_add_bm25_success() -> None:
+    with patch("onec_help.indexer.add_bm25_to_collection", return_value=100):
+        args = make_args(collection="onec_help", batch_size=200, quiet=False)
+        with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
+            assert cmd_add_bm25(args) == 0
+
+
+def test_cmd_add_bm25_error() -> None:
+    with patch(
+        "onec_help.indexer.add_bm25_to_collection",
+        side_effect=RuntimeError("Qdrant unavailable"),
+    ):
+        args = make_args(collection="onec_help")
+        with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
+            assert cmd_add_bm25(args) == 1
+
+
+def test_categorize_error() -> None:
+    assert _categorize_error("All unpack methods failed") == "unpack"
+    assert _categorize_error("connection timeout") == "embed"
+    assert _categorize_error("qdrant upsert failed") == "index"
+    assert _categorize_error("html parse error") == "build"
+    assert _categorize_error("something else") == "other"
+
+
+def test_short_error() -> None:
+    assert _short_error("All unpack methods failed") == "unpack failed"
+    assert _short_error("unzip: No such file or directory") == "unzip not found"
+    assert _short_error("invalid archive") == "7z/invalid archive"
+    assert _short_error("Connection timeout") == "timeout"
+    assert _short_error("429 rate limit") == "rate limit"
+    assert _short_error("x" * 50) == "x" * 38 + "…"
+    assert _short_error("short") == "short"
 
 
 def test_cmd_unpack_fail() -> None:
@@ -620,6 +677,140 @@ def test_cmd_unpack_sync_no_sources_error(mock_run) -> None:
     mock_run.assert_not_called()
 
 
+@patch("onec_help.ingest.read_ingest_status", return_value=None)
+@patch("onec_help.indexer.get_index_status", return_value={"error": "Connection refused"})
+def test_render_index_status_returns_error_when_index_status_has_error(
+    mock_status, mock_ingest
+) -> None:
+    """_render_index_status returns error string and code 1 when get_index_status has error."""
+    out, code = _render_index_status()
+    assert code == 1
+    assert "Error:" in out and "Connection refused" in out
+
+
+@patch("onec_help.indexer.build_index")
+def test_cmd_build_index_incremental_no_bm25(mock_build, help_sample_dir: Path) -> None:
+    """cmd_build_index passes incremental and no_bm25 to build_index."""
+    mock_build.return_value = 3
+    args = make_args(
+        directory=str(help_sample_dir),
+        docs_dir=None,
+        incremental=True,
+        no_bm25=True,
+    )
+    with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
+        assert cmd_build_index(args) == 0
+    call_kw = mock_build.call_args[1]
+    assert call_kw["incremental"] is True
+    assert call_kw["bm25"] is False
+
+
+def test_cmd_load_snippets_path_not_found(capsys: pytest.CaptureFixture[str]) -> None:
+    """cmd_load_snippets returns 1 when snippets_file path does not exist."""
+    args = make_args(snippets_file="/nonexistent/snippets.json", from_project=False)
+    with patch.dict("os.environ", {}, clear=True):
+        assert cmd_load_snippets(args) == 1
+    assert "not found" in capsys.readouterr().err
+
+
+@patch("onec_help.cli._build_snippets_sources", return_value=[])
+def test_cmd_load_snippets_no_source_returns_zero(
+    mock_build, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """cmd_load_snippets returns 0 when no source and SNIPPETS_DIR not set."""
+    args = make_args(snippets_file=None, from_project=False)
+    with patch.dict("os.environ", {"SNIPPETS_DIR": "", "SNIPPETS_JSON_PATH": ""}, clear=False):
+        assert cmd_load_snippets(args) == 0
+    err = capsys.readouterr().err
+    assert "SNIPPETS_DIR" in err or "No source" in err or "not found" in err
+
+
+def test_cmd_load_standards_path_not_found(capsys: pytest.CaptureFixture[str]) -> None:
+    """cmd_load_standards returns 1 when standards_path does not exist."""
+    args = make_args(standards_path="/nonexistent/standards")
+    with patch.dict("os.environ", {"STANDARDS_REPOS": "", "STANDARDS_REPO": ""}, clear=False):
+        assert cmd_load_standards(args) == 1
+    err = capsys.readouterr().err
+    assert "not found" in err or "path" in err.lower() or "Error:" in err
+
+
+@patch("onec_help.parse_fastcode.run_parse", return_value=0)
+def test_cmd_parse_fastcode_pages_range(mock_run, tmp_path: Path) -> None:
+    """cmd_parse_fastcode parses pages '1-3' as range."""
+    args = make_args(pages="1-3", out=str(tmp_path / "out.json"), delay=0)
+    assert cmd_parse_fastcode(args) == 0
+    call_kw = mock_run.call_args[1]
+    assert call_kw["pages"] == [1, 2, 3]
+
+
+@patch("onec_help.parse_helpf.run_parse", return_value=0)
+def test_cmd_parse_helpf_pages_list(mock_run, tmp_path: Path) -> None:
+    """cmd_parse_helpf parses pages '1,2,5' as list."""
+    args = make_args(
+        pages="1,2,5",
+        out=str(tmp_path / "helpf.json"),
+        source="faq",
+        delay=0,
+        max_items=0,
+    )
+    assert cmd_parse_helpf(args) == 0
+    call_kw = mock_run.call_args[1]
+    assert call_kw["pages"] == [1, 2, 5]
+
+
+@patch("urllib.request.urlopen")
+def test_cmd_qdrant_backup_fails(
+    mock_urlopen, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """cmd_qdrant_backup returns 1 when API raises."""
+    mock_urlopen.side_effect = OSError("Connection refused")
+    args = make_args(output_dir=str(tmp_path))
+    with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
+        assert cmd_qdrant_backup(args) == 1
+    assert "Error:" in capsys.readouterr().err
+
+
+def test_cmd_qdrant_restore_file_not_found(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """cmd_qdrant_restore returns 1 when file path does not exist."""
+    args = make_args(file=str(tmp_path / "missing.snapshot"), backup_dir=str(tmp_path))
+    with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
+        assert cmd_qdrant_restore(args) == 1
+    assert "not found" in capsys.readouterr().err or "Error:" in capsys.readouterr().err
+
+
+@patch("onec_help.cli.cmd_load_standards", return_value=0)
+@patch("onec_help.cli.cmd_load_snippets", return_value=0)
+@patch("onec_help.cli.cmd_ingest", return_value=0)
+@patch("onec_help.ingest.clear_ingest_cache")
+def test_cmd_reinit_force(
+    mock_clear_cache, mock_ingest, mock_snippets, mock_standards, tmp_path: Path
+) -> None:
+    """cmd_reinit with force clears cache and runs init."""
+    args = make_args(force=True)
+    with patch.dict(
+        "os.environ",
+        {"HELP_SOURCE_BASE": str(tmp_path), "QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"},
+        clear=False,
+    ):
+        rc = cmd_reinit(args)
+    assert rc == 0
+    mock_clear_cache.assert_called()
+    mock_ingest.assert_called()
+    mock_snippets.assert_called()
+    mock_standards.assert_called()
+
+
+@patch("onec_help.mcp_server.run_mcp")
+def test_cmd_mcp_runtime_error_fastmcp(mock_run_mcp, capsys: pytest.CaptureFixture[str]) -> None:
+    """cmd_mcp returns 1 when run_mcp raises RuntimeError mentioning fastmcp."""
+    mock_run_mcp.side_effect = RuntimeError("fastmcp not installed")
+    args = make_args(directory="data", transport="stdio")
+    assert cmd_mcp(args) == 1
+    assert "fastmcp" in capsys.readouterr().err.lower()
+
+
 @patch("onec_help.ingest.run_ingest_from_unpacked")
 def test_cmd_ingest_from_unpacked_success(mock_run, tmp_path: Path) -> None:
     """cmd_ingest_from_unpacked calls run_ingest_from_unpacked with correct dir."""
@@ -1048,13 +1239,6 @@ def test_cmd_qdrant_restore_no_snapshots(tmp_path: Path) -> None:
         assert cmd_qdrant_restore(args) == 1
 
 
-def test_cmd_qdrant_restore_file_not_found(tmp_path: Path) -> None:
-    """cmd_qdrant_restore returns 1 when specified file does not exist."""
-    args = make_args(backup_dir=str(tmp_path), file=str(tmp_path / "nonexistent.snapshot"))
-    with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
-        assert cmd_qdrant_restore(args) == 1
-
-
 @patch("urllib.request.urlopen")
 def test_cmd_qdrant_restore_http_error(mock_urlopen, tmp_path: Path) -> None:
     """cmd_qdrant_restore returns 1 on HTTP/network error."""
@@ -1266,3 +1450,236 @@ def test_main_parse_helpf(mock_run, tmp_path: Path) -> None:
         assert main() == 0
     mock_run.assert_called_once()
     assert mock_run.call_args[1]["source"] == "faq"
+
+
+# --- _render_index_status_compact / _render_index_status_rich branches ---
+
+
+def _format_duration(sec: float | None) -> str:
+    if sec is None:
+        return "—"
+    if sec < 60:
+        return f"{sec:.0f}s"
+    return f"{sec / 60:.1f}m"
+
+
+def test_render_index_status_rich_ingest_in_progress() -> None:
+    """_render_index_status_rich: ingest in progress, progress bar, current, completed, failed."""
+    s = {"exists": True, "versions": ["8.3"], "languages": ["ru"]}
+    collections = [{"name": "onec_help", "points_count": 100}]
+    ingest = {
+        "status": "in_progress",
+        "embedding_backend": "local",
+        "done_tasks": 2,
+        "total_tasks": 5,
+        "total_points": 50,
+        "current_task_points": 20,
+        "current_task_estimated_total": 100,
+        "estimated_total_points": 200,
+        "max_workers": 2,
+        "current": [
+            {"stage": "embedding", "version": "8.3", "language": "ru", "path": "a.hbk"},
+            {"stage": "build_docs", "version": "8.3", "language": "ru", "path": "b.hbk"},
+        ],
+        "completed_files": [
+            {"path": "c.hbk", "status": "ok", "version": "8.3", "language": "ru", "points": 10},
+        ],
+        "folders": [{"err_count": 1}],
+        "failed_tasks": [{"path": "x.hbk", "error": "err", "version": "8.3", "language": "ru"}],
+    }
+    snippets = None
+    with patch("onec_help.cli.os.get_terminal_size", side_effect=OSError):
+        out, code = _render_index_status_rich(
+            s, collections, ingest, snippets, "", _format_duration, "localhost", 6333
+        )
+    assert code == 0
+    assert "index-status" in out
+    assert "Ingest" in out or "embed" in out
+    assert "Failed" in out or "err" in out
+
+
+def test_render_index_status_compact_with_ingest_in_progress(tmp_path: Path) -> None:
+    """_render_index_status_compact: ingest in progress, current, completed, eta, snippets."""
+    s = {"exists": True, "versions": ["8.3"], "languages": ["ru"]}
+    collections = [
+        {"name": "onec_help", "points_count": 50},
+        {"name": "other", "points_count": 30},
+    ]
+    ingest = {
+        "status": "in_progress",
+        "embedding_backend": "openai_api",
+        "elapsed_sec": 10.0,
+        "eta_sec": 5.0,
+        "eta_finish_at": 1234567890.0,
+        "done_tasks": 2,
+        "total_tasks": 5,
+        "total_points": 50,
+        "current_task_points": 10,
+        "current_task_estimated_total": 100,
+        "estimated_total_points": 200,
+        "max_workers": 2,
+        "current": [
+            {"stage": "embedding", "version": "8.3", "language": "ru", "path": "a.hbk"},
+        ],
+        "completed_files": [
+            {"path": "b.hbk", "status": "ok", "version": "8.3", "language": "ru", "points": 10},
+            {"path": "c.hbk", "status": "skip", "version": "8.3", "language": "ru"},
+        ],
+        "folders": [],
+    }
+    snippets = {
+        "files_processed": 1,
+        "files_skipped": 0,
+        "items_loaded": 5,
+        "total_elapsed_sec": 1.0,
+    }
+    with patch.dict("os.environ", {}, clear=False):
+        out, code = _render_index_status_compact(
+            s, collections, ingest, snippets, "", _format_duration
+        )
+    assert code == 0
+    assert "Ingest" in out and "embed:" in out
+    assert "Snippets" in out
+
+
+def test_render_index_status_compact_with_failed_and_snippets_cached(tmp_path: Path) -> None:
+    """_render_index_status_compact: failed_tasks and snippets with cached_total."""
+    s = {"exists": True}
+    collections = [{"name": "onec_help", "points_count": 10}]
+    ingest = {
+        "status": "completed",
+        "embedding_backend": "none",
+        "folders": [{"err_count": 1}],
+        "failed_tasks": [
+            {"path": "x.hbk", "error": "7z failed", "version": "8.3", "language": "ru"}
+        ],
+    }
+    snippets = {"files_processed": 0, "files_skipped": 2, "items_loaded": 0}
+    with patch("onec_help.snippets_cache.get_cached_items_total", return_value=42):
+        with patch.dict("os.environ", {}, clear=False):
+            out, code = _render_index_status_compact(
+                s, collections, ingest, snippets, "", _format_duration
+            )
+    assert code == 0
+    assert "Failed" in out or "failed" in out
+
+
+@patch("onec_help.snippets_cache.get_cached_items_total", return_value=10)
+def test_render_index_status_compact_snippets_cached(mock_cached) -> None:
+    """_render_index_status_compact: snippets with fp=0, il=0, fs>0 triggers get_cached_items_total."""
+    s = {"exists": True}
+    collections = [{"name": "c", "points_count": 0}]
+    ingest = None
+    snippets = {"files_processed": 0, "files_skipped": 1, "items_loaded": 0}
+    out, code = _render_index_status_compact(s, collections, ingest, snippets, "", _format_duration)
+    assert code == 0
+    mock_cached.assert_called_once()
+
+
+@patch("onec_help.ingest.read_ingest_failed_log")
+def test_render_index_status_compact_failed_log_fallback(mock_read_failed) -> None:
+    """_render_index_status_compact: total_err>0 and no failed_tasks -> read_ingest_failed_log."""
+    mock_read_failed.return_value = [{"path": "a.hbk", "error": "err"}]
+    s = {"exists": True}
+    collections = [{"name": "c", "points_count": 0}]
+    ingest = {
+        "status": "in_progress",
+        "embedding_backend": "none",
+        "folders": [{"err_count": 1}],
+        "failed_tasks": [],
+    }
+    snippets = None
+    out, code = _render_index_status_compact(s, collections, ingest, snippets, "", _format_duration)
+    assert code == 0
+    mock_read_failed.assert_called_once()
+
+
+@patch("onec_help.indexer.get_all_collections_status")
+@patch("onec_help.ingest.read_ingest_status")
+@patch("onec_help.indexer.get_index_status")
+def test_render_index_status_compact_via_cmd(
+    mock_status, mock_ingest, mock_collections, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """cmd_index_status(compact=True) uses _render_index_status_compact."""
+    mock_status.return_value = {
+        "exists": True,
+        "collection": "onec_help",
+        "points_count": 100,
+        "versions": ["8.3"],
+        "languages": ["ru"],
+    }
+    mock_collections.return_value = [
+        {
+            "name": "onec_help",
+            "points_count": 100,
+            "indexed_vectors_count": 100,
+            "segments_count": 1,
+        },
+    ]
+    mock_ingest.return_value = {
+        "status": "completed",
+        "embedding_backend": "local",
+        "total_elapsed_sec": 5.0,
+    }
+    with patch("onec_help.snippets_cache.read_last_snippets_run", return_value={"items_loaded": 0}):
+        with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
+            assert cmd_index_status(make_args(compact=True)) == 0
+    out = capsys.readouterr().out
+    assert "index-status" in out
+    assert "100" in out
+
+
+@patch("onec_help.snippets_cache.read_last_snippets_run", return_value=None)
+@patch("onec_help.indexer.get_all_collections_status", return_value=[])
+@patch("onec_help.ingest.read_last_ingest_run", return_value=None)
+@patch("onec_help.ingest.read_ingest_status", return_value=None)
+@patch("onec_help.indexer.get_index_status", return_value={"exists": False})
+def test_render_index_status_no_collections_no_ingest(
+    mock_status, mock_ingest, mock_last_run, mock_collections, mock_snippets
+) -> None:
+    """_render_index_status returns 'Index does not exist' when no collections and no ingest."""
+    with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
+        out, code = _render_index_status(compact=True)
+    assert code == 0
+    assert "Index does not exist" in out
+
+
+def test_build_snippets_sources_from_project(tmp_path: Path) -> None:
+    """_build_snippets_sources with from_project adds folder."""
+    (tmp_path / "a").mkdir()
+    args = make_args(from_project=str(tmp_path), snippets_file=None)
+    with patch.dict("os.environ", {"SNIPPETS_DIR": "", "SNIPPETS_JSON_PATH": ""}, clear=False):
+        sources = _build_snippets_sources(args)
+    assert len(sources) == 1
+    assert sources[0][1] == "folder"
+
+
+def test_build_snippets_sources_json_file(tmp_path: Path) -> None:
+    """_build_snippets_sources with snippets_file path to file adds json."""
+    j = tmp_path / "s.json"
+    j.write_text("[]")
+    args = make_args(snippets_file=str(j), from_project=None)
+    with patch.dict("os.environ", {"SNIPPETS_DIR": "", "SNIPPETS_JSON_PATH": ""}, clear=False):
+        sources = _build_snippets_sources(args)
+    assert len(sources) >= 1
+    assert any(s[1] == "json" for s in sources)
+
+
+def test_build_snippets_sources_snippets_dir(tmp_path: Path) -> None:
+    """_build_snippets_sources with SNIPPETS_DIR adds dir and jsons."""
+    (tmp_path / "x.json").write_text("[]")
+    args = make_args(snippets_file=None, from_project=None)
+    with patch.dict(
+        "os.environ", {"SNIPPETS_DIR": str(tmp_path), "SNIPPETS_JSON_PATH": ""}, clear=False
+    ):
+        sources = _build_snippets_sources(args)
+    assert any(s[1] == "folder" for s in sources)
+    assert any(s[1] == "json" for s in sources)
+
+
+def test_cmd_index_status_watch_interrupt() -> None:
+    """cmd_index_status with watch=True exits on KeyboardInterrupt."""
+    with patch("onec_help.cli._render_index_status", return_value=("ok\n", 0)):
+        with patch("time.sleep", side_effect=KeyboardInterrupt):
+            args = make_args(watch=True, interval=1)
+            assert cmd_index_status(args) == 0

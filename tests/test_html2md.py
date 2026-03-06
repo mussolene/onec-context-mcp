@@ -20,6 +20,35 @@ from onec_help.html2md import (
 )
 
 
+def test_resolve_href_outside_base_returns_none(tmp_path: Path) -> None:
+    """resolve_href returns None when resolved path is outside base_dir."""
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "page.html").write_text("x")
+    base = (tmp_path / "sub").resolve()
+    current = base / "page.html"
+    # href that would escape base (e.g. ../ outside)
+    assert resolve_href(current, "../../other.html", base) is None
+
+
+def test_resolve_href_resolves_to_md_or_html(tmp_path: Path) -> None:
+    """resolve_href tries .md and .html candidates when href has no extension."""
+    (tmp_path / "page.html").write_text("x")
+    (tmp_path / "other.md").write_text("md")
+    base = tmp_path.resolve()
+    current = base / "page.html"
+    assert resolve_href(current, "other", base) == "other.md"
+    (tmp_path / "other.md").unlink()
+    assert resolve_href(current, "other", base) is None
+
+
+def test_extract_links_from_markdown_skips_empty_href(tmp_path: Path) -> None:
+    """extract_links_from_markdown skips links with empty href."""
+    base = tmp_path.resolve()
+    current = base / "doc.md"
+    result = extract_links_from_markdown("[text]()", current, base)
+    assert result == []
+
+
 def test_normalize_md_text() -> None:
     """HTML entities and Unicode are normalized for consistent display and search."""
     assert _normalize_md_text("a&amp;b") == "a&b"

@@ -6,27 +6,27 @@ from onec_help.toc_parser import (
     path_to_section_and_title_from_toc,
     save_toc_json,
     toc_chunks_to_flat,
-    tokenize,
+    tokenize_toc,
 )
 
 
 def test_tokenize_empty():
-    assert tokenize("") == []
+    assert tokenize_toc("") == []
 
 
 def test_tokenize_braces_and_comma():
     # Comma is filtered out (same as hbk-viewer Tokenizer)
-    assert tokenize(" { } , ") == ["{", "}"]
+    assert tokenize_toc(" { } , ") == ["{", "}"]
 
 
 def test_tokenize_quoted_string():
-    assert tokenize('"hello"') == ['"hello"']
+    assert tokenize_toc('"hello"') == ['"hello"']
     # Escaped quote "" inside string becomes one token with inner quote
-    assert tokenize('"a""b"') == ['"a"b"']
+    assert tokenize_toc('"a""b"') == ['"a"b"']
 
 
 def test_tokenize_bom_ignored():
-    assert tokenize("\ufeff{") == ["{"]
+    assert tokenize_toc("\ufeff{") == ["{"]
 
 
 def test_parse_toc_content_empty():

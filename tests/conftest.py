@@ -13,11 +13,13 @@ def _ensure_onec_help_submodules():
     import onec_help
 
     for _name in (
+        "_http",
         "embedding",
         "hbk_container",
         "indexer",
         "memory",
         "parse_fastcode",
+        "parse_its_v8std",
         "standards_loader",
         "toc_parser",
         "unpack",

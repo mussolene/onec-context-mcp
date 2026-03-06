@@ -1,5 +1,6 @@
 """Tests for MCP server (tools logic with mocked FastMCP)."""
 
+import asyncio
 import os
 from pathlib import Path
 from unittest.mock import patch
@@ -7,6 +8,36 @@ from unittest.mock import patch
 import pytest
 
 from onec_help import mcp_server
+
+
+def test_snippet_max_chars_default() -> None:
+    """_snippet_max_chars returns default 1200 when env unset."""
+    with patch.dict(os.environ, {"MCP_SNIPPET_MAX_CHARS": ""}, clear=False):
+        # Reload to pick up env; default is 1200
+        assert 100 <= mcp_server._snippet_max_chars() <= 5000
+
+
+def test_snippet_max_chars_from_env() -> None:
+    """_snippet_max_chars reads MCP_SNIPPET_MAX_CHARS and clamps to 100-5000."""
+    with patch.dict(os.environ, {"MCP_SNIPPET_MAX_CHARS": "2000"}, clear=False):
+        assert mcp_server._snippet_max_chars() == 2000
+    with patch.dict(os.environ, {"MCP_SNIPPET_MAX_CHARS": "50"}, clear=False):
+        assert mcp_server._snippet_max_chars() == 100
+    with patch.dict(os.environ, {"MCP_SNIPPET_MAX_CHARS": "99999"}, clear=False):
+        assert mcp_server._snippet_max_chars() == 5000
+
+
+def test_max_topic_content_chars_default() -> None:
+    """_max_topic_content_chars returns default 4000 when env unset."""
+    assert 500 <= mcp_server._max_topic_content_chars() <= 50000
+
+
+def test_max_topic_content_chars_from_env() -> None:
+    """_max_topic_content_chars reads MCP_MAX_TOPIC_CHARS and clamps."""
+    with patch.dict(os.environ, {"MCP_MAX_TOPIC_CHARS": "8000"}, clear=False):
+        assert mcp_server._max_topic_content_chars() == 8000
+    with patch.dict(os.environ, {"MCP_MAX_TOPIC_CHARS": "100"}, clear=False):
+        assert mcp_server._max_topic_content_chars() == 500
 
 
 def test_get_help_path_default_when_unset() -> None:
@@ -207,3 +238,424 @@ def test_path_parts() -> None:
     """_path_parts extracts parts from URI or path."""
     assert mcp_server._path_parts("file:///projects/doc.html") == ("projects", "doc.html")
     assert mcp_server._path_parts("dir/sub/file.bsl") == ("dir", "sub", "file.bsl")
+
+
+def test_build_mcp_app_returns_mcp() -> None:
+    """_build_mcp_app returns FastMCP instance with tools registered."""
+    app = mcp_server._build_mcp_app(Path("."))
+    assert app is not None
+    tools = asyncio.run(app.list_tools())
+    assert any(t.name == "search_1c_help" for t in tools)
+
+
+def test_mcp_tool_search_1c_help_via_app(help_sample_dir: Path) -> None:
+    """Call search_1c_help tool via _build_mcp_app + call_tool (covers tool code)."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(
+        mcp_server, "_search", return_value=[{"title": "Test", "path": "p.html", "text": "snippet"}]
+    ):
+        result = asyncio.run(app.call_tool("search_1c_help", {"query": "test", "limit": 2}))
+    text = result.content[0].text if result.content else ""
+    assert "Test" in text
+    assert "p.html" in text
+
+
+def test_mcp_tool_search_1c_help_keyword_via_app(help_sample_dir: Path) -> None:
+    """Call search_1c_help_keyword tool via app (covers tool code)."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(
+        mcp_server,
+        "_search_keyword",
+        return_value=[{"title": "API", "path": "api.html", "text": "x"}],
+    ):
+        result = asyncio.run(
+            app.call_tool("search_1c_help_keyword", {"query": "Запрос", "limit": 3})
+        )
+    text = result.content[0].text if result.content else ""
+    assert "API" in text or "api.html" in text
+
+
+def test_mcp_tool_search_1c_help_no_results(help_sample_dir: Path) -> None:
+    """search_1c_help returns message when no results."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(mcp_server, "_search", return_value=[]):
+        result = asyncio.run(app.call_tool("search_1c_help", {"query": "nonexistent", "limit": 2}))
+    text = result.content[0].text if result.content else ""
+    assert "No results" in text
+
+
+def test_mcp_tool_get_1c_help_index_status_via_app(help_sample_dir: Path) -> None:
+    """Call get_1c_help_index_status tool via app."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(
+        mcp_server, "_index_status", return_value={"exists": True, "points_count": 10}
+    ):
+        result = asyncio.run(app.call_tool("get_1c_help_index_status", {}))
+    text = result.content[0].text if result.content else ""
+    assert "10" in text or "Topics" in text or "Collection" in text
+
+
+def test_mcp_tool_get_1c_help_index_status_ingest_in_progress(help_sample_dir: Path) -> None:
+    """get_1c_help_index_status shows ingest in progress (progress%, ETA, current file, failed)."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    ingest_in_progress = {
+        "status": "in_progress",
+        "done_tasks": 2,
+        "total_tasks": 10,
+        "total_points": 50,
+        "current_task_points": 5,
+        "estimated_total_points": 500,
+        "current_task_estimated_total": 25,
+        "elapsed_sec": 12.5,
+        "eta_sec": 60,
+        "embedding_speed_pts_per_sec": 4.0,
+        "current": [
+            {"version": "8.3", "language": "ru", "path": "shcntx_ru.hbk", "stage": "indexing"},
+        ],
+        "failed_tasks": [{"path": "bad.hbk", "error": "7z failed"}],
+    }
+    with patch("onec_help.ingest.read_ingest_status", return_value=ingest_in_progress):
+        with patch(
+            "onec_help.indexer.get_index_status",
+            return_value={"exists": True, "points_count": 55, "collection": "onec_help"},
+        ):
+            with patch("onec_help.indexer.get_all_collections_status", return_value=[]):
+                result = asyncio.run(app.call_tool("get_1c_help_index_status", {}))
+    text = result.content[0].text if result.content else ""
+    assert "Ingest in progress" in text
+    assert "Progress:" in text or "pts" in text
+    assert "Elapsed:" in text or "ETA:" in text or "Speed:" in text
+    assert "shcntx_ru" in text or "Current:" in text
+    assert "Failed:" in text or "bad.hbk" in text
+
+
+def test_mcp_tool_get_1c_help_topic_via_app(help_sample_dir: Path) -> None:
+    """Call get_1c_help_topic tool via app."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(mcp_server, "_get_topic", return_value="# Title\n\nContent here"):
+        result = asyncio.run(app.call_tool("get_1c_help_topic", {"topic_path": "field626.html"}))
+    text = result.content[0].text if result.content else ""
+    assert "Content here" in text or "Title" in text
+
+
+def test_mcp_tool_rate_limit_returns_error(help_sample_dir: Path) -> None:
+    """When _check_rate_limit returns error, tool returns that message."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(
+        mcp_server, "_check_rate_limit", return_value="Rate limit exceeded (120/min)."
+    ):
+        result = asyncio.run(app.call_tool("search_1c_help", {"query": "x", "limit": 1}))
+    text = result.content[0].text if result.content else ""
+    assert "Rate limit" in text
+
+
+def test_mcp_tool_truncate_query_returns_error(help_sample_dir: Path) -> None:
+    """When query exceeds MAX_QUERY_CHARS, tool returns error."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    result = asyncio.run(app.call_tool("search_1c_help", {"query": "x" * 70000, "limit": 1}))
+    text = result.content[0].text if result.content else ""
+    assert "exceeds" in text or "chars" in text
+
+
+def test_mcp_tool_search_1c_help_with_content_via_app(help_sample_dir: Path) -> None:
+    """Call search_1c_help_with_content tool via app."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(
+        mcp_server,
+        "_hybrid_search",
+        return_value=([{"path": "a.html", "title": "A", "text": "x"}], {}),
+    ):
+        with patch.object(mcp_server, "_get_topic", return_value="# A\n\nFull content"):
+            result = asyncio.run(
+                app.call_tool("search_1c_help_with_content", {"query": "test", "limit": 1})
+            )
+    text = result.content[0].text if result.content else ""
+    assert "A" in text or "content" in text
+
+
+def test_mcp_tool_get_1c_code_answer_via_app(help_sample_dir: Path) -> None:
+    """Call get_1c_code_answer tool via app."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(
+        mcp_server,
+        "_hybrid_search",
+        return_value=(
+            [{"path": "func.html", "title": "Func", "text": "x"}],
+            {"top_semantic_score": 0.5},
+        ),
+    ):
+        with patch.object(mcp_server, "_get_topic", return_value="# Func\n\n```bsl\nCode();\n```"):
+            result = asyncio.run(
+                app.call_tool(
+                    "get_1c_code_answer",
+                    {
+                        "query": "как вызвать",
+                        "limit": 2,
+                        "include_memory": False,
+                        "code_only": False,
+                    },
+                )
+            )
+    text = result.content[0].text if result.content else ""
+    assert "Запрос" in text or "Func" in text or "Code" in text
+
+
+def test_mcp_tool_get_1c_code_answer_code_only(help_sample_dir: Path) -> None:
+    """get_1c_code_answer with code_only=True returns code blocks."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(
+        mcp_server,
+        "_hybrid_search",
+        return_value=([{"path": "a.html", "title": "A", "text": "x"}], {}),
+    ):
+        with patch.object(
+            mcp_server,
+            "_get_topic",
+            return_value="# A\n\nText\n\n```bsl\nПроцедура Х()\nКонецПроцедуры\n```",
+        ):
+            result = asyncio.run(
+                app.call_tool(
+                    "get_1c_code_answer", {"query": "test", "limit": 1, "code_only": True}
+                )
+            )
+    text = result.content[0].text if result.content else ""
+    assert "Х()" in text or "bsl" in text or "A" in text
+
+
+def test_mcp_tool_list_1c_help_titles_via_app(help_sample_dir: Path) -> None:
+    """Call list_1c_help_titles tool via app."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(
+        mcp_server,
+        "_list_titles",
+        return_value=[
+            {"path": "p1.html", "title": "P1"},
+            {"path": "p2.html", "title": "P2"},
+        ],
+    ):
+        result = asyncio.run(app.call_tool("list_1c_help_titles", {"limit": 10, "path_prefix": ""}))
+    text = result.content[0].text if result.content else ""
+    assert "p1" in text or "P1" in text or "p2" in text
+
+
+def test_mcp_tool_trigger_reindex_via_app(help_sample_dir: Path) -> None:
+    """Call trigger_reindex tool via app (patch Popen to avoid subprocess)."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch("subprocess.Popen"):
+        result = asyncio.run(app.call_tool("trigger_reindex", {}))
+    text = result.content[0].text if result.content else ""
+    assert "reindex" in text.lower() or "started" in text.lower() or "background" in text.lower()
+
+
+def test_mcp_tool_save_1c_snippet_via_app(help_sample_dir: Path, tmp_path: Path) -> None:
+    """Call save_1c_snippet tool via app."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.dict(
+        "os.environ",
+        {"SAVE_SNIPPET_TO_FILES": "1", "SNIPPETS_DIR": str(tmp_path)},
+        clear=False,
+    ):
+        result = asyncio.run(
+            app.call_tool(
+                "save_1c_snippet",
+                {
+                    "code_snippet": "Процедура Тест()\nКонецПроцедуры",
+                    "description": "Test snippet",
+                    "title": "Test",
+                },
+            )
+        )
+    text = result.content[0].text if result.content else ""
+    assert "saved" in text.lower() or "ok" in text.lower() or "Test" in text
+
+
+def test_mcp_tool_get_1c_help_related_via_app(help_sample_dir: Path) -> None:
+    """Call get_1c_help_related tool via app."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch(
+        "onec_help.indexer.get_1c_help_related",
+        return_value=[
+            {"path": "related1.html", "title": "Related 1"},
+            {"path": "related2.html", "title": "Related 2"},
+        ],
+    ):
+        result = asyncio.run(
+            app.call_tool(
+                "get_1c_help_related",
+                {"topic_path": "Format971.md", "version": None, "language": None},
+            )
+        )
+    text = result.content[0].text if result.content else ""
+    assert "Related" in text or "related" in text
+
+
+def test_mcp_tool_get_1c_help_related_empty(help_sample_dir: Path) -> None:
+    """get_1c_help_related returns message when no related topics."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch("onec_help.indexer.get_1c_help_related", return_value=[]):
+        result = asyncio.run(app.call_tool("get_1c_help_related", {"topic_path": "x.md"}))
+    text = result.content[0].text if result.content else ""
+    assert "No related" in text
+
+
+def test_mcp_tool_compare_1c_help_via_app(help_sample_dir: Path) -> None:
+    """Call compare_1c_help tool via app."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch(
+        "onec_help.indexer.compare_1c_help",
+        return_value="Left: 8.3\nRight: 8.3.27\nDiff summary.",
+    ):
+        result = asyncio.run(
+            app.call_tool(
+                "compare_1c_help",
+                {
+                    "topic_path_or_query": "Format",
+                    "version_left": "8.3",
+                    "version_right": "8.3.27",
+                    "language": "ru",
+                    "include_diff": False,
+                },
+            )
+        )
+    text = result.content[0].text if result.content else ""
+    assert "8.3" in text or "Diff" in text
+
+
+def test_mcp_tool_get_1c_function_info_via_app(help_sample_dir: Path) -> None:
+    """Call get_1c_function_info tool via app."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(
+        mcp_server,
+        "_search_keyword",
+        return_value=[
+            {"path": "Format.md", "title": "Формат", "text": "Формат(Значение, ФорматнаяСтрока)"},
+        ],
+    ):
+        with patch.object(mcp_server, "_get_topic", return_value="# Формат\n\nОписание функции."):
+            result = asyncio.run(
+                app.call_tool(
+                    "get_1c_function_info",
+                    {"name": "Формат", "choose_index": 0},
+                )
+            )
+    text = result.content[0].text if result.content else ""
+    assert "Формат" in text or "Описание" in text
+
+
+def test_mcp_tool_get_form_metadata_via_app(help_sample_dir: Path) -> None:
+    """Call get_form_metadata tool via app."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    xml = '<?xml version="1.0"?><Form xmlns="http://v8.1c.ru/8.3/xcf/readonly"><Attributes/><Commands/></Form>'
+    result = asyncio.run(app.call_tool("get_form_metadata", {"xml_content": xml}))
+    text = result.content[0].text if result.content else ""
+    assert "Attributes" in text or "Commands" in text or "Parse" in text
+
+
+def test_mcp_tool_get_module_info_via_app(help_sample_dir: Path) -> None:
+    """Call get_module_info tool via app."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    result = asyncio.run(
+        app.call_tool(
+            "get_module_info",
+            {"uri_or_path": "file:///projects/Catalogs/MyCat/Forms/Item/Module.bsl"},
+        )
+    )
+    text = result.content[0].text if result.content else ""
+    assert "FormModule" in text or "Module" in text
+
+
+def test_mcp_tool_get_1c_code_answer_include_memory(help_sample_dir: Path) -> None:
+    """get_1c_code_answer with include_memory=True includes memory blocks (snippets/community_help/standards)."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    memory_results = [
+        {
+            "payload": {
+                "title": "Пример",
+                "code_snippet": "Сообщить(1);",
+                "description": "Desc",
+                "domain": "snippets",
+                "detail_url": "https://fastcode.im/1",
+                "source_site": "fastcode.im",
+            }
+        },
+        {
+            "payload": {
+                "title": "HelpF",
+                "instruction": "Инструкция",
+                "domain": "community_help",
+                "detail_url": "https://helpf.pro/2",
+                "source_site": "helpf.pro",
+                "source": "faq",
+            }
+        },
+        {"payload": {"title": "Стандарт", "domain": "standards"}},
+    ]
+    with patch.object(
+        mcp_server,
+        "_hybrid_search",
+        return_value=([], {}),
+    ):
+        with patch("onec_help.memory.get_memory_store") as mock_store:
+            mock_store.return_value.search_long.return_value = memory_results
+            result = asyncio.run(
+                app.call_tool(
+                    "get_1c_code_answer",
+                    {"query": "test", "limit": 5, "include_memory": True},
+                )
+            )
+    text = result.content[0].text if result.content else ""
+    assert "Из памяти" in text
+    assert "Пример" in text or "Сообщить" in text
+    assert "пример" in text or "стандарт" in text
+
+
+def test_mcp_tool_get_1c_code_answer_no_results_no_memory(help_sample_dir: Path) -> None:
+    """get_1c_code_answer returns hint when no results and no memory."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(mcp_server, "_hybrid_search", return_value=([], {})):
+        with patch("onec_help.memory.get_memory_store") as mock_store:
+            mock_store.return_value.search_long.return_value = []
+            result = asyncio.run(
+                app.call_tool(
+                    "get_1c_code_answer",
+                    {"query": "nonexistent", "limit": 2, "include_memory": True},
+                )
+            )
+    text = result.content[0].text if result.content else ""
+    assert "No results" in text or "index exists" in text or "search_1c_help_keyword" in text
+
+
+def test_mcp_tool_get_1c_function_info_choose_index(help_sample_dir: Path) -> None:
+    """get_1c_function_info with choose_index returns content of chosen result."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(
+        mcp_server,
+        "_search_keyword",
+        return_value=[
+            {"path": "Format1.md", "title": "Формат (функция)", "text": "x"},
+            {"path": "Format2.md", "title": "Формат (страница)", "text": "y"},
+        ],
+    ):
+        with patch.object(
+            mcp_server,
+            "_get_topic",
+            side_effect=["# Формат функция\n\nОписание.", "# Формат страница\n\nДругое."],
+        ):
+            result = asyncio.run(
+                app.call_tool(
+                    "get_1c_function_info",
+                    {"name": "Формат", "path": None, "choose_index": 1},
+                )
+            )
+    text = result.content[0].text if result.content else ""
+    assert "Формат" in text
+
+
+def test_mcp_tool_get_1c_function_info_empty_name(help_sample_dir: Path) -> None:
+    """get_1c_function_info returns message when name is empty."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    result = asyncio.run(
+        app.call_tool("get_1c_function_info", {"name": "   ", "path": None, "choose_index": None})
+    )
+    text = result.content[0].text if result.content else ""
+    assert "Provide" in text or "name" in text

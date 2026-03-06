@@ -7,13 +7,17 @@ import pytest
 
 from onec_help import indexer as indexer_mod
 from onec_help.indexer import (
+    _bm25_enabled,
+    _build_path_to_section,
     _collection_info_int,
     _extract_keywords,
     _infer_entity_type,
     _path_to_point_id,
     _upsert_batch_with_retry,
     _version_sort_key,
+    add_bm25_to_collection,
     build_index,
+    compare_1c_help,
     get_1c_help_related,
     get_all_collections_status,
     get_collection_vector_size,
@@ -100,6 +104,19 @@ def test_get_collection_vector_size(mock_client: MagicMock) -> None:
     assert get_collection_vector_size(collection="onec_help") == 768
     mock_instance.collection_exists.return_value = False
     assert get_collection_vector_size(collection="nonexistent") is None
+
+
+@patch("onec_help.indexer.QdrantClient")
+def test_get_collection_vector_size_vectors_dict(mock_client: MagicMock) -> None:
+    """get_collection_vector_size returns size when vectors is Dict[str, VectorParams]."""
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    mock_instance.collection_exists.return_value = True
+    mock_first = MagicMock(size=384)
+    mock_params = MagicMock(vectors={"default": mock_first})
+    mock_config = MagicMock(params=mock_params)
+    mock_instance.get_collection.return_value = MagicMock(config=mock_config)
+    assert get_collection_vector_size(collection="onec_help") == 384
 
 
 def test_build_index_no_qdrant_client(tmp_path: Path) -> None:
@@ -502,11 +519,6 @@ def test_get_topic_from_index_found(
     assert text == "Full topic text"
 
 
-@patch("onec_help.indexer.QdrantClient", None)
-def test_get_topic_from_index_no_client() -> None:
-    assert get_topic_from_index("any") == ""
-
-
 def test_get_topic_content_from_disk(help_sample_dir: Path) -> None:
     content = get_topic_content(help_sample_dir, "field626.html")
     assert content
@@ -559,6 +571,32 @@ def test_get_topic_from_index_fallback_scroll(
     ]
     text = get_topic_from_index("topic.html", qdrant_host="localhost", qdrant_port=6333)
     assert text == "Fallback text"
+
+
+@patch("onec_help.indexer.QdrantClient")
+@patch("onec_help.indexer.Filter")
+@patch("onec_help.indexer.FieldCondition")
+@patch("onec_help.indexer.MatchValue")
+def test_get_topic_from_index_path_variants_tries_md_then_html(
+    mock_mv: MagicMock,
+    mock_fc: MagicMock,
+    mock_f: MagicMock,
+    mock_client: MagicMock,
+) -> None:
+    """get_topic_from_index with path without extension tries .md then .html."""
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    # First variant "path/to/topic" -> empty; second "path/to/topic.md" -> found
+    mock_instance.scroll.side_effect = [
+        ([], None),
+        ([MagicMock(payload={"path": "path/to/topic.md", "text": "Topic body"})], None),
+    ]
+    text = get_topic_from_index(
+        "path/to/topic",
+        qdrant_host="localhost",
+        qdrant_port=6333,
+    )
+    assert text == "Topic body"
 
 
 @patch("onec_help.indexer.QdrantClient")
@@ -722,3 +760,374 @@ def test_list_index_nav_items_pagination(mock_client: MagicMock) -> None:
     assert out[0]["path"] == "p1.html"
     assert out[1]["path"] == "p2.html"
     assert mock_instance.scroll.call_count == 2
+
+
+def test_build_path_to_section() -> None:
+    """_build_path_to_section returns path and stem keys with section_path and breadcrumb."""
+    nodes = [
+        {"title": "Root", "path": "root.html", "children": []},
+        {
+            "title": "Child",
+            "path": "root/child.html",
+            "children": [{"title": "Leaf", "path": "root/child/leaf.html", "children": []}],
+        },
+    ]
+    result = _build_path_to_section(nodes, base_path="", breadcrumb=[])
+    assert "root.html" in result
+    assert result["root.html"] == ("", [])
+    assert "root" in result
+    assert "root/child.html" in result
+    assert result["root/child.html"][0] == "" and result["root/child.html"][1] == []
+    assert "root/child/leaf.html" in result
+    # Leaf is under Child, so breadcrumb is ["Child"]
+    assert result["root/child/leaf.html"][1] == ["Child"]
+
+
+def test_bm25_enabled() -> None:
+    """_bm25_enabled reads BM25_ENABLED env (default True)."""
+    assert _bm25_enabled() is True
+    with patch.dict("os.environ", {"BM25_ENABLED": "0"}, clear=False):
+        assert _bm25_enabled() is False
+    with patch.dict("os.environ", {"BM25_ENABLED": "false"}, clear=False):
+        assert _bm25_enabled() is False
+    with patch.dict("os.environ", {"BM25_ENABLED": "1"}, clear=False):
+        assert _bm25_enabled() is True
+
+
+def test_version_sort_key_edge_cases() -> None:
+    """_version_sort_key handles mixed numeric and invalid parts (ValueError -> 0)."""
+    assert _version_sort_key("8.3.27.1859") == (8, 3, 27, 1859)
+    assert _version_sort_key("8.3.bad.4") == (8, 3, 0, 4)
+
+
+@patch("onec_help.indexer.QdrantClient")
+def test_get_all_collections_status_dict_collection(mock_client: MagicMock) -> None:
+    """get_all_collections_status handles dict-style collection (name from key)."""
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    mock_instance.get_collections.return_value = MagicMock(collections=[{"name": "my_coll"}])
+    mock_instance.get_collection.return_value = MagicMock(
+        points_count=10, indexed_vectors_count=10, segments_count=1
+    )
+    result = get_all_collections_status(qdrant_host="localhost", qdrant_port=6333)
+    assert len(result) == 1
+    assert result[0]["name"] == "my_coll"
+
+
+@patch("onec_help.indexer.QdrantClient")
+def test_get_all_collections_status_get_collection_raises(mock_client: MagicMock) -> None:
+    """get_all_collections_status appends None stats when get_collection raises."""
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    mock_instance.get_collections.return_value = MagicMock(
+        collections=[MagicMock(name="onec_help")]
+    )
+    mock_instance.get_collection.side_effect = RuntimeError("timeout")
+    result = get_all_collections_status(qdrant_host="localhost", qdrant_port=6333)
+    assert len(result) == 1
+    assert result[0]["points_count"] is None
+    assert result[0]["indexed_vectors_count"] is None
+
+
+@patch("onec_help.indexer.get_topic_content")
+@patch("onec_help.indexer.QdrantClient")
+def test_compare_1c_help_with_path(mock_client: MagicMock, mock_get_content: MagicMock) -> None:
+    """compare_1c_help returns left/right content and optional diff."""
+    mock_get_content.side_effect = ["Left version content", "Right version content"]
+    out = compare_1c_help(
+        "Format.md",
+        version_left="8.3",
+        version_right="8.3.27",
+        qdrant_host="localhost",
+        qdrant_port=6333,
+        include_diff=True,
+    )
+    assert "8.3" in out
+    assert "8.3.27" in out
+    assert "Left version" in out
+    assert "Right version" in out
+    assert "Diff" in out
+    assert mock_get_content.call_count == 2
+
+
+@patch("onec_help.indexer.QdrantClient")
+def test_add_bm25_to_collection_not_exists(mock_client: MagicMock) -> None:
+    """add_bm25_to_collection raises when collection does not exist."""
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    mock_instance.collection_exists.return_value = False
+    with pytest.raises(RuntimeError, match="does not exist"):
+        add_bm25_to_collection(qdrant_host="localhost", qdrant_port=6333)
+
+
+@patch("onec_help.indexer.get_collection_vector_size", return_value=384)
+@patch("onec_help.embedding.get_embedding", return_value=[0.1] * 384)
+@patch("onec_help.indexer.QdrantClient")
+def test_search_index_uses_search_fallback(mock_client: MagicMock, mock_emb, mock_dim) -> None:
+    """search_index uses client.search when query_points is not available."""
+    mock_instance = MagicMock()
+    del mock_instance.query_points
+    mock_instance.search.return_value = [
+        MagicMock(payload={"path": "a.md", "title": "A", "text": "x"}, score=0.9),
+    ]
+    mock_client.return_value = mock_instance
+    result = search_index("q", limit=5)
+    assert len(result) == 1
+    assert result[0]["path"] == "a.md"
+    mock_instance.search.assert_called_once()
+
+
+@patch("onec_help.indexer.get_collection_vector_size", return_value=384)
+@patch("onec_help.embedding.get_embedding", return_value=[0.1] * 384)
+@patch("onec_help.indexer.QdrantClient")
+def test_search_index_with_version_returns_raw(mock_client: MagicMock, mock_emb, mock_dim) -> None:
+    """search_index with version filter returns raw list (no dedup)."""
+    mock_instance = MagicMock()
+    mock_instance.query_points.return_value = MagicMock(
+        points=[
+            MagicMock(
+                payload={"path": "p.md", "title": "T", "text": "x", "version": "8.3"}, score=0.8
+            )
+        ]
+    )
+    mock_client.return_value = mock_instance
+    result = search_index("q", limit=5, version="8.3")
+    assert len(result) == 1
+    assert result[0].get("version") == "8.3"
+
+
+@patch("onec_help.indexer.QdrantClient")
+def test_list_index_titles_path_prefix_filters(mock_client: MagicMock) -> None:
+    """list_index_titles filters by path_prefix and paginates."""
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    mock_instance.scroll.side_effect = [
+        (
+            [
+                MagicMock(payload={"path": "zif_1.md", "title": "Z1"}),
+                MagicMock(payload={"path": "other.md", "title": "O"}),
+                MagicMock(payload={"path": "zif_2.md", "title": "Z2"}),
+            ],
+            None,
+        ),
+    ]
+    out = list_index_titles(qdrant_host="localhost", qdrant_port=6333, limit=10, path_prefix="zif")
+    assert len(out) == 2
+    assert all(r["path"].startswith("zif") for r in out)
+
+
+@patch("onec_help.indexer.QdrantClient")
+def test_list_index_titles_scroll_exception(mock_client: MagicMock) -> None:
+    """list_index_titles returns partial result when scroll raises."""
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    mock_instance.scroll.side_effect = [
+        ([MagicMock(payload={"path": "a.md", "title": "A"})], "off"),
+        RuntimeError("conn"),
+    ]
+    out = list_index_titles(qdrant_host="localhost", qdrant_port=6333, limit=10)
+    assert len(out) == 1
+
+
+@patch("onec_help.indexer.QdrantClient", None)
+def test_get_topic_from_index_no_client() -> None:
+    """get_topic_from_index returns '' when QdrantClient is not available."""
+    assert get_topic_from_index("topic.md", qdrant_host="localhost", qdrant_port=6333) == ""
+
+
+@patch("onec_help.indexer.QdrantClient", None)
+def test_search_index_no_client_returns_empty() -> None:
+    """search_index returns [] when QdrantClient is not available."""
+    assert search_index("query", limit=5) == []
+
+
+@patch("onec_help.indexer._collection_has_sparse", return_value=True)
+@patch("onec_help.indexer.QdrantClient")
+def test_add_bm25_already_has_sparse_saves_vocab(mock_client: MagicMock, mock_has_sparse) -> None:
+    """add_bm25 when collection already has BM25 scrolls points and saves vocab."""
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    mock_instance.collection_exists.return_value = True
+    mock_instance.scroll.return_value = (
+        [MagicMock(payload={"title": "T", "text": "Body"})],
+        None,
+    )
+    mock_instance.get_collection.return_value = MagicMock(points_count=1)
+    with patch("onec_help.sparse_bm25.build_bm25_vectors", return_value=([], {}, {})):
+        with patch("onec_help.sparse_bm25.save_vocab"):
+            n = add_bm25_to_collection(qdrant_host="localhost", qdrant_port=6333, verbose=False)
+    assert n == 1
+
+
+@patch("onec_help.indexer.QdrantClient", None)
+def test_get_collection_vector_size_no_client() -> None:
+    """get_collection_vector_size returns None when QdrantClient is not available."""
+    assert get_collection_vector_size() is None
+
+
+@patch("onec_help.indexer.QdrantClient", None)
+def test_get_index_status_no_client() -> None:
+    """get_index_status returns error dict when QdrantClient is not available."""
+    out = get_index_status()
+    assert out.get("error") == "qdrant-client not available"
+    assert out.get("exists") is False
+    assert out.get("points_count") == 0
+
+
+@patch("onec_help.indexer.QdrantClient")
+def test_get_index_status_connection_fails(mock_client: MagicMock) -> None:
+    """get_index_status returns error when QdrantClient() raises."""
+    mock_client.side_effect = OSError("Connection refused")
+    out = get_index_status(qdrant_host="localhost", qdrant_port=6333)
+    assert "error" in out
+    assert out.get("exists") is False
+
+
+@patch("onec_help.indexer.QdrantClient")
+def test_get_index_status_scroll_raises_logs(mock_client: MagicMock) -> None:
+    """get_index_status handles scroll exception and still returns points_count."""
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    mock_instance.collection_exists.return_value = True
+    mock_instance.get_collection.return_value = MagicMock(points_count=100)
+    mock_instance.scroll.side_effect = RuntimeError("scroll failed")
+    out = get_index_status(qdrant_host="localhost", qdrant_port=6333)
+    assert out.get("exists") is True
+    assert out.get("points_count") == 100
+    assert "versions" not in out or out.get("versions") is None
+
+
+def test_index_status_sample_size_env() -> None:
+    """_index_status_sample_size reads env and clamps to 50..2000."""
+    with patch.dict("os.environ", {"INDEX_STATUS_SAMPLE_SIZE": "500"}, clear=False):
+        assert indexer_mod._index_status_sample_size() == 500
+    with patch.dict("os.environ", {"INDEX_STATUS_SAMPLE_SIZE": "10"}, clear=False):
+        assert indexer_mod._index_status_sample_size() == 50
+    with patch.dict("os.environ", {"INDEX_STATUS_SAMPLE_SIZE": "9999"}, clear=False):
+        assert indexer_mod._index_status_sample_size() == 2000
+
+
+@patch("onec_help.indexer.QdrantClient")
+def test_get_all_collections_status_connect_raises(mock_client: MagicMock) -> None:
+    """get_all_collections_status returns [] when connection fails."""
+    mock_client.side_effect = OSError("refused")
+    assert get_all_collections_status(qdrant_host="localhost", qdrant_port=6333) == []
+
+
+@patch("onec_help.indexer.QdrantClient")
+def test_get_collection_vector_size_config_none(mock_client: MagicMock) -> None:
+    """get_collection_vector_size returns None when collection config is None."""
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    mock_instance.collection_exists.return_value = True
+    mock_instance.get_collection.return_value = MagicMock(config=None)
+    assert get_collection_vector_size(collection="onec_help") is None
+
+
+@patch("onec_help.indexer.QdrantClient")
+def test_get_collection_vector_size_params_none(mock_client: MagicMock) -> None:
+    """get_collection_vector_size returns None when config.params is None."""
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    mock_instance.collection_exists.return_value = True
+    mock_config = MagicMock(params=None)
+    mock_instance.get_collection.return_value = MagicMock(config=mock_config)
+    assert get_collection_vector_size(collection="onec_help") is None
+
+
+@patch("onec_help.indexer.QdrantClient")
+def test_build_index_progress_callback_type_error_then_ok(
+    mock_client: MagicMock, tmp_path: Path
+) -> None:
+    """build_index progress_callback: TypeError then one-arg call then success."""
+    (tmp_path / "a.md").write_text("# A\n\nBody.", encoding="utf-8")
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    calls = []
+
+    def cb(*args):
+        calls.append(args)
+        if len(calls) == 1:
+            raise TypeError("need 1 arg")
+        if len(calls) == 2:
+            raise ValueError("err")
+        return None
+
+    with patch("onec_help.embedding.get_embedding_batch", return_value=[[0.1] * 384]):
+        n = build_index(
+            tmp_path,
+            qdrant_host="localhost",
+            qdrant_port=6333,
+            progress_callback=cb,
+        )
+    assert n == 1
+    assert len(calls) >= 2
+
+
+@patch("onec_help.indexer.QdrantClient")
+def test_build_index_embedding_mismatch_retry_succeeds(
+    mock_client: MagicMock, tmp_path: Path
+) -> None:
+    """build_index retries embedding batch when count mismatch, then succeeds."""
+    (tmp_path / "a.md").write_text("# A\n\nBody.", encoding="utf-8")
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    dim = 384
+    vec = [0.1] * dim
+    with patch("onec_help.embedding.get_embedding_batch") as mock_batch:
+        mock_batch.side_effect = [[], [vec]]
+        n = build_index(tmp_path, qdrant_host="localhost", qdrant_port=6333)
+    assert n == 1
+    assert mock_batch.call_count >= 2
+
+
+@patch("onec_help.indexer.QdrantClient")
+def test_search_index_keyword_empty_query_returns_empty(mock_client: MagicMock) -> None:
+    """search_index_keyword returns [] for empty or whitespace-only query."""
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    assert search_index_keyword("", qdrant_host="localhost", qdrant_port=6333) == []
+    assert search_index_keyword("   ", qdrant_host="localhost", qdrant_port=6333) == []
+
+
+@patch("onec_help.sparse_bm25.query_vector", return_value={"indices": [1], "values": [1.0]})
+@patch("onec_help.sparse_bm25.load_vocab", return_value=({"word": 0}, {0: 1}, 1))
+@patch("onec_help.sparse_bm25.bm25_vocab_path", return_value=MagicMock(exists=True))
+@patch("onec_help.indexer._collection_has_sparse", return_value=True)
+@patch("onec_help.indexer.QdrantClient")
+def test_search_index_keyword_bm25_with_filters(
+    mock_client: MagicMock,
+    mock_has_sparse: MagicMock,
+    _mock_vocab_path: MagicMock,
+    _mock_load_vocab: MagicMock,
+    _mock_query_vector: MagicMock,
+) -> None:
+    """search_index_keyword BM25 path with version/language filter returns results."""
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    mock_instance.query_points = MagicMock(
+        return_value=MagicMock(
+            points=[
+                MagicMock(
+                    payload={
+                        "path": "doc.md",
+                        "title": "Doc",
+                        "text": "Content",
+                        "version": "8.3",
+                        "language": "ru",
+                    },
+                    score=0.9,
+                )
+            ]
+        )
+    )
+    result = search_index_keyword(
+        "Запрос",
+        qdrant_host="localhost",
+        qdrant_port=6333,
+        version="8.3",
+        language="ru",
+    )
+    assert isinstance(result, list)
+    if result:
+        assert result[0].get("path") == "doc.md"

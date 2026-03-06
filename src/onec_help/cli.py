@@ -1138,6 +1138,24 @@ def cmd_load_snippets(args: argparse.Namespace) -> int:
         return 1
 
 
+def _slug_for_standards_file(title: str, max_len: int = 80) -> str:
+    """Safe filename stem from title (ASCII/digits/underscore). Fallback: short hash if empty."""
+    s = (title or "page").strip()
+    out: list[str] = []
+    for c in s:
+        if c.isascii() and (c.isalnum() or c in "-_"):
+            out.append(c)
+        elif c.isspace() or c in "/\\":
+            if out and out[-1] != "_":
+                out.append("_")
+    name = "".join(out).strip("_")
+    if not name or len(name) < 2:
+        import hashlib
+
+        name = hashlib.md5(title.encode("utf-8")).hexdigest()[:12]
+    return name[:max_len]
+
+
 def _parse_standards_repo_spec(spec: str, default_branch: str = "master") -> tuple[str, str]:
     """Parse 'owner/repo' or 'owner/repo:branch'. Returns (repo_url, branch)."""
     spec = spec.strip()
@@ -1152,15 +1170,17 @@ _DEFAULT_STANDARDS_REPOS = "1C-Company/v8-code-style:master,zeegin/v8std:main"
 
 def cmd_load_standards(args: argparse.Namespace) -> int:
     """Load standards (markdown) into onec_help_memory (domain=standards).
-    Sources: path arg, STANDARDS_DIR, STANDARDS_REPOS (comma-separated, loaded jointly),
-    or STANDARDS_REPO (single, legacy). By default loads both v8-code-style and v8std."""
-    path_arg = getattr(args, "standards_path", None) or os.environ.get("STANDARDS_DIR", "")
-    path_arg = (path_arg or "").strip()
+    Sources: path arg, STANDARDS_DIR (only when no repos set), STANDARDS_REPOS (comma-separated),
+    or STANDARDS_REPO (single, legacy). By default loads both v8-code-style and v8std.
+    When STANDARDS_REPOS/STANDARDS_REPO are set, STANDARDS_DIR is used only as copy destination."""
+    path_arg = (getattr(args, "standards_path", None) or "").strip()
     standards_repos = (os.environ.get("STANDARDS_REPOS") or "").strip()
     standards_repo = (os.environ.get("STANDARDS_REPO") or "").strip()
     standards_subpath = os.environ.get("STANDARDS_SUBPATH", "docs").strip() or "docs"
     default_branch = os.environ.get("STANDARDS_BRANCH", "master").strip() or "master"
-    # Fallback: when no source is set, use default repos (both v8-code-style and v8std)
+    # Use STANDARDS_DIR as source only when no repo is configured (else it's the copy destination)
+    if not path_arg and not standards_repos and not standards_repo:
+        path_arg = (os.environ.get("STANDARDS_DIR") or "").strip()
     if not path_arg and not standards_repos and not standards_repo:
         standards_repos = _DEFAULT_STANDARDS_REPOS
     temp_dirs: list[Path] = []
@@ -1205,12 +1225,17 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
             print(f"Error fetching {standards_repo}: {e}", file=sys.stderr)
             return 1
     else:
-        print(
-            "No source: set STANDARDS_REPOS (e.g. 1C-Company/v8-code-style:master,zeegin/v8std:main) "
-            "or STANDARDS_REPO or STANDARDS_DIR / pass path.",
-            file=sys.stderr,
-        )
-        return 0
+        its_only = getattr(args, "its_v8std", False) or os.environ.get(
+            "STANDARDS_ITS_V8STD", ""
+        ).strip().lower() in ("1", "true", "yes")
+        if not its_only:
+            print(
+                "No source: set STANDARDS_REPOS (e.g. 1C-Company/v8-code-style:master,zeegin/v8std:main) "
+                "or STANDARDS_REPO or STANDARDS_DIR / pass path, or use --its-v8std.",
+                file=sys.stderr,
+            )
+            return 0
+        # ITS v8std only: dirs_to_load stays empty
 
     try:
         import shutil as _shutil
@@ -1232,6 +1257,64 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
         items: list[dict[str, Any]] = []
         for d in dirs_to_load:
             items.extend(collect_from_folder(d))
+
+        # Optional: load from ITS v8std (https://its.1c.ru/db/v8std) if enabled
+        its_v8std = os.environ.get("STANDARDS_ITS_V8STD", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+        ) or getattr(args, "its_v8std", False)
+        if its_v8std:
+            try:
+                from .parse_its_v8std import fetch_its_v8std_items
+
+                progress_line("load-standards │ fetching ITS v8std (its.1c.ru)...")
+                max_content_env = os.environ.get("ITS_V8STD_MAX_CONTENT", "").strip()
+                max_content = int(max_content_env) if max_content_env else None
+                its_items = fetch_its_v8std_items(max_content=max_content)
+                items.extend(its_items)
+                if its_items:
+                    # Сохранить статьи ITS в папки по разделам: its-v8std/Раздел1/Подраздел/791_Название.md
+                    from .parse_its_v8std import _safe_folder_name
+
+                    standards_out = Path(
+                        os.environ.get("STANDARDS_DIR") or "data/standards"
+                    ).resolve()
+                    its_dir = standards_out / "its-v8std"
+                    its_dir.mkdir(parents=True, exist_ok=True)
+                    for item in its_items:
+                        url = item.get("detail_url", "")
+                        content_id = item.get("content_id", "")
+                        if not content_id and "/content/" in url:
+                            content_id = url.split("/content/")[1].split("/")[0]
+                        section_path = item.get("section_path") or []
+                        if not section_path:
+                            section_path = ["v8std"]
+                        subdir = its_dir
+                        for part in section_path:
+                            subdir = subdir / _safe_folder_name(part)
+                            subdir.mkdir(parents=True, exist_ok=True)
+                        slug = _slug_for_standards_file(item.get("title", "page"))
+                        fname = f"{content_id}_{slug}.md" if content_id else f"{slug}.md"
+                        body = item.get("code_snippet", "")
+                        frontmatter = (
+                            f"---\nurl: {url}\nid: {content_id}\nsource: its.1c.ru\n---\n\n"
+                        )
+                        (subdir / fname).write_text(frontmatter + body, encoding="utf-8")
+                    progress_done(f"load-standards │ ITS v8std: {len(its_items)} items → {its_dir}")
+            except Exception as e:
+                print(f"Warning: ITS v8std fetch failed: {e}", file=sys.stderr)
+        else:
+            # Подгрузить ITS с диска, если папка уже есть (без повторного fetch)
+            standards_out = Path(os.environ.get("STANDARDS_DIR") or "data/standards").resolve()
+            its_dir = standards_out / "its-v8std"
+            if its_dir.exists():
+                its_from_disk = collect_from_folder(its_dir)
+                if its_from_disk:
+                    items.extend(its_from_disk)
+                    progress_done(
+                        f"load-standards │ ITS from disk: {len(its_from_disk)} items ← {its_dir}"
+                    )
 
         if not items:
             print("No .md files found.", file=sys.stderr)
@@ -1937,6 +2020,11 @@ def main() -> int:
         nargs="?",
         default=None,
         help="Path to folder with .md (default: STANDARDS_DIR env)",
+    )
+    p_load_standards.add_argument(
+        "--its-v8std",
+        action="store_true",
+        help="Also fetch standards from ITS v8std (https://its.1c.ru/db/v8std); auth via ITS_AUTH_COOKIE",
     )
     p_load_standards.set_defaults(func=cmd_load_standards)
 

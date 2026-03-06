@@ -73,8 +73,13 @@ pip install -e ".[dev]"
 | **`build-index <directory> [--incremental] [--no-bm25] ...`** | Построить индекс по готовому каталогу .md/.html |
 | **`add-bm25 [--collection] ...`** | Добавить BM25 в существующую коллекцию без пересчёта эмбеддингов |
 | **`watchdog`** | Мониторинг новых .hbk, инкрементальный ingest; pending embeddings памяти |
+| **`ingest-from-unpacked <dir>`** | Индексация из уже распакованного каталога (формат version/stem, как у run_unpack_sync). Не совместимо с выводом unpack-dir (version/lang/name). |
+| **`parse-fastcode`** | Парсинг fastcode.ru → JSON в SNIPPETS_DIR |
+| **`parse-helpf`** | Парсинг helpf.pro (по умолчанию FAQ) → JSON в SNIPPETS_DIR |
+| **`qdrant-backup [-o dir]`** | Снапшот коллекций Qdrant в каталог (по умолчанию data/backup/) |
+| **`qdrant-restore [-f snapshot]`** | Восстановление из снапшота (по умолчанию последний в data/backup/) |
 
-Переменные окружения (подробнее — см. таблицу ниже): `QDRANT_HOST`, `QDRANT_PORT`, `QDRANT_COLLECTION`, `HELP_PATH`, `HELP_SOURCE_BASE`, `HELP_SOURCES_DIR`, `HELP_SOURCE_DIRS`, `HELP_LANGUAGES`, `HELP_INGEST_TEMP`, `INGEST_FAILED_LOG`, `MCP_TRANSPORT`, `MCP_HOST`, `MCP_PORT`, `MCP_PATH`.
+Переменные окружения (подробнее — см. таблицу ниже и **env.example** для полного списка): `QDRANT_HOST`, `QDRANT_PORT`, `QDRANT_COLLECTION`, `HELP_PATH`, `HELP_SOURCE_BASE`, `HELP_SOURCES_DIR`, `HELP_SOURCE_DIRS`, `HELP_LANGUAGES`, `HELP_INGEST_TEMP`, `INGEST_FAILED_LOG`, `MCP_TRANSPORT`, `MCP_HOST`, `MCP_PORT`, `MCP_PATH`.
 
 | Переменная | Описание | Пример / по умолчанию |
 |------------|----------|------------------------|
@@ -95,7 +100,7 @@ pip install -e ".[dev]"
 | `HBK_LABELS` | Человекочитаемые метки: `1cv8:Справка 1С,shcntx:Синтаксис` | — |
 | `INGEST_FAILED_LOG` | Файл для списка неудачных .hbk | — |
 | `MCP_TRANSPORT` | Транспорт MCP: `stdio`, `http` или `streamable-http` (для Docker/Cursor рекомендуется streamable-http) | `streamable-http` |
-| `MCP_HOST` | Хост для MCP HTTP | `127.0.0.1` |
+| `MCP_HOST` | Хост для MCP HTTP. **CLI** (`python -m onec_help mcp`): по умолчанию `127.0.0.1`. **Прямой запуск MCP-сервера** (Docker, `python -m onec_help.mcp_server`): по умолчанию `0.0.0.0` (доступ из сети). Задайте в .env при необходимости. | CLI: `127.0.0.1`; сервер: `0.0.0.0` |
 | `MCP_PORT` | Порт для MCP HTTP | `8050` |
 | `MCP_PATH` | URL-путь эндпоинта MCP | `/mcp` |
 | `MCP_SNIPPET_MAX_CHARS` | Макс. символов сниппета в результатах поиска | `1200` |
@@ -116,6 +121,8 @@ pip install -e ".[dev]"
 | `WATCHDOG_ENABLED` | `1` — запустить watchdog в фоне: мониторинг .hbk и обработка pending memory | `0` |
 | `WATCHDOG_POLL_INTERVAL` | Интервал проверки новых .hbk (секунды) | `600` |
 | `WATCHDOG_PENDING_INTERVAL` | Интервал обработки pending embeddings (секунды) | `600` |
+
+Полный список переменных с комментариями (SNIPPETS_DIR, MEMORY_*, STANDARDS_*, ITS_*, DATA_DIR, PRODUCTION, INDEX_STATUS_*, HELP_FILE_ENCODING и др.) — см. **env.example**.
 
 ## Запуск
 

@@ -417,7 +417,12 @@ def build_index(
             workers=embedding_workers,
         )
         if len(vectors) != len(items):
-            # Retry once with same batch (transient API/parsing issue)
+            # Retry once with same batch (transient API/parsing issue); same batch is sent twice to API
+            logging.getLogger(__name__).debug(
+                "embedding batch count mismatch (%s != %s), retrying same batch (duplicate API send)",
+                len(vectors),
+                len(items),
+            )
             vectors_retry = embedding.get_embedding_batch(
                 texts_for_embedding,
                 batch_size=embedding_batch_size,
@@ -451,9 +456,7 @@ def build_index(
                     if key in path_to_title:
                         title_from_toc = path_to_title[key]
                         break
-            title_effective = _normalize_md_text(
-                title_from_toc if title_from_toc else title
-            )
+            title_effective = _normalize_md_text(title_from_toc if title_from_toc else title)
             payload = {
                 "path": path_for_payload,
                 "text": text_norm[:50000],
@@ -483,9 +486,7 @@ def build_index(
                     if key in path_to_section:
                         section_path, breadcrumb = path_to_section[key]
                         payload["section_path"] = _normalize_md_text(section_path)
-                        payload["breadcrumb"] = [
-                            _normalize_md_text(b) for b in (breadcrumb or [])
-                        ]
+                        payload["breadcrumb"] = [_normalize_md_text(b) for b in (breadcrumb or [])]
                         break
             entity_type = _infer_entity_type(
                 payload.get("section_path", ""), payload.get("breadcrumb", [])

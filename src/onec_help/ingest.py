@@ -61,6 +61,11 @@ def _file_sha256(path: Path) -> str | None:
         return None
 
 
+def _safe_stem(path: Path) -> str:
+    """Safe directory name from path stem (alphanumeric, underscore, hyphen only)."""
+    return re.sub(r"[^\w\-]", "_", path.stem)
+
+
 def _ingest_cache_key(version: str, lang: str, path: Path) -> str:
     """Unique cache key: version/lang/filename + short path hash so same name from different dirs don't collide."""
     path_id = hashlib.sha256(str(path.resolve()).encode()).hexdigest()[:16]
@@ -729,7 +734,7 @@ def _unpack_and_build_docs(
     """Unpack one .hbk to temp, build .md there. Returns (md_dir, unpacked_dir, version, language, error_message) or (None, None, v, l, reason) on failure.
     If current_work and state_lock are set, updates current file/stage for this thread for status display."""
     ident = threading.get_ident()
-    safe_name = re.sub(r"[^\w\-]", "_", hbk_path.stem)
+    safe_name = _safe_stem(hbk_path)
     out_sub = temp_base / version / language / safe_name
     unpacked = out_sub / "unpacked"
     md_dir = out_sub / "md"
@@ -1301,20 +1306,8 @@ def _unpack_one(
     unpack_fn: Any,
     verbose: bool,
 ) -> tuple[bool, str]:
-    """Unpack one .hbk. Returns (success, message)."""
-    safe_name = re.sub(r"[^\w\-]", "_", path.stem)
-    out_sub = output_base / version / lang / safe_name
-    try:
-        out_sub.mkdir(parents=True, exist_ok=True)
-        unpack_fn(path, out_sub)
-        msg = f"{version}/{lang} → {out_sub.relative_to(output_base)}"
-        if verbose:
-            _log(f"[unpack] {msg}")
-        return (True, msg)
-    except Exception as e:
-        if verbose:
-            _log(f"[unpack] skip {mask_path_for_log(str(path))}: {safe_error_message(e)}")
-        return (False, str(e))
+    """Unpack one .hbk. Returns (success, message). Uses version/lang/stem structure."""
+    return _unpack_one_impl(path, version, lang, output_base, unpack_fn, verbose, sync=False)
 
 
 def _unpack_one_sync(
@@ -1326,39 +1319,66 @@ def _unpack_one_sync(
     verbose: bool,
 ) -> tuple[bool, str]:
     """Unpack one .hbk for unpack-sync: version/stem structure, .hbk_info.json, hash skip."""
-    safe_stem = re.sub(r"[^\w\-]", "_", path.stem)
-    out_sub = output_base / version / safe_stem
-    file_hash = _file_sha256(path)
-    info_path = out_sub / ".hbk_info.json"
-    if out_sub.exists() and info_path.exists() and file_hash:
+    return _unpack_one_impl(path, version, lang, output_base, unpack_fn, verbose, sync=True)
+
+
+def _unpack_one_impl(
+    path: Path,
+    version: str,
+    lang: str,
+    output_base: Path,
+    unpack_fn: Any,
+    verbose: bool,
+    sync: bool,
+) -> tuple[bool, str]:
+    """Shared unpack logic: sync=True => version/stem + .hbk_info.json + hash skip; sync=False => version/lang/stem."""
+    safe_stem = _safe_stem(path)
+    if sync:
+        out_sub = output_base / version / safe_stem
+        file_hash = _file_sha256(path)
+        info_path = out_sub / ".hbk_info.json"
+        if out_sub.exists() and info_path.exists() and file_hash:
+            try:
+                info = json.loads(info_path.read_text(encoding="utf-8"))
+                if info.get("hash") == file_hash:
+                    if verbose:
+                        _log(f"[unpack-sync] skip (unchanged) {version}/{safe_stem}")
+                    return (False, "cached")
+            except (json.JSONDecodeError, OSError):
+                pass
         try:
-            info = json.loads(info_path.read_text(encoding="utf-8"))
-            if info.get("hash") == file_hash:
-                if verbose:
-                    _log(f"[unpack-sync] skip (unchanged) {version}/{safe_stem}")
-                return (False, "cached")
-        except (json.JSONDecodeError, OSError):
-            pass
-    try:
-        out_sub.mkdir(parents=True, exist_ok=True)
-        unpack_fn(path, out_sub)
-        label = _hbk_label_from_stem(safe_stem)
-        _write_hbk_info(
-            out_sub,
-            source_file=path.name,
-            label=label,
-            version=version,
-            language=lang,
-            file_hash=file_hash or "",
-        )
-        msg = f"{version}/{safe_stem} → {out_sub.relative_to(output_base)}"
-        if verbose:
-            _log(f"[unpack-sync] {msg}")
-        return (True, msg)
-    except Exception as e:
-        if verbose:
-            _log(f"[unpack-sync] skip {mask_path_for_log(str(path))}: {safe_error_message(e)}")
-        return (False, str(e))
+            out_sub.mkdir(parents=True, exist_ok=True)
+            unpack_fn(path, out_sub)
+            label = _hbk_label_from_stem(safe_stem)
+            _write_hbk_info(
+                out_sub,
+                source_file=path.name,
+                label=label,
+                version=version,
+                language=lang,
+                file_hash=file_hash or "",
+            )
+            msg = f"{version}/{safe_stem} → {out_sub.relative_to(output_base)}"
+            if verbose:
+                _log(f"[unpack-sync] {msg}")
+            return (True, msg)
+        except Exception as e:
+            if verbose:
+                _log(f"[unpack-sync] skip {mask_path_for_log(str(path))}: {safe_error_message(e)}")
+            return (False, str(e))
+    else:
+        out_sub = output_base / version / lang / safe_stem
+        try:
+            out_sub.mkdir(parents=True, exist_ok=True)
+            unpack_fn(path, out_sub)
+            msg = f"{version}/{lang} → {out_sub.relative_to(output_base)}"
+            if verbose:
+                _log(f"[unpack] {msg}")
+            return (True, msg)
+        except Exception as e:
+            if verbose:
+                _log(f"[unpack] skip {mask_path_for_log(str(path))}: {safe_error_message(e)}")
+            return (False, str(e))
 
 
 def run_unpack_sync(

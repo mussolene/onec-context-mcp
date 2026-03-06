@@ -11,8 +11,10 @@ import pytest
 from onec_help.unpack import (
     _decode_filename,
     _try_unzip,
+    _try_zipfile,
     _try_zipfile_from_offset,
     _try_zipfile_scan_local_headers,
+    _unpack_timeout,
     ensure_dir,
     unpack_hbk,
 )
@@ -20,14 +22,52 @@ from onec_help.unpack import (
 
 def test_decode_filename_utf8() -> None:
     """_decode_filename decodes UTF-8 and cp1251 filenames."""
-    assert _decode_filename("page.html".encode("utf-8")) == "page.html"
-    assert _decode_filename("Справка".encode("utf-8")) == "Справка"
+    assert _decode_filename(b"page.html") == "page.html"
+    assert _decode_filename("Справка".encode()) == "Справка"
 
 
 def test_decode_filename_cp1251() -> None:
     """_decode_filename falls back to cp1251 when utf-8 fails."""
     # Cyrillic in Windows-1251
     assert _decode_filename("Справка".encode("cp1251")) == "Справка"
+
+
+def test_decode_filename_replace_fallback() -> None:
+    """_decode_filename uses utf-8 replace when both utf-8 and cp1251 fail."""
+    invalid = bytes([0xFF, 0xFE, 0x80])
+    out = _decode_filename(invalid)
+    assert isinstance(out, str)
+    assert "\ufffd" in out or len(out) == len(invalid)
+
+
+def test_unpack_timeout_env() -> None:
+    """_unpack_timeout reads UNPACK_TIMEOUT and clamps to min 60."""
+    with patch.dict("os.environ", {"UNPACK_TIMEOUT": "300"}, clear=False):
+        assert _unpack_timeout() == 300
+    with patch.dict("os.environ", {"UNPACK_TIMEOUT": "30"}, clear=False):
+        assert _unpack_timeout() == 60
+    with patch.dict("os.environ", {"UNPACK_TIMEOUT": "invalid"}, clear=False):
+        assert _unpack_timeout() == 1800
+
+
+def test_try_zipfile_success(tmp_path: Path) -> None:
+    """_try_zipfile extracts valid ZIP and returns True."""
+    archive = tmp_path / "a.zip"
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("file.txt", "content")
+    out = tmp_path / "out"
+    out.mkdir()
+    assert _try_zipfile(archive, out) is True
+    assert (out / "file.txt").read_text() == "content"
+
+
+def test_try_zipfile_bad_zip_returns_false(tmp_path: Path) -> None:
+    """_try_zipfile returns False for non-ZIP file."""
+    archive = tmp_path / "bad.zip"
+    archive.write_bytes(b"not a zip")
+    out = tmp_path / "out"
+    out.mkdir()
+    assert _try_zipfile(archive, out) is False
 
 
 def test_ensure_dir(tmp_path: Path) -> None:

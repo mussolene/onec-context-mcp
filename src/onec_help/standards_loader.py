@@ -2,19 +2,13 @@
 
 import re
 import shutil
-import ssl
 import tempfile
 import zipfile
 from pathlib import Path
 from typing import Any
 from urllib.request import Request, urlopen
 
-try:
-    import certifi
-
-    _SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
-except ImportError:
-    _SSL_CONTEXT = ssl.create_default_context()
+from ._http import get_ssl_context
 
 _HEADING_RE = re.compile(r"^#\s+(.+)$", re.MULTILINE)
 
@@ -77,7 +71,7 @@ def fetch_repo_archive(
     if not zip_url.lower().startswith("https://"):
         raise ValueError("Only https:// scheme allowed (SSRF protection)")
     req = Request(zip_url, headers={"User-Agent": "onec_help/1.0"})
-    with urlopen(req, timeout=60, context=_SSL_CONTEXT) as resp:
+    with urlopen(req, timeout=60, context=get_ssl_context()) as resp:
         data = resp.read()
     tmp = Path(tempfile.mkdtemp(prefix="onec_standards_"))
     try:

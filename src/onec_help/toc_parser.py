@@ -12,7 +12,7 @@ from typing import Any
 BOM = "\ufeff"
 
 
-def tokenize(content: str) -> list[str]:
+def tokenize_toc(content: str) -> list[str]:
     """Split TOC content into tokens (braces, commas, quoted strings, numbers).
     Source: hbk-viewer Tokenizer.kt."""
     tokens: list[str] = []
@@ -166,7 +166,7 @@ def _parse_chunk(iterator: _Peekable) -> dict[str, Any] | None:
 def parse_toc_content(content: str) -> list[dict[str, Any]]:
     """Parse TOC text (from PackBlock) into list of chunk dicts.
     Source: hbk-viewer TocParser.kt."""
-    tokens = tokenize(content)
+    tokens = tokenize_toc(content)
     it = _Peekable(tokens)
     if not it.has_next() or it.peek() != "{":
         return []

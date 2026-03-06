@@ -8,12 +8,12 @@ from __future__ import annotations
 import json
 import logging
 import re
-import ssl
 import time
 import urllib.request
 from pathlib import Path
 from typing import Any
 
+from ._http import fetch_url, get_opener_for_base_url
 from ._utils import progress_done, progress_line
 
 _DETAIL_LINK_RE = re.compile(r"/Templates/(\d+)/")
@@ -99,22 +99,13 @@ def _detect_total_pages(opener: urllib.request.OpenerDirector) -> list[int]:
     return list(range(1, total + 1))
 
 
-def _create_opener() -> urllib.request.OpenerDirector:
-    ctx = ssl.create_default_context()
-    return urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx))
-
-
-def _fetch_url(url: str, opener: urllib.request.OpenerDirector) -> str:
-    req = urllib.request.Request(
-        url, headers={"User-Agent": "Mozilla/5.0 (compatible; 1c-help-parser)"}
-    )
-    with opener.open(req, timeout=30) as r:
-        return r.read().decode("utf-8")
+def _get_opener() -> urllib.request.OpenerDirector:
+    return get_opener_for_base_url("https://fastcode.im", "/Templates?Page=1", timeout=10)
 
 
 def _fetch_page(page: int, opener: urllib.request.OpenerDirector) -> str:
     url = f"https://fastcode.im/Templates?Page={page}"
-    return _fetch_url(url, opener)
+    return fetch_url(url, opener)
 
 
 def _extract_desc_from_code(code: str) -> str:
@@ -296,7 +287,7 @@ def run_parse(
 ) -> int:
     """Fetch listing pages, optionally fetch detail pages for full code.
     pages: explicit list or None to auto-detect from first page. Returns 0 on success."""
-    opener = _create_opener()
+    opener = _get_opener()
     if pages is None or not pages:
         progress_line("parse-fastcode │ Detecting total pages...")
         try:
@@ -347,7 +338,7 @@ def run_parse(
             if not url:
                 continue
             try:
-                detail_html = _fetch_url(url, opener)
+                detail_html = fetch_url(url, opener)
                 desc, code = parse_detail_page(detail_html, it.get("title", ""))
                 if code:
                     all_items[idx]["code_snippet"] = code

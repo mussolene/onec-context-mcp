@@ -249,6 +249,11 @@ class MemoryStore:
             texts = [s for _, s, _ in to_process]
             vectors = embedding.get_embedding_batch(texts)
             if len(vectors) != len(to_process):
+                logging.getLogger(__name__).debug(
+                    "process_pending embedding count mismatch (%s != %s), retrying batch",
+                    len(vectors),
+                    len(to_process),
+                )
                 vectors = embedding.get_embedding_batch(texts)
             if len(vectors) != len(to_process):
                 remaining.extend(item for item, _, _ in to_process)
@@ -332,6 +337,11 @@ class MemoryStore:
         texts = [s for s, _, _, _ in valid]
         vectors = embedding.get_embedding_batch(texts)
         if len(vectors) != len(valid):
+            logging.getLogger(__name__).debug(
+                "upsert_curated_snippets embedding count mismatch (%s != %s), retrying batch",
+                len(vectors),
+                len(valid),
+            )
             vectors = embedding.get_embedding_batch(texts)
         if len(vectors) != len(valid):
             skipped += len(valid)

@@ -303,15 +303,8 @@ def _hybrid_search(
     return (results, meta)
 
 
-def run_mcp(
-    help_path: Path,
-    transport: str = "stdio",
-    host: str = "127.0.0.1",
-    port: int = 8050,
-    path: str = "/mcp",
-) -> None:
-    """Run MCP server. help_path: directory with .md or HTML.
-    transport: stdio | sse | http | streamable-http. For http/sse, host/port/path used."""
+def _build_mcp_app(help_path: Path) -> Any:
+    """Build FastMCP app with all tools registered. Used by run_mcp and by tests (in-memory client)."""
     global _HELP_PATH
     _HELP_PATH = help_path.resolve()
 
@@ -366,7 +359,11 @@ def run_mcp(
             src = (
                 " [пример]"
                 if d == "snippets"
-                else (" [инструкция]" if d == "community_help" else " [memory]")
+                else (
+                    " [инструкция]"
+                    if d == "community_help"
+                    else (" [стандарт]" if d == "standards" else " [memory]")
+                )
             )
             lines.append(f"{idx}. **{title}**{src}")
             lines.append(f"   {str(payload)[: _snippet_max_chars()]}...")
@@ -476,7 +473,11 @@ def run_mcp(
                     src = (
                         " [пример]"
                         if d == "snippets"
-                        else (" [инструкция]" if d == "community_help" else "")
+                        else (
+                            " [инструкция]"
+                            if d == "community_help"
+                            else (" [стандарт]" if d == "standards" else "")
+                        )
                     )
                     body = instruction if instruction else desc
                     link_line = ""
@@ -798,6 +799,22 @@ def run_mcp(
         if s.get("languages"):
             lines.append(f"Languages (sample): {', '.join(s['languages'])}")
 
+        # Memory collection (snippets + standards): point count for verification
+        try:
+            from .indexer import get_all_collections_status
+
+            for coll in get_all_collections_status():
+                if coll.get("name") == "onec_help_memory":
+                    _mem_count = coll.get("points_count")
+                    if _mem_count is not None:
+                        lines.append("")
+                        lines.append(
+                            f"Memory (**onec_help_memory**): **{_mem_count}** points (snippets + standards)"
+                        )
+                    break
+        except Exception:
+            pass
+
         # Ingest status: current run or last completed
         ingest = None
         try:
@@ -947,6 +964,19 @@ def run_mcp(
                 return content
         return "No topic found for this name. Try search_1c_help or search_1c_help_keyword first."
 
+    return mcp
+
+
+def run_mcp(
+    help_path: Path,
+    transport: str = "stdio",
+    host: str = "127.0.0.1",
+    port: int = 8050,
+    path: str = "/mcp",
+) -> None:
+    """Run MCP server. help_path: directory with .md or HTML.
+    transport: stdio | sse | http | streamable-http. For http/sse, host/port/path used."""
+    mcp = _build_mcp_app(help_path)
     if transport in ("sse", "http", "streamable-http"):
         path_val = (path or "/mcp").rstrip("/") or "/mcp"
         port_int = int(port) if port is not None else 8050
