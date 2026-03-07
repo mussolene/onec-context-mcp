@@ -23,9 +23,6 @@ if [ "$(id -u)" = "0" ]; then
     if [ "$WATCHDOG_ENABLED" = "1" ]; then
       ( gosu app sh -c '. /app/.ingest_env 2>/dev/null; cd /app && python -m onec_help watchdog >> /app/var/log/watchdog.log 2>&1' ) &
     fi
-    if [ -n "$SNIPPETS_DIR" ] && [ -d "$SNIPPETS_DIR" ]; then
-      ( gosu app sh -c '. /app/.ingest_env 2>/dev/null; cd /app && python -m onec_help load-snippets >> /app/var/log/load-snippets.log 2>&1' ) &
-    fi
   fi
   exec gosu app "$@"
 fi
