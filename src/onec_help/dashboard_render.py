@@ -57,11 +57,11 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 est = cur.get("estimated_total")
                 if pts is not None and est is not None and est > 0:
                     stage_label = (
-                        "эмбеддинг"
+                        "embedding"
                         if stage == "embedding"
-                        else "запись в Qdrant"
+                        else "writing to Qdrant"
                         if stage == "writing"
-                        else "индексация"
+                        else "indexing"
                         if stage == "indexing"
                         else stage or "indexing"
                     )
@@ -72,13 +72,11 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                     tasks_parts.append(
                         ProgressBar(total=float(est), completed=float(pts), width=50)
                     )
-                    tasks_parts.append(Text("\n"))
                 else:
                     stage_label = stage or "—"
                     tasks_parts.append(
                         Text(f"  [{i + 1}] {version} / {lang} — {path} — {stage_label}")
                     )
-                    tasks_parts.append(Text("\n"))
             if len(current_tasks) > 10:
                 tasks_parts.append(Text(f"  … and {len(current_tasks) - 10} more"))
         else:
@@ -86,10 +84,9 @@ def render_dashboard(data: dict[str, Any]) -> Any:
             est = ingest.get("current_task_estimated_total")
             if pts is not None and est is not None and est > 0:
                 tasks_parts.append(
-                    Text(f"  Ingest current task — {pts}/{est} pts (эмбеддинг / запись)")
+                    Text(f"  Ingest current task — {pts}/{est} pts (embedding / writing)")
                 )
                 tasks_parts.append(ProgressBar(total=float(est), completed=float(pts), width=50))
-                tasks_parts.append(Text("\n"))
     elif ingest_last:
         total = ingest_last.get("total_tasks") or 0
         done = ingest_last.get("done_tasks") or 0
@@ -106,9 +103,8 @@ def render_dashboard(data: dict[str, Any]) -> Any:
             )
         )
     else:
-        tasks_parts.append(Text("Ingest: нет данных"))
+        tasks_parts.append(Text("Ingest: no data"))
 
-    tasks_parts.append(Text(""))  # spacer before Standards/Snippets
     standards_loading = data.get("standards_loading")
     standards_pts = data.get("standards_loading_pts")
     if standards_loading and standards_pts:
@@ -116,19 +112,17 @@ def render_dashboard(data: dict[str, Any]) -> Any:
         loaded = standards_pts.get("loaded", 0)
         tot_s = standards_pts.get("total", 0)
         if phase == "parsing":
-            tasks_parts.append(Text("Standards: парсинг / подготовка (сбор .md)…"))
+            tasks_parts.append(Text("Standards: parsing / preparing (.md)…"))
         else:
             tasks_parts.append(
-                Text(f"Standards: эмбеддинг + запись в Qdrant — {loaded}/{tot_s} pts")
+                Text(f"Standards: embedding + writing to Qdrant — {loaded}/{tot_s} pts")
             )
             tasks_parts.append(ProgressBar(total=float(tot_s), completed=float(loaded), width=50))
-            tasks_parts.append(Text("\n"))
     elif standards_loading:
         tasks_parts.append(Text("Standards: loading…"))
     else:
-        tasks_parts.append(Text("Standards: нет данных (watchdog или load-standards)"))
+        tasks_parts.append(Text("Standards: no data (watchdog or load-standards)"))
 
-    tasks_parts.append(Text(""))  # spacer before Snippets
     snippets_loading = data.get("snippets_loading")
     snippets_pts = data.get("snippets_loading_pts")
     snippets = data.get("snippets")
@@ -137,13 +131,12 @@ def render_dashboard(data: dict[str, Any]) -> Any:
         loaded = snippets_pts.get("loaded", 0)
         tot_sn = snippets_pts.get("total", 0)
         if phase == "parsing":
-            tasks_parts.append(Text("Snippets: парсинг / подготовка (сбор источников)…"))
+            tasks_parts.append(Text("Snippets: parsing / preparing (sources)…"))
         else:
             tasks_parts.append(
-                Text(f"Snippets: эмбеддинг + запись в Qdrant — {loaded}/{tot_sn} pts")
+                Text(f"Snippets: embedding + writing to Qdrant — {loaded}/{tot_sn} pts")
             )
             tasks_parts.append(ProgressBar(total=float(tot_sn), completed=float(loaded), width=50))
-            tasks_parts.append(Text("\n"))
     elif snippets_loading:
         tasks_parts.append(Text("Snippets: loading…"))
     elif snippets:
@@ -154,12 +147,12 @@ def render_dashboard(data: dict[str, Any]) -> Any:
             )
         )
     else:
-        tasks_parts.append(Text("Snippets: нет данных (watchdog или load-snippets)"))
+        tasks_parts.append(Text("Snippets: no data (watchdog or load-snippets)"))
 
     tasks_content: Any = Group(*tasks_parts)
     panels.append(Panel(tasks_content, title="[bold]Tasks[/bold]", border_style="blue"))
 
-    # --- Panel 2: Errors (из накопительного лога Redis, всегда доступны) ---
+    # --- Panel 2: Errors (from Redis accumulated log, always available) ---
     failed = data.get("failed_tasks") or []
     err_max_len = 80
     if failed:
@@ -180,7 +173,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
             )
         err_content: Any = Group(
             err_table,
-            Text("[dim]Ошибки накапливаются в Redis, доступны для просмотра.[/dim]"),
+            Text("[dim]Errors accumulated in Redis, available for viewing.[/dim]"),
         )
         panels.append(
             Panel(
@@ -202,7 +195,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
         else:
             panels.append(Panel("—", title="[bold]Errors[/bold]", border_style="dim"))
 
-    # --- Panel 3: Database (только фактические данные Qdrant; не смешиваем с прогрессом загрузки) ---
+    # --- Panel 3: Database (Qdrant actual data only; not mixed with loading progress) ---
     index_status = data.get("index_status") or {}
     collections = data.get("collections") or []
     standards_loading_db = data.get("standards_loading")
@@ -228,12 +221,12 @@ def render_dashboard(data: dict[str, Any]) -> Any:
             )
         db_parts: list[Any] = [db_table]
         if standards_loading_db or snippets_loading_db:
-            db_parts.append(Text("[dim]Обновление: standards/snippets → onec_help_memory (прогресс в Tasks)[/dim]"))
-        # Пояснение: onec_help_memory = standards + snippets + сохранённые из MCP; число pts может быть меньше суммы источников до завершения загрузки
+            db_parts.append(Text("[dim]Updating: standards/snippets → onec_help_memory (progress in Tasks)[/dim]"))
+        # onec_help_memory = standards + snippets + save_1c_snippet; pts may be less than sum of sources until load completes
         for c in collections or []:
             if (c.get("name") or "").strip() == "onec_help_memory":
                 db_parts.append(
-                    Text("[dim]onec_help_memory: стандарты + сниппеты + save_1c_snippet[/dim]")
+                    Text("[dim]onec_help_memory: standards + snippets + save_1c_snippet[/dim]")
                 )
                 break
         versions = index_status.get("versions") or []
@@ -313,7 +306,7 @@ def render_dashboard_compact(data: dict[str, Any], *, spinner: str = "") -> str:
         if failed:
             parts.append(f"{failed} failed")
     else:
-        parts.append("Ingest: нет данных")
+        parts.append("Ingest: no data")
 
     failed_tasks = data.get("failed_tasks") or []
     total_err = (data.get("ingest_last_run") or {}).get("failed_count") or len(failed_tasks)
