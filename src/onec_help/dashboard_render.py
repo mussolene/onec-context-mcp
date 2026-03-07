@@ -40,53 +40,55 @@ def render_dashboard(data: dict[str, Any]) -> Any:
             pts_str += f" (est. ~{est_pts})"
         tasks_parts.append(
             Text(
-                f"Ingest: in progress {done}/{total}{pts_str}{eta} ({format_duration(elapsed)} elapsed)"
+                f"Ingest: in progress {done}/{total}{pts_str}{eta} ({format_duration(elapsed)} elapsed)\n"
             )
         )
         current_tasks = ingest.get("current") or []
         if current_tasks:
             tasks_parts.append(
-                Text(f"  Active: {len(current_tasks)} task{'s' if len(current_tasks) != 1 else ''}")
+                Text(f"  Active: {len(current_tasks)} task{'s' if len(current_tasks) != 1 else ''}\n")
             )
             for i, cur in enumerate(current_tasks[:10]):
                 version = (cur.get("version") or "—")[:12]
                 lang = (cur.get("language") or "—")[:8]
-                path = (cur.get("path") or "—")[:36]
+                path = (cur.get("path") or "—")[:28]
                 stage = cur.get("stage") or "—"
                 pts = cur.get("points")
                 est = cur.get("estimated_total")
                 if pts is not None and est is not None and est > 0:
                     stage_label = (
-                        "embedding"
+                        "embed"
                         if stage == "embedding"
-                        else "writing to Qdrant"
+                        else "Qdrant"
                         if stage == "writing"
-                        else "indexing"
+                        else "index"
                         if stage == "indexing"
-                        else stage or "indexing"
+                        else (stage or "indexing")[:8]
                     )
                     label = (
-                        f"  [{i + 1}] {version} / {lang} — {path} — {stage_label} {pts}/{est} pts"
+                        f"  [{i + 1}] {version}/{lang} — {path} — {stage_label} {pts}/{est}\n"
                     )
                     tasks_parts.append(Text(label))
                     tasks_parts.append(
-                        ProgressBar(total=float(est), completed=float(pts), width=50)
+                        ProgressBar(total=float(est), completed=float(pts), width=36)
                     )
+                    tasks_parts.append(Text("\n"))
                 else:
                     stage_label = stage or "—"
                     tasks_parts.append(
-                        Text(f"  [{i + 1}] {version} / {lang} — {path} — {stage_label}")
+                        Text(f"  [{i + 1}] {version}/{lang} — {path} — {stage_label}\n")
                     )
             if len(current_tasks) > 10:
-                tasks_parts.append(Text(f"  … and {len(current_tasks) - 10} more"))
+                tasks_parts.append(Text(f"  … and {len(current_tasks) - 10} more\n"))
         else:
             pts = ingest.get("current_task_points")
             est = ingest.get("current_task_estimated_total")
             if pts is not None and est is not None and est > 0:
                 tasks_parts.append(
-                    Text(f"  Ingest current task — {pts}/{est} pts (embedding / writing)")
+                    Text(f"  Ingest current task — {pts}/{est} pts (embed / write)\n")
                 )
-                tasks_parts.append(ProgressBar(total=float(est), completed=float(pts), width=50))
+                tasks_parts.append(ProgressBar(total=float(est), completed=float(pts), width=36))
+                tasks_parts.append(Text("\n"))
     elif ingest_last:
         total = ingest_last.get("total_tasks") or 0
         done = ingest_last.get("done_tasks") or 0
@@ -112,16 +114,17 @@ def render_dashboard(data: dict[str, Any]) -> Any:
         loaded = standards_pts.get("loaded", 0)
         tot_s = standards_pts.get("total", 0)
         if phase == "parsing":
-            tasks_parts.append(Text("Standards: parsing / preparing (.md)…"))
+            tasks_parts.append(Text("\nStandards: parsing (.md)…\n"))
         else:
             tasks_parts.append(
-                Text(f"Standards: embedding + writing to Qdrant — {loaded}/{tot_s} pts")
+                Text(f"\nStandards: embed → Qdrant — {loaded}/{tot_s} pts\n")
             )
-            tasks_parts.append(ProgressBar(total=float(tot_s), completed=float(loaded), width=50))
+            tasks_parts.append(ProgressBar(total=float(tot_s), completed=float(loaded), width=36))
+            tasks_parts.append(Text("\n"))
     elif standards_loading:
         tasks_parts.append(Text("Standards: loading…"))
     else:
-        tasks_parts.append(Text("Standards: no data (watchdog or load-standards)"))
+        tasks_parts.append(Text("\nStandards: no data (watchdog or load-standards)"))
 
     snippets_loading = data.get("snippets_loading")
     snippets_pts = data.get("snippets_loading_pts")
@@ -131,12 +134,13 @@ def render_dashboard(data: dict[str, Any]) -> Any:
         loaded = snippets_pts.get("loaded", 0)
         tot_sn = snippets_pts.get("total", 0)
         if phase == "parsing":
-            tasks_parts.append(Text("Snippets: parsing / preparing (sources)…"))
+            tasks_parts.append(Text("Snippets: parsing (sources)…\n"))
         else:
             tasks_parts.append(
-                Text(f"Snippets: embedding + writing to Qdrant — {loaded}/{tot_sn} pts")
+                Text(f"Snippets: embed → Qdrant — {loaded}/{tot_sn} pts\n")
             )
-            tasks_parts.append(ProgressBar(total=float(tot_sn), completed=float(loaded), width=50))
+            tasks_parts.append(ProgressBar(total=float(tot_sn), completed=float(loaded), width=36))
+            tasks_parts.append(Text("\n"))
     elif snippets_loading:
         tasks_parts.append(Text("Snippets: loading…"))
     elif snippets:
