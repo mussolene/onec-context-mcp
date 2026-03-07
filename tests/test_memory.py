@@ -175,7 +175,7 @@ def test_write_long_or_pending_embedding_available(tmp_path: Path) -> None:
         clear=False,
     ):
         with patch("onec_help.embedding.is_embedding_available", return_value=True):
-            with patch("onec_help.embedding.get_embedding", return_value=[0.1] * 384):
+            with patch("onec_help.embedding.get_embedding", return_value=[0.1] * 768):
                 with patch("qdrant_client.QdrantClient") as mock_qc:
                     mock_client = MagicMock()
                     mock_client.collection_exists.return_value = True
@@ -265,7 +265,7 @@ def test_process_pending_embedding_available(tmp_path: Path) -> None:
     with patch("onec_help.embedding.is_embedding_available", return_value=True):
         with patch(
             "onec_help.embedding.get_embedding_batch",
-            return_value=[[0.1] * 384],
+            return_value=[[0.1] * 768],
         ):
             with patch("qdrant_client.QdrantClient") as mock_qc:
                 mock_client = MagicMock()
@@ -303,7 +303,7 @@ def test_process_pending_invalid_data(tmp_path: Path) -> None:
 
 def test_search_long(tmp_path: Path) -> None:
     """search_long queries Qdrant and returns results."""
-    with patch("onec_help.embedding.get_embedding", return_value=[0.1] * 384):
+    with patch("onec_help.embedding.get_embedding", return_value=[0.1] * 768):
         with patch("qdrant_client.QdrantClient") as mock_qc:
             mock_client = MagicMock()
             mock_client.collection_exists.return_value = True
@@ -321,7 +321,7 @@ def test_search_long(tmp_path: Path) -> None:
 
 def test_search_long_no_collection(tmp_path: Path) -> None:
     """search_long returns [] when collection does not exist."""
-    with patch("onec_help.embedding.get_embedding", return_value=[0.1] * 384):
+    with patch("onec_help.embedding.get_embedding", return_value=[0.1] * 768):
         with patch("qdrant_client.QdrantClient") as mock_qc:
             mock_client = MagicMock()
             mock_client.collection_exists.return_value = False
@@ -332,7 +332,7 @@ def test_search_long_no_collection(tmp_path: Path) -> None:
 
 def test_search_long_with_domain_filter(tmp_path: Path) -> None:
     """search_long passes domain filter to Qdrant."""
-    with patch("onec_help.embedding.get_embedding", return_value=[0.1] * 384):
+    with patch("onec_help.embedding.get_embedding", return_value=[0.1] * 768):
         with patch("qdrant_client.QdrantClient") as mock_qc:
             mock_client = MagicMock()
             mock_client.collection_exists.return_value = True
@@ -349,7 +349,7 @@ def test_upsert_long_exception(tmp_path: Path) -> None:
     with patch("qdrant_client.QdrantClient") as mock_qc:
         mock_qc.side_effect = RuntimeError("connection refused")
         store = MemoryStore(tmp_path, short_limit=5, medium_limit=100, medium_ttl_days=7)
-        store._upsert_long("id", [0.1] * 384, {"topic_path": "a.md"})
+        store._upsert_long("id", [0.1] * 768, {"topic_path": "a.md"})
 
 
 def test_upsert_curated_snippets_embedding_unavailable(tmp_path: Path) -> None:
@@ -365,7 +365,7 @@ def test_upsert_curated_snippets_success(tmp_path: Path) -> None:
     with patch("onec_help.embedding.is_embedding_available", return_value=True):
         with patch(
             "onec_help.embedding.get_embedding_batch",
-            return_value=[[0.1] * 384, [0.1] * 384],
+            return_value=[[0.1] * 768, [0.1] * 768],
         ):
             with patch("qdrant_client.QdrantClient") as mock_qc:
                 mock_client = MagicMock()
@@ -400,7 +400,7 @@ def test_upsert_curated_snippets_accepts_instruction(tmp_path: Path) -> None:
     with patch("onec_help.embedding.is_embedding_available", return_value=True):
         with patch(
             "onec_help.embedding.get_embedding_batch",
-            return_value=[[0.1] * 384],
+            return_value=[[0.1] * 768],
         ):
             with patch("qdrant_client.QdrantClient") as mock_qc:
                 mock_client = MagicMock()
@@ -419,7 +419,7 @@ def test_upsert_curated_snippets_skips_invalid(tmp_path: Path) -> None:
     with patch("onec_help.embedding.is_embedding_available", return_value=True):
         with patch(
             "onec_help.embedding.get_embedding_batch",
-            return_value=[[0.1] * 384],
+            return_value=[[0.1] * 768],
         ):
             with patch("qdrant_client.QdrantClient") as mock_qc:
                 mock_client = MagicMock()
@@ -527,7 +527,7 @@ def test_process_pending_upsert_exception(tmp_path: Path) -> None:
     with patch("onec_help.embedding.is_embedding_available", return_value=True):
         with patch(
             "onec_help.embedding.get_embedding_batch",
-            return_value=[[0.1] * 384],
+            return_value=[[0.1] * 768],
         ):
             with patch.object(store, "_upsert_long", side_effect=upsert_side_effect):
                 n = store.process_pending()
@@ -541,7 +541,7 @@ def test_upsert_curated_skips_non_dict(tmp_path: Path) -> None:
     with patch("onec_help.embedding.is_embedding_available", return_value=True):
         with patch(
             "onec_help.embedding.get_embedding_batch",
-            return_value=[[0.1] * 384],
+            return_value=[[0.1] * 768],
         ):
             with patch("qdrant_client.QdrantClient") as mock_qc:
                 mock_client = MagicMock()
@@ -565,7 +565,7 @@ def test_upsert_curated_vectors_mismatch(tmp_path: Path) -> None:
     with patch("onec_help.embedding.is_embedding_available", return_value=True):
         with patch(
             "onec_help.embedding.get_embedding_batch",
-            return_value=[[0.1] * 384, [0.1] * 384],  # wrong count
+            return_value=[[0.1] * 768, [0.1] * 768],  # wrong count
         ):
             n = store.upsert_curated_snippets(items, progress_callback=cb)
     assert n == 0
@@ -591,7 +591,7 @@ def test_upsert_curated_upsert_exception(tmp_path: Path) -> None:
     with patch("onec_help.embedding.is_embedding_available", return_value=True):
         with patch(
             "onec_help.embedding.get_embedding_batch",
-            return_value=[[0.1] * 384, [0.1] * 384],
+            return_value=[[0.1] * 768, [0.1] * 768],
         ):
             with patch.object(store, "_upsert_long", side_effect=upsert_raise_second):
                 n = store.upsert_curated_snippets(items)
@@ -600,7 +600,7 @@ def test_upsert_curated_upsert_exception(tmp_path: Path) -> None:
 
 def test_search_long_fallback_search(tmp_path: Path) -> None:
     """search_long uses client.search when query_points is not available."""
-    with patch("onec_help.embedding.get_embedding", return_value=[0.1] * 384):
+    with patch("onec_help.embedding.get_embedding", return_value=[0.1] * 768):
         with patch("qdrant_client.QdrantClient") as mock_qc:
             mock_client = MagicMock()
             mock_client.collection_exists.return_value = True
@@ -617,7 +617,7 @@ def test_search_long_fallback_search(tmp_path: Path) -> None:
 
 def test_search_long_exception(tmp_path: Path) -> None:
     """search_long returns [] on exception."""
-    with patch("onec_help.embedding.get_embedding", return_value=[0.1] * 384):
+    with patch("onec_help.embedding.get_embedding", return_value=[0.1] * 768):
         with patch("qdrant_client.QdrantClient", side_effect=RuntimeError("connection refused")):
             store = MemoryStore(tmp_path, short_limit=5, medium_limit=100, medium_ttl_days=7)
             assert store.search_long("query") == []

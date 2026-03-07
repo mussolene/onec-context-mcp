@@ -43,7 +43,7 @@ def test_get_embedding_dimension_local_auto_detect() -> None:
         "os.environ",
         {
             "EMBEDDING_BACKEND": "local",
-            "EMBEDDING_MODEL": "paraphrase-multilingual-MiniLM-L12-v2",
+            "EMBEDDING_MODEL": "nomic-ai/nomic-embed-text-v2-moe",
         },
         clear=False,
     ):
@@ -146,16 +146,16 @@ def test_get_embedding_target_dimension_fallback() -> None:
         clear=False,
     ):
         importlib.reload(embedding_mod)
-        # Mock API returns 768-dim vector; target_dimension=384 -> fallback to placeholder(384)
-        vec_768 = [0.1] * 768
+        # Mock API returns 512-dim vector; target_dimension=768 -> fallback to placeholder(768)
+        vec_512 = [0.1] * 512
         with patch("urllib.request.urlopen") as mock_open:
             mock_resp = MagicMock()
-            mock_resp.read.return_value = json.dumps({"data": [{"embedding": vec_768}]}).encode()
+            mock_resp.read.return_value = json.dumps({"data": [{"embedding": vec_512}]}).encode()
             mock_resp.getheader.return_value = None
             mock_open.return_value.__enter__.return_value = mock_resp
             mock_open.return_value.__exit__.return_value = False
-            vec = embedding_mod.get_embedding("query", target_dimension=384)
-        assert len(vec) == 384
+            vec = embedding_mod.get_embedding("query", target_dimension=768)
+        assert len(vec) == 768
         assert all(isinstance(x, float) for x in vec)
     importlib.reload(embedding_mod)
 
@@ -445,12 +445,12 @@ def test_resolve_openai_api_model_preferred() -> None:
         with patch("onec_help.embedding.urllib.request.urlopen") as mock_open:
             mock_resp = MagicMock()
             mock_resp.read.return_value = (
-                b'{"data":[{"id":"paraphrase-multilingual-MiniLM-L12-v2"}]}'
+                b'{"data":[{"id":"nomic-embed-text-v2-moe"}]}'
             )
             mock_open.return_value.__enter__.return_value = mock_resp
             mock_open.return_value.__exit__.return_value = False
             model = embedding_mod._resolve_openai_api_model()
-        assert "paraphrase" in model or model == "paraphrase-multilingual-MiniLM-L12-v2"
+        assert "nomic-embed" in model or model == "nomic-embed-text-v2-moe"
     importlib.reload(embedding_mod)
 
 
@@ -829,7 +829,7 @@ def test_get_embedding_batch_local_chunked() -> None:
     with patch.dict("os.environ", {"EMBEDDING_BACKEND": "local"}, clear=False):
         importlib.reload(embedding_mod)
         with patch.object(embedding_mod, "_get_embedding_local_batch") as mock_local:
-            mock_local.side_effect = [[[0.0] * 384], [[0.0] * 384, [0.0] * 384]]
+            mock_local.side_effect = [[[0.0] * 768], [[0.0] * 768, [0.0] * 768]]
             result = embedding_mod.get_embedding_batch(["a", "b", "c"], batch_size=2)
         assert len(result) == 3
         assert mock_local.call_count == 2

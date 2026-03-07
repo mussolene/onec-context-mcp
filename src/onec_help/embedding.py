@@ -26,7 +26,8 @@ def sanitize_text_for_embedding(text: str) -> str:
 
 # Last resort when no model, no Qdrant collection, no EMBEDDING_DIMENSION (e.g. first run).
 # Dimension is otherwise taken from model (startup) or from DB (when already running).
-_DIMENSION_LAST_RESORT = 384
+# 768 matches default model nomic-embed-text-v2-moe.
+_DIMENSION_LAST_RESORT = 768
 MAX_EMBEDDING_INPUT_CHARS = 2000
 DEFAULT_EMBEDDING_BATCH_SIZE = 64
 DEFAULT_EMBEDDING_WORKERS = 4
@@ -41,10 +42,12 @@ _embedding_model = None
 
 _EMBEDDING_BACKEND = os.environ.get("EMBEDDING_BACKEND", "local").strip().lower()
 # Должна совпадать при индексации (ingest) и при поиске (MCP/search_index), иначе семантика ломается
+# Default: nomic-embed (768). For local use HuggingFace id; for API Ollama/LM Studio use short name.
 _EMBEDDING_MODEL = (
-    os.environ.get("EMBEDDING_MODEL") or "paraphrase-multilingual-MiniLM-L12-v2"
+    os.environ.get("EMBEDDING_MODEL") or "nomic-ai/nomic-embed-text-v2-moe"
 ).strip()
 _LMSTUDIO_PREFERRED_EMBEDDING_MODELS = (
+    "nomic-embed",  # nomic-embed-text-v2-moe (multilingual, 768), nomic-embed-text
     "paraphrase-multilingual",
     "all-MiniLM-L6-v2",
     "text-embedding-3-small",

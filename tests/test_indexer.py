@@ -114,11 +114,11 @@ def test_get_collection_vector_size_vectors_dict(mock_client: MagicMock) -> None
     mock_instance = MagicMock()
     mock_client.return_value = mock_instance
     mock_instance.collection_exists.return_value = True
-    mock_first = MagicMock(size=384)
+    mock_first = MagicMock(size=768)
     mock_params = MagicMock(vectors={"default": mock_first})
     mock_config = MagicMock(params=mock_params)
     mock_instance.get_collection.return_value = MagicMock(config=mock_config)
-    assert get_collection_vector_size(collection="onec_help") == 384
+    assert get_collection_vector_size(collection="onec_help") == 768
 
 
 def test_build_index_no_qdrant_client(tmp_path: Path) -> None:
@@ -928,8 +928,8 @@ def test_add_bm25_to_collection_not_exists(mock_client: MagicMock) -> None:
         add_bm25_to_collection(qdrant_host="localhost", qdrant_port=6333)
 
 
-@patch("onec_help.indexer.get_collection_vector_size", return_value=384)
-@patch("onec_help.embedding.get_embedding", return_value=[0.1] * 384)
+@patch("onec_help.indexer.get_collection_vector_size", return_value=768)
+@patch("onec_help.embedding.get_embedding", return_value=[0.1] * 768)
 @patch("onec_help.indexer.QdrantClient")
 def test_search_index_uses_search_fallback(mock_client: MagicMock, mock_emb, mock_dim) -> None:
     """search_index uses client.search when query_points is not available."""
@@ -945,8 +945,8 @@ def test_search_index_uses_search_fallback(mock_client: MagicMock, mock_emb, moc
     mock_instance.search.assert_called_once()
 
 
-@patch("onec_help.indexer.get_collection_vector_size", return_value=384)
-@patch("onec_help.embedding.get_embedding", return_value=[0.1] * 384)
+@patch("onec_help.indexer.get_collection_vector_size", return_value=768)
+@patch("onec_help.embedding.get_embedding", return_value=[0.1] * 768)
 @patch("onec_help.indexer.QdrantClient")
 def test_search_index_with_version_returns_raw(mock_client: MagicMock, mock_emb, mock_dim) -> None:
     """search_index with version filter returns raw list (no dedup)."""
@@ -1241,7 +1241,7 @@ def test_build_index_progress_callback_type_error_then_ok(
             raise ValueError("err")
         return None
 
-    with patch("onec_help.embedding.get_embedding_batch", return_value=[[0.1] * 384]):
+    with patch("onec_help.embedding.get_embedding_batch", return_value=[[0.1] * 768]):
         n = build_index(
             tmp_path,
             qdrant_host="localhost",
@@ -1260,7 +1260,7 @@ def test_build_index_embedding_mismatch_retry_succeeds(
     (tmp_path / "a.md").write_text("# A\n\nBody.", encoding="utf-8")
     mock_instance = MagicMock()
     mock_client.return_value = mock_instance
-    dim = 384
+    dim = 768
     vec = [0.1] * dim
     with patch("onec_help.embedding.get_embedding_batch") as mock_batch:
         mock_batch.side_effect = [[], [vec]]

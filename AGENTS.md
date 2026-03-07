@@ -25,10 +25,11 @@
 1. **INGEST_CACHE_FILE** — в Docker: `/app/var/ingest_cache/ingest_cache.db` (→ ./data/ingest_cache).
 2. **Ошибка чтения кэша** — при `[ingest] WARN: ingest cache read failed` проверьте права, существование файла, место на диске. В логе будет подсказка.
 3. **Распаковка по умолчанию** — ingest пишет в **data/unpacked** (DATA_UNPACKED_DIR) структуру **version/stem** (run_unpack_sync), затем run_ingest_from_unpacked индексирует из неё. Команда **ingest-from-unpacked** ожидает именно эту структуру; вывод **unpack-dir** (version/lang/name) с ней не совместим. INGEST_USE_TEMP=1 — временная папка с удалением после индексации.
-4. **Watchdog** — state в INGEST_CACHE (watchdog_hbk_cache.json); при рестарте неизменённые .hbk пропускаются по кэшу. Также следит за **STANDARDS_DIR** и **SNIPPETS_DIR**: при изменении файлов (.md в standards, .json/.bsl/.1c/.md в snippets) автоматически запускает load-standards и load-snippets (как ingest для .hbk).
+4. **Watchdog** — состояние (hbk, standards, snippets) хранится в той же SQLite-базе, что и ingest-кэш (таблица `watchdog_state`); при рестарте неизменённые .hbk пропускаются по кэшу. Следит за **STANDARDS_DIR** и **SNIPPETS_DIR**: при изменении файлов автоматически запускает load-standards и load-snippets.
 5. **reinit --force** — стирает коллекции и кэш, затем init; полная переиндексация ожидаема.
 6. **Сброс только Qdrant** (volume/контейнер пересоздан, кэш остался): справка не восстанавливается (ingest всё пропускает по кэшу), сниппеты при следующем load-snippets снова появятся. Решение: `reinit --force` или очистить кэш (ingest_cache.db) и запустить ingest. Подробно: `docs/ingest-troubleshooting.md` §5.
 7. **Сниппеты/стандарты грузятся при каждом старте:** раньше watchdog и кэш load-snippets опирались на **mtime** (время изменения файла). После перезапуска контейнера или нового монтирования volume mtime мог меняться → «каталог изменился» → load-snippets запускался каждый раз. Теперь: подпись каталога в кэше — по **(path, size)**; watchdog сравнивает состояние по **path → size**. После рестарта те же файлы с теми же размерами не считаются изменёнными.
+8. **«Snippets: loading…» висит, хотя загрузка давно закончилась:** дашборд показывает «loading», пока существует файл-маркер `load_snippets.running` (создаётся при старте load-snippets, удаляется в `finally`). Если процесс упал (SIGKILL и т.п.) до снятия маркера, статус «loading» остаётся. Маркер считается **устаревшим** через 10 минут (по mtime файла); тогда дашборд перестаёт показывать «loading». Вручную можно удалить файл в каталоге кэша ingest (рядом с `ingest_cache.db`).
 
 ### Ingest завис (0 done, прогресс не растёт)
 
@@ -44,7 +45,7 @@
 
 - **Точки интеграции:** indexer (справка), memory.upsert_curated_snippets (snippets, community_help, standards), memory.process_pending, memory._write_long_or_pending (real-time). Все batch-операции используют `get_embedding_batch`; только real-time события — `get_embedding`.
 - **Единая логика:** sanitize, truncation 2000 символов, retry при len(vectors)!=len(items), 429+Retry-After, EMBEDDING_MAX_CONCURRENT (семафор), retry с меньшим батчем перед fallback. См. `docs/embedding.md`.
-- **Бэкенды:** local, openai_api, deterministic (384 dim без модели), none (плейсхолдер).
+- **Бэкенды:** local, openai_api, deterministic (768 dim без модели), none (плейсхолдер).
 
 ## Структура кода
 

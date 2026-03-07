@@ -10,16 +10,16 @@
 
 | Бэкенд | Описание | Размерность |
 |--------|----------|-------------|
-| **local** | По умолчанию. sentence-transformers, модель **paraphrase-multilingual-MiniLM-L12-v2** (50+ языков, RU). Размерность определяется автоматически по модели; при недоступности — из Qdrant или EMBEDDING_DIMENSION. | авто |
+| **local** | По умолчанию. sentence-transformers, модель **nomic-embed-text-v2-moe** (HuggingFace: nomic-ai/nomic-embed-text-v2-moe, 768 dim, 100+ языков). Размерность по модели; при недоступности — из Qdrant или EMBEDDING_DIMENSION. | авто |
 | **openai_api** | LM Studio (localhost:1234), Ollama, OpenAI-совместимый API. Размерность — по ответу API; при недоступности API используется deterministic-вектор с размерностью из Qdrant или EMBEDDING_DIMENSION. | авто |
-| **deterministic** | Хэш без модели (NFC, токены). Размерность берётся из коллекции Qdrant, затем EMBEDDING_DIMENSION, иначе последний резерв (384). | из БД / env |
+| **deterministic** | Хэш без модели (NFC, токены). Размерность берётся из коллекции Qdrant, затем EMBEDDING_DIMENSION, иначе последний резерв (768). | из БД / env |
 | **none** | Плейсхолдер (hash). Размерность — как у deterministic. | из БД / env |
 
 ## Размерность векторов: при старте и при работе
 
-- **При старте (создание коллекции):** если размерность не задана в env (EMBEDDING_DIMENSION), она берётся из модели: для **local** и **openai_api** — один вызов encode/API для автоопределения; для **deterministic** и **none** — из существующей коллекции Qdrant (onec_help, onec_help_memory) или из EMBEDDING_DIMENSION; последний резорт — 384.
+- **При старте (создание коллекции):** если размерность не задана в env (EMBEDDING_DIMENSION), она берётся из модели: для **local** и **openai_api** — один вызов encode/API для автоопределения; для **deterministic** и **none** — из существующей коллекции Qdrant (onec_help, onec_help_memory) или из EMBEDDING_DIMENSION; последний резорт — 768.
 - **При работе (поиск, запись в память):** размерность везде берётся из БД (Qdrant), если коллекция есть: при пропадании связи с эмбеддером используется deterministic-вектор с размерностью из коллекции, чтобы запрос к базе оставался валидным.
-- Хардкоженная размерность 384 используется только как последний резерв, когда ни коллекция, ни EMBEDDING_DIMENSION недоступны.
+- Хардкоженная размерность 768 используется только как последний резерв, когда ни коллекция, ни EMBEDDING_DIMENSION недоступны.
 
 ## Одна модель для индекса и поиска
 
@@ -63,7 +63,7 @@
 | Переменная | Описание | По умолчанию |
 |------------|----------|--------------|
 | EMBEDDING_BACKEND | local (по умолчанию), openai_api, deterministic, none | local |
-| EMBEDDING_MODEL | Имя модели. Для local — HuggingFace (по умолчанию paraphrase-multilingual-MiniLM-L12-v2); для openai_api — id в LM Studio | paraphrase-multilingual-MiniLM-L12-v2 |
+| EMBEDDING_MODEL | Имя модели. Для local — HuggingFace (по умолчанию nomic-ai/nomic-embed-text-v2-moe); для openai_api — id в LM Studio / Ollama (nomic-embed-text-v2-moe) | nomic-ai/nomic-embed-text-v2-moe |
 | EMBEDDING_API_URL | URL LM Studio / OpenAI-совместимого API | http://localhost:1234/v1 |
 | EMBEDDING_DIMENSION | Размерность при openai_api | авто |
 | EMBEDDING_BATCH_SIZE | Размер батча | 64 |

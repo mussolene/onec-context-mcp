@@ -106,8 +106,8 @@ pip install -e ".[dev]"
 | `MCP_PATH` | URL-путь эндпоинта MCP | `/mcp` |
 | `MCP_SNIPPET_MAX_CHARS` | Макс. символов сниппета в результатах поиска | `1200` |
 | `MCP_MAX_TOPIC_CHARS` | Макс. символов топика в get_1c_code_answer/search_with_content | `4000` |
-| `EMBEDDING_BACKEND` | Эмбеддинги: `local` (по умолчанию, sentence-transformers), `openai_api` (внешний API), `deterministic` (384 dim без модели) или `none` (плейсхолдер) | `local` |
-| `EMBEDDING_MODEL` | Имя модели. Для local — HuggingFace (по умолчанию paraphrase-multilingual-MiniLM-L12-v2); для openai_api — id в LM Studio. Размерность для local определяется автоматически. | `paraphrase-multilingual-MiniLM-L12-v2` |
+| `EMBEDDING_BACKEND` | Эмбеддинги: `local` (по умолчанию, sentence-transformers), `openai_api` (внешний API), `deterministic` (768 dim без модели) или `none` (плейсхолдер) | `local` |
+| `EMBEDDING_MODEL` | Имя модели. Для local — HuggingFace (по умолчанию nomic-ai/nomic-embed-text-v2-moe); для openai_api — id в LM Studio / Ollama. Размерность 768 по умолчанию. | `nomic-ai/nomic-embed-text-v2-moe` |
 | `EMBEDDING_API_URL` | Для openai_api: базовый URL (по умолчанию LM Studio: `http://localhost:1234/v1` локально, в контейнере — `http://host.docker.internal:1234/v1`). При недоступности/ошибках используются плейсхолдер-векторы и семантический поиск ограничен | LM Studio: 1234 |
 | `EMBEDDING_API_KEY` | Ключ API (если нужен для openai_api) | — |
 | `EMBEDDING_DIMENSION` | Размерность при openai_api (если не задана — определяется по первому ответу API) | — |
@@ -229,7 +229,7 @@ Ingest берёт .hbk из `HELP_SOURCE_BASE` (подпапки = версии 
 | Режим | Описание |
 |-------|----------|
 | `none` | Плейсхолдеры; только search_1c_help_keyword |
-| `deterministic` | 384 dim без модели; воспроизводимый поиск |
+| `deterministic` | 768 dim без модели; воспроизводимый поиск |
 | `openai_api` | LM Studio, Ollama; `EMBEDDING_API_URL` в .env |
 | `local` | sentence-transformers в контейнере; build-arg при сборке |
 

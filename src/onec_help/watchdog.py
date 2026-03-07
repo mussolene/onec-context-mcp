@@ -3,9 +3,10 @@ Watchdog: monitor new .hbk files, incremental ingest; process pending memory emb
 Also monitors STANDARDS_DIR and SNIPPETS_DIR: on change runs load-standards / load-snippets
 (so standards and snippets from disk are reloaded automatically like ingest for .hbk).
 Uses same discovery as ingest (discover_version_dirs + collect_hbk_tasks) for .hbk.
+State for hbk/standards/snippets is stored in the same SQLite DB as ingest (one place).
 """
 
-import json
+import sqlite3
 import os
 import subprocess
 import sys
@@ -13,8 +14,9 @@ import time
 from pathlib import Path
 
 from ._utils import safe_error_message
-from .ingest import _ingest_cache_path, collect_hbk_tasks, discover_version_dirs
+from .ingest import _ingest_cache_path, _sqlite_timeout, collect_hbk_tasks, discover_version_dirs
 
+_WATCHDOG_STATE_TABLE = "watchdog_state"
 _STANDARDS_EXT = frozenset({".md"})
 _SNIPPETS_EXT = frozenset({".json", ".bsl", ".1c", ".md"})
 
@@ -26,17 +28,51 @@ def _parse_languages() -> list[str] | None:
     return [x.strip().lower() for x in raw.split(",") if x.strip()]
 
 
-def _watchdog_state_path() -> Path:
-    """State file path: same directory as ingest cache (persists across container restarts)."""
-    return Path(_ingest_cache_path()).parent / "watchdog_hbk_cache.json"
+def _load_watchdog_state(kind: str) -> dict[str, float]:
+    """Load state dict (path -> value) for given kind from ingest SQLite DB. kind: hbk, standards, snippets."""
+    out: dict[str, float] = {}
+    db_path = _ingest_cache_path()
+    try:
+        parent = Path(db_path).parent
+        if parent:
+            parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(db_path, timeout=_sqlite_timeout())
+        conn.execute(
+            f"CREATE TABLE IF NOT EXISTS {_WATCHDOG_STATE_TABLE} "
+            "(kind TEXT NOT NULL, path TEXT NOT NULL, value REAL NOT NULL, PRIMARY KEY (kind, path))"
+        )
+        for row in conn.execute(
+            f"SELECT path, value FROM {_WATCHDOG_STATE_TABLE} WHERE kind = ?", (kind,)
+        ):
+            out[row[0]] = row[1]
+        conn.close()
+    except (OSError, sqlite3.Error):
+        pass
+    return out
 
 
-def _watchdog_standards_state_path() -> Path:
-    return Path(_ingest_cache_path()).parent / "watchdog_standards_cache.json"
-
-
-def _watchdog_snippets_state_path() -> Path:
-    return Path(_ingest_cache_path()).parent / "watchdog_snippets_cache.json"
+def _save_watchdog_state(kind: str, data: dict[str, float]) -> None:
+    """Save state dict (path -> value) for given kind into ingest SQLite DB."""
+    db_path = _ingest_cache_path()
+    try:
+        parent = Path(db_path).parent
+        if parent:
+            parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(db_path, timeout=_sqlite_timeout())
+        conn.execute(
+            f"CREATE TABLE IF NOT EXISTS {_WATCHDOG_STATE_TABLE} "
+            "(kind TEXT NOT NULL, path TEXT NOT NULL, value REAL NOT NULL, PRIMARY KEY (kind, path))"
+        )
+        conn.execute(f"DELETE FROM {_WATCHDOG_STATE_TABLE} WHERE kind = ?", (kind,))
+        for path, value in data.items():
+            conn.execute(
+                f"INSERT INTO {_WATCHDOG_STATE_TABLE} (kind, path, value) VALUES (?, ?, ?)",
+                (kind, path, float(value)),
+            )
+        conn.commit()
+        conn.close()
+    except (OSError, sqlite3.Error):
+        pass
 
 
 def _scan_dir_by_ext(dir_path: Path, exts: frozenset[str]) -> dict[str, float]:
@@ -133,37 +169,13 @@ def run_watchdog(
     if not base.exists() or not base.is_dir():
         print(f"[watchdog] HELP_SOURCE_BASE not a directory: {base}", file=sys.stderr, flush=True)
         return
-    cache_path = _watchdog_state_path()
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-    last_hbk: dict[str, float] = {}
-    if cache_path.exists():
-        try:
-            last_hbk = json.loads(cache_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            pass
-
-    def _load_state(state_path: Path) -> dict[str, float]:
-        out: dict[str, float] = {}
-        if state_path.exists():
-            try:
-                out = json.loads(state_path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                pass
-        return out
-
-    def _save_state(state_path: Path, data: dict[str, float]) -> None:
-        try:
-            state_path.write_text(json.dumps(data, indent=0), encoding="utf-8")
-        except OSError:
-            pass
-
+    last_hbk = _load_watchdog_state("hbk")
     standards_dir_str = (os.environ.get("STANDARDS_DIR") or "data/standards").strip()
     standards_dir = Path(standards_dir_str).resolve()
-    last_standards: dict[str, int | float] = _load_state(_watchdog_standards_state_path())
-
+    last_standards = _load_watchdog_state("standards")
     snippets_dir_str = (os.environ.get("SNIPPETS_DIR") or "data/snippets").strip()
     snippets_dir = Path(snippets_dir_str).resolve()
-    last_snippets: dict[str, int | float] = _load_state(_watchdog_snippets_state_path())
+    last_snippets = _load_watchdog_state("snippets")
 
     last_pending = 0.0
     last_ingest_failed = False
@@ -192,7 +204,7 @@ def run_watchdog(
                         flush=True,
                     )
                 last_hbk = current
-                _save_state(cache_path, current)
+                _save_watchdog_state("hbk", current)
                 if current:
                     last_ingest_failed = not _run_ingest()
 
@@ -206,7 +218,7 @@ def run_watchdog(
                             flush=True,
                         )
                     last_standards = current_std
-                    _save_state(_watchdog_standards_state_path(), current_std)
+                    _save_watchdog_state("standards", {k: float(v) for k, v in current_std.items()})
                     _run_load_standards(standards_dir_str)
 
             if snippets_dir.exists():
@@ -219,7 +231,7 @@ def run_watchdog(
                             flush=True,
                         )
                     last_snippets = current_snip
-                    _save_state(_watchdog_snippets_state_path(), current_snip)
+                    _save_watchdog_state("snippets", {k: float(v) for k, v in current_snip.items()})
                     _run_load_snippets(snippets_dir_str)
 
             if now - last_pending >= pending_int:
