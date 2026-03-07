@@ -83,11 +83,24 @@ def render_dashboard(data: dict[str, Any]) -> Any:
         tasks_lines.append("Ingest: —")
 
     standards_loading = data.get("standards_loading")
-    tasks_lines.append("Standards: loading…" if standards_loading else "Standards: —")
+    standards_pts = data.get("standards_loading_pts")
+    if standards_loading and standards_pts:
+        tasks_lines.append(
+            f"Standards: loading {standards_pts.get('loaded', 0)}/{standards_pts.get('total', 0)} pts"
+        )
+    elif standards_loading:
+        tasks_lines.append("Standards: loading…")
+    else:
+        tasks_lines.append("Standards: —")
 
     snippets_loading = data.get("snippets_loading")
+    snippets_pts = data.get("snippets_loading_pts")
     snippets = data.get("snippets")
-    if snippets_loading:
+    if snippets_loading and snippets_pts:
+        tasks_lines.append(
+            f"Snippets: loading {snippets_pts.get('loaded', 0)}/{snippets_pts.get('total', 0)} pts"
+        )
+    elif snippets_loading:
         tasks_lines.append("Snippets: loading…")
     elif snippets:
         items = snippets.get("items_loaded")
@@ -248,10 +261,20 @@ def render_dashboard_compact(data: dict[str, Any], *, spinner: str = "") -> str:
             err0 += "…"
         parts.append(f"Failed: {total_err} {err0}")
 
+    std_pts = data.get("standards_loading_pts")
     if data.get("standards_loading"):
-        parts.append("Standards: loading…")
+        parts.append(
+            f"Standards: loading {std_pts.get('loaded', 0)}/{std_pts.get('total', 0)} pts"
+            if std_pts
+            else "Standards: loading…"
+        )
+    snip_pts = data.get("snippets_loading_pts")
     if data.get("snippets_loading"):
-        parts.append("Snippets: loading…")
+        parts.append(
+            f"Snippets: loading {snip_pts.get('loaded', 0)}/{snip_pts.get('total', 0)} pts"
+            if snip_pts
+            else "Snippets: loading…"
+        )
 
     snippets = data.get("snippets")
     if snippets:

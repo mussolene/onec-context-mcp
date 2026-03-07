@@ -10,7 +10,7 @@
 
 - **Единая точка входа:** **ingest** — загрузка/обновление индекса (поиск .hbk в HELP_SOURCE_BASE, распаковка, Markdown, Qdrant). **reinit --force** — полная перезагрузка: очистка коллекций и кэша, затем init (ingest + load-snippets + load-standards). Без миграций и отдельных шагов unpacked.
 - **Локально:** `python -m onec_help ingest|reinit|init|dashboard|mcp|unpack|build-index|load-snippets|load-standards|watchdog ...`
-- **init** — ingest + load-snippets + load-standards (HELP_SOURCE_BASE, SNIPPETS_DIR, STANDARDS_REPOS). Не стирает данные.
+- **init** — ingest, load-snippets и load-standards запускаются **параллельно** (асинхронно). Не стирает данные.
 - **reinit --force** — очистка коллекций и cache, затем init. Для перезапуска «с нуля».
 - **Docker:** по умолчанию `make up` — только **qdrant** и **mcp**. Для индексации и watchdog: **`make ingest-up`** (поднимает ingest-worker с watchdog). Индексация вручную: `make ingest` (требует запущенный ingest-worker). Полная перезагрузка: `make reinit ARGS='--force'`. Cron в 3:00 — в full-режиме. BSL LS — `make bsl-start`.
 - **dashboard** — дашборд (Tasks, Errors, Qdrant, версии 1С): `--once` один кадр, иначе Live с `--interval`.
@@ -25,17 +25,17 @@
 1. **INGEST_CACHE_FILE** — в Docker: `/app/var/ingest_cache/ingest_cache.db` (→ ./data/ingest_cache).
 2. **Ошибка чтения кэша** — при `[ingest] WARN: ingest cache read failed` проверьте права, существование файла, место на диске. В логе будет подсказка.
 3. **Распаковка по умолчанию** — ingest пишет в **data/unpacked** (DATA_UNPACKED_DIR) структуру **version/stem** (run_unpack_sync), затем run_ingest_from_unpacked индексирует из неё. Команда **ingest-from-unpacked** ожидает именно эту структуру; вывод **unpack-dir** (version/lang/name) с ней не совместим. INGEST_USE_TEMP=1 — временная папка с удалением после индексации.
-4. **Watchdog** — состояние (hbk, standards, snippets) хранится в той же SQLite-базе, что и ingest-кэш (таблица `watchdog_state`); при рестарте неизменённые .hbk пропускаются по кэшу. Следит за **STANDARDS_DIR** и **SNIPPETS_DIR**: при изменении файлов автоматически запускает load-standards и load-snippets.
+4. **Watchdog** — состояние (hbk, standards, snippets) хранится в той же SQLite-базе, что и ingest-кэш; при рестарте неизменённые .hbk пропускаются по кэшу. Следит за **STANDARDS_DIR** и **SNIPPETS_DIR**; при изменении нескольких каталогов запускает load-standards, load-snippets и/или ingest **параллельно**.
 5. **reinit --force** — стирает коллекции и кэш, затем init; полная переиндексация ожидаема.
 6. **Сброс только Qdrant** (volume/контейнер пересоздан, кэш остался): справка не восстанавливается (ingest всё пропускает по кэшу), сниппеты при следующем load-snippets снова появятся. Решение: `reinit --force` или очистить кэш (ingest_cache.db) и запустить ingest. Подробно: `docs/ingest-troubleshooting.md` §5.
 7. **Сниппеты/стандарты грузятся при каждом старте:** раньше watchdog и кэш load-snippets опирались на **mtime** (время изменения файла). После перезапуска контейнера или нового монтирования volume mtime мог меняться → «каталог изменился» → load-snippets запускался каждый раз. Теперь: подпись каталога в кэше — по **(path, size)**; watchdog сравнивает состояние по **path → size**. После рестарта те же файлы с теми же размерами не считаются изменёнными.
-8. **«Snippets: loading…» висит, хотя загрузка давно закончилась:** дашборд показывает «loading», пока существует файл-маркер `load_snippets.running` (создаётся при старте load-snippets, удаляется в `finally`). Если процесс упал (SIGKILL и т.п.) до снятия маркера, статус «loading» остаётся. Маркер считается **устаревшим** через 10 минут (по mtime файла); тогда дашборд перестаёт показывать «loading». Вручную можно удалить файл в каталоге кэша ingest (рядом с `ingest_cache.db`).
+8. **«Snippets: loading…» висит, хотя загрузка давно закончилась:** дашборд показывает «loading», пока существует файл-маркер `load_snippets.running` (создаётся при старте load-snippets, удаляется в `finally`). Если процесс упал (SIGKILL и т.п.) до снятия маркера, статус «loading» остаётся. Маркер считается **устаревшим** через 10 минут (по mtime файла); тогда дашборд перестаёт показывать «loading». Вручную можно удалить файл в каталоге кэша ingest (рядом с `ingest_cache.db`). Во время загрузки дашборд показывает прогресс в pts (например «Snippets: loading 120/500 pts», «Standards: loading 45/200 pts»).
 
 ### Ingest завис (0 done, прогресс не растёт)
 
 Если **dashboard** показывает «embedding», 4500/25503 pts и **Summary: 13 tasks │ 0 done** долго без изменений:
 
-1. **Проверить, жив ли процесс и логи:** Docker — основной лог ingest в контейнере: `docker exec <ingest-worker-container> tail -200 /app/var/log/ingest.log`. Ищите ошибки: **Bus error** (часто OOM — уменьшить батч/воркеры или память контейнера), 429 (rate limit), timeout, connection refused.
+1. **Проверить, жив ли процесс и логи:** Docker — основной лог ingest в контейнере: `docker exec <ingest-worker-container> tail -200 /app/var/log/ingest.log`. Ищите ошибки: **Bus error / exit -7** (SIGBUS — не только OOM: возможны mmap, диск/NFS, SQLite; см. `docs/ingest-troubleshooting.md` §7), 429 (rate limit), timeout, connection refused.
 2. **Если воркер упал** — статус в кэше (ingest_current) остаётся последним записанным; новый запуск ingest перезапишет его. Запустите ingest заново: `make ingest` (или `make ingest-up` и дождитесь выполнения).
 3. **Rate limit (429)** — уменьшите `EMBEDDING_BATCH_SIZE` (например 32) и/или `EMBEDDING_WORKERS` (1–2); при необходимости увеличьте `EMBEDDING_TIMEOUT`.
 4. **Долгая пауза на одном файле** — API эмбеддингов может отвечать медленно или с Retry-After; после 3 попыток и fallback на deterministic индексация продолжается. Если процесс не пишет логи — возможен deadlock (редко при семафоре 300 с).

@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,11 @@ def _load_operation_running_path(name: str) -> Path:
     from .ingest import _ingest_cache_path
 
     return Path(_ingest_cache_path()).parent / f"load_{name}.running"
+
+
+def _load_operation_status_path(name: str) -> Path:
+    """Path to status JSON (loaded/total pts) for dashboard progress."""
+    return _load_operation_running_path(name).with_suffix(".status.json")
 
 
 def cmd_unpack(args: argparse.Namespace) -> int:
@@ -165,9 +171,6 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
     if idx_err:
         print(f"Error: {idx_err}", file=sys.stderr)
         return 1
-    if not data.get("collections") and not data.get("ingest") and not data.get("ingest_last_run"):
-        print("Index does not exist. Run: python -m onec_help ingest")
-        return 0
 
     if once:
         console = Console()
@@ -446,6 +449,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
                 verbose=not getattr(args, "quiet", False),
                 embedding_batch_size=getattr(args, "embedding_batch_size", None),
                 embedding_workers=getattr(args, "embedding_workers", None),
+                max_workers=getattr(args, "workers", None),
             )
         else:
             _default_temp = os.path.join(tempfile.gettempdir(), "help_ingest")
@@ -649,10 +653,19 @@ def cmd_load_snippets(args: argparse.Namespace) -> int:
                 domain = "community_help" if t == "reference" else "snippets"
                 by_domain[domain].append(it)
 
+            status_path = _load_operation_status_path("snippets")
+
             def _progress(loaded: int, tot: int, skipped: int) -> None:
                 progress_line(
                     f"load-snippets │ {loaded + skipped}/{tot} │ {loaded} loaded │ {skipped} skip"
                 )
+                try:
+                    status_path.write_text(
+                        json.dumps({"loaded": loaded, "total": tot}, ensure_ascii=False),
+                        encoding="utf-8",
+                    )
+                except OSError:
+                    pass
 
             store = get_memory_store()
             total_loaded = 0
@@ -673,6 +686,7 @@ def cmd_load_snippets(args: argparse.Namespace) -> int:
             return 0
         finally:
             _snippets_marker.unlink(missing_ok=True)
+            _load_operation_status_path("snippets").unlink(missing_ok=True)
     except json.JSONDecodeError as e:
         print(f"Error: invalid JSON: {e}", file=sys.stderr)
         return 1
@@ -873,10 +887,19 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
             print("No .md files found.", file=sys.stderr)
             return 0
 
+        _status_path = _load_operation_status_path("standards")
+
         def _progress(loaded: int, tot: int, skipped: int) -> None:
             progress_line(
                 f"load-standards │ {loaded + skipped}/{tot} │ {loaded} loaded │ {skipped} skip"
             )
+            try:
+                _status_path.write_text(
+                    json.dumps({"loaded": loaded, "total": tot}, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+            except OSError:
+                pass
 
         store = get_memory_store()
         n = store.upsert_curated_snippets(items, progress_callback=_progress, domain="standards")
@@ -889,6 +912,7 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
         import shutil
 
         _load_operation_running_path("standards").unlink(missing_ok=True)
+        _load_operation_status_path("standards").unlink(missing_ok=True)
         for tmp in temp_dirs:
             shutil.rmtree(tmp, ignore_errors=True)
 
@@ -1032,7 +1056,7 @@ def _clear_before_reinit(
 
 
 def cmd_init(args: argparse.Namespace) -> int:
-    """Initial load: ingest (help), load-snippets, load-standards. Does not erase existing data."""
+    """Initial load: ingest (help), load-snippets, load-standards in parallel. Does not erase existing data."""
     ingest_args = _make_args(
         sources=getattr(args, "sources", None),
         sources_file=getattr(args, "sources_file", None),
@@ -1048,19 +1072,19 @@ def cmd_init(args: argparse.Namespace) -> int:
         embedding_batch_size=None,
         embedding_workers=None,
     )
-    rc = cmd_ingest(ingest_args)
-    if rc != 0:
-        return rc
     snippets_args = _make_args(
         snippets_file=os.environ.get("SNIPPETS_JSON_PATH", ""),
         per_function=getattr(args, "per_function", False),
         from_project=getattr(args, "from_project", None),
     )
-    rc = cmd_load_snippets(snippets_args)
-    if rc != 0:
-        return rc
     standards_args = _make_args(standards_path=os.environ.get("STANDARDS_DIR", ""))
-    return cmd_load_standards(standards_args)
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        f_ingest = executor.submit(cmd_ingest, ingest_args)
+        f_snippets = executor.submit(cmd_load_snippets, snippets_args)
+        f_standards = executor.submit(cmd_load_standards, standards_args)
+        results = [f_ingest.result(), f_snippets.result(), f_standards.result()]
+    return 1 if any(r != 0 for r in results) else 0
 
 
 def cmd_reinit(args: argparse.Namespace) -> int:
@@ -1092,19 +1116,19 @@ def cmd_reinit(args: argparse.Namespace) -> int:
         embedding_batch_size=None,
         embedding_workers=None,
     )
-    rc = cmd_ingest(reinit_args)
-    if rc != 0:
-        return rc
     snippets_args = _make_args(
         snippets_file=os.environ.get("SNIPPETS_JSON_PATH", ""),
         per_function=getattr(args, "per_function", False),
         from_project=getattr(args, "from_project", None),
     )
-    rc = cmd_load_snippets(snippets_args)
-    if rc != 0:
-        return rc
     standards_args = _make_args(standards_path=os.environ.get("STANDARDS_DIR", ""))
-    return cmd_load_standards(standards_args)
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        f_ingest = executor.submit(cmd_ingest, reinit_args)
+        f_snippets = executor.submit(cmd_load_snippets, snippets_args)
+        f_standards = executor.submit(cmd_load_standards, standards_args)
+        results = [f_ingest.result(), f_snippets.result(), f_standards.result()]
+    return 1 if any(r != 0 for r in results) else 0
 
 
 def cmd_qdrant_backup(args: argparse.Namespace) -> int:
@@ -1392,7 +1416,7 @@ def main() -> int:
         type=int,
         default=None,
         metavar="N",
-        help="Parallel workers for unpack/build (default: half of CPUs)",
+        help="Parallel workers (default: half of CPUs for temp ingest; INGEST_MAX_WORKERS or 4 for from-unpacked)",
     )
     p_ingest.add_argument(
         "--max-tasks",

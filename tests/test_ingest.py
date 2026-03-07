@@ -535,7 +535,7 @@ def test_run_ingest_dry_run_many_tasks(tmp_path: Path) -> None:
     assert n == 0
 
 
-@patch("onec_help.ingest._unpack_and_build_docs")
+@patch("onec_help.ingest._unpack_build_and_index")
 @patch("qdrant_client.QdrantClient")
 def test_run_ingest_max_tasks(mock_qdrant: MagicMock, mock_task: MagicMock, tmp_path: Path) -> None:
     """max_tasks limits how many .hbk are processed."""
@@ -543,7 +543,17 @@ def test_run_ingest_max_tasks(mock_qdrant: MagicMock, mock_task: MagicMock, tmp_
     # Names must match LANG_PATTERN (*_ru.hbk) so collect_hbk_tasks returns them
     for name in ("a_ru.hbk", "b_ru.hbk", "c_ru.hbk", "d_ru.hbk", "e_ru.hbk"):
         (tmp_path / "v" / name).write_bytes(b"x")
-    mock_task.return_value = (None, None, "v", "ru", "skip")
+    mock_task.return_value = {
+        "path_hbk": tmp_path / "v" / "a_ru.hbk",
+        "version": "v",
+        "language": "ru",
+        "points": 0,
+        "cache_key": None,
+        "file_hash": None,
+        "error": "skip",
+        "html_count": 0,
+        "md_count": 0,
+    }
     mock_qdrant.return_value.collection_exists.return_value = True
     with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(tmp_path / "cache.db")}, clear=False):
         n = run_ingest(
@@ -554,7 +564,7 @@ def test_run_ingest_max_tasks(mock_qdrant: MagicMock, mock_task: MagicMock, tmp_
             max_workers=1,
             verbose=False,
         )
-    assert mock_task.call_count == 2, "_unpack_and_build_docs should be called max_tasks=2 times"
+    assert mock_task.call_count == 2, "_unpack_build_and_index should be called max_tasks=2 times"
     assert n == 0
 
 

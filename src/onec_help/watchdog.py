@@ -11,6 +11,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from ._utils import safe_error_message
@@ -185,12 +186,21 @@ def run_watchdog(
         try:
             now = time.time()
             current = _scan_hbk_like_ingest(base)
+            current_std = _scan_standards_dir_stable(standards_dir) if standards_dir.exists() else {}
+            current_snip = (
+                _scan_snippets_dir_stable(snippets_dir) if snippets_dir.exists() else {}
+            )
+
+            run_ingest = False
+            run_standards = False
+            run_snippets = False
+
             # Retry ingest on next poll if previous run failed (recovery after crash/OOM)
             if last_ingest_failed and current:
                 print(
                     "[watchdog] retrying ingest after previous failure", file=sys.stderr, flush=True
                 )
-                last_ingest_failed = not _run_ingest()
+                run_ingest = True
             if current != last_hbk:
                 prev_keys = set(last_hbk)
                 curr_keys = set(current)
@@ -206,33 +216,60 @@ def run_watchdog(
                 last_hbk = current
                 _save_watchdog_state("hbk", current)
                 if current:
-                    last_ingest_failed = not _run_ingest()
+                    run_ingest = True
 
-            if standards_dir.exists():
-                current_std = _scan_standards_dir_stable(standards_dir)
-                if current_std != last_standards:
-                    if last_standards or current_std:
-                        print(
-                            "[watchdog] standards dir changed, running load-standards",
-                            file=sys.stderr,
-                            flush=True,
-                        )
-                    last_standards = current_std
-                    _save_watchdog_state("standards", {k: float(v) for k, v in current_std.items()})
-                    _run_load_standards(standards_dir_str)
+            if current_std != last_standards and (last_standards or current_std):
+                print(
+                    "[watchdog] standards dir changed, running load-standards",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                last_standards = current_std
+                _save_watchdog_state("standards", {k: float(v) for k, v in current_std.items()})
+                run_standards = True
 
-            if snippets_dir.exists():
-                current_snip = _scan_snippets_dir_stable(snippets_dir)
-                if current_snip != last_snippets:
-                    if last_snippets or current_snip:
-                        print(
-                            "[watchdog] snippets dir changed, running load-snippets",
-                            file=sys.stderr,
-                            flush=True,
-                        )
-                    last_snippets = current_snip
-                    _save_watchdog_state("snippets", {k: float(v) for k, v in current_snip.items()})
-                    _run_load_snippets(snippets_dir_str)
+            if current_snip != last_snippets and (last_snippets or current_snip):
+                print(
+                    "[watchdog] snippets dir changed, running load-snippets",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                last_snippets = current_snip
+                _save_watchdog_state("snippets", {k: float(v) for k, v in current_snip.items()})
+                run_snippets = True
+
+            # Run needed tasks in parallel (async)
+            if run_ingest or run_standards or run_snippets:
+                tasks = []
+                if run_ingest:
+                    tasks.append(("ingest", _run_ingest))
+                if run_standards:
+                    tasks.append(("standards", lambda: _run_load_standards(standards_dir_str)))
+                if run_snippets:
+                    tasks.append(("snippets", lambda: _run_load_snippets(snippets_dir_str)))
+                if len(tasks) == 1:
+                    name, fn = tasks[0]
+                    if name == "ingest":
+                        last_ingest_failed = not fn()
+                    else:
+                        fn()
+                else:
+                    with ThreadPoolExecutor(max_workers=len(tasks)) as executor:
+                        futures = {executor.submit(fn): name for name, fn in tasks}
+                        for future in as_completed(futures):
+                            name = futures[future]
+                            try:
+                                result = future.result()
+                                if name == "ingest":
+                                    last_ingest_failed = not result
+                            except Exception as e:
+                                print(
+                                    f"[watchdog] {name} failed: {safe_error_message(e)}",
+                                    file=sys.stderr,
+                                    flush=True,
+                                )
+                                if name == "ingest":
+                                    last_ingest_failed = True
 
             if now - last_pending >= pending_int:
                 last_pending = now
@@ -257,6 +294,15 @@ def _run_ingest() -> bool:
                 file=sys.stderr,
                 flush=True,
             )
+            # Log last lines of stderr so OOM/SIGBUS and Python tracebacks are visible
+            if result.stderr:
+                try:
+                    decoded = result.stderr.decode("utf-8", errors="replace").strip()
+                    tail = "\n".join(decoded.splitlines()[-25:]) if decoded else ""
+                    if tail:
+                        print(f"[watchdog] ingest stderr (last 25 lines):\n{tail}", file=sys.stderr, flush=True)
+                except Exception:
+                    pass
             return False
         return True
     except (subprocess.TimeoutExpired, OSError) as e:

@@ -792,6 +792,117 @@ def _unpack_and_build_docs(
                 current_work.pop(ident, None)
 
 
+def _unpack_build_and_index(
+    path_hbk: Path,
+    version: str,
+    language: str,
+    temp_base: Path,
+    unpack_fn: Any,
+    build_docs_fn: Any,
+    qdrant_host: str,
+    qdrant_port: int,
+    collection: str,
+    incremental: bool,
+    index_batch_size: int,
+    embedding_batch_size: int | None,
+    embedding_workers: int | None,
+    current_work: dict[int, dict[str, Any]],
+    state_lock: threading.Lock,
+    state: dict[str, Any],
+    build_index_fn: Any,
+) -> dict[str, Any]:
+    """Unpack one .hbk, build docs, run build_index, cleanup. All in one worker for full parallelism.
+    Returns dict with path_hbk, version, language, points, cache_key, file_hash, error, html_count, md_count.
+    Cache/status writes must be done in main thread only (SQLite)."""
+    ident = threading.get_ident()
+    result: dict[str, Any] = {
+        "path_hbk": path_hbk,
+        "version": version,
+        "language": language,
+        "points": 0,
+        "cache_key": None,
+        "file_hash": None,
+        "error": None,
+        "html_count": 0,
+        "md_count": 0,
+    }
+    md_dir, unpacked, _, _, err_msg = _unpack_and_build_docs(
+        path_hbk,
+        version,
+        language,
+        temp_base,
+        unpack_fn,
+        build_docs_fn,
+        current_work,
+        state_lock,
+    )
+    if md_dir is None or not md_dir.exists():
+        result["error"] = err_msg or "unknown"
+        return result
+    try:
+        result["cache_key"] = _ingest_cache_key(version, language, path_hbk)
+        result["file_hash"] = _file_sha256(path_hbk) or ""
+        with state_lock:
+            current_work[ident] = {
+                "path": path_hbk.name,
+                "version": version,
+                "language": language,
+                "stage": "indexing",
+            }
+
+        def _on_batch(
+            pts: int,
+            phase: str | None = None,
+            total_estimated: int | None = None,
+        ) -> None:
+            with state_lock:
+                state["current_task_points"] = pts
+                if total_estimated is not None:
+                    state["current_task_estimated_total"] = total_estimated
+                if ident in current_work:
+                    current_work[ident]["points"] = pts
+                    if total_estimated is not None:
+                        current_work[ident]["estimated_total"] = total_estimated
+                    if phase:
+                        current_work[ident]["stage"] = phase
+
+        n = build_index_fn(
+            docs_dir=md_dir,
+            qdrant_host=qdrant_host,
+            qdrant_port=qdrant_port,
+            collection=collection,
+            incremental=incremental,
+            extra_payload={"version": version, "language": language},
+            batch_size=index_batch_size,
+            embedding_batch_size=embedding_batch_size,
+            embedding_workers=embedding_workers,
+            source_dir=str(unpacked) if unpacked and unpacked.exists() else None,
+            progress_callback=_on_batch,
+        )
+        result["points"] = n
+        result["html_count"], result["md_count"] = _count_html_md(md_dir)
+        return result
+    except Exception as e:
+        result["error"] = f"{type(e).__name__}: {e}"
+        err_str = str(e).lower()
+        if "500" in err_str or "unexpectedresponse" in type(e).__name__.lower():
+            result["error"] += (
+                " [Qdrant 500: проверьте make qdrant-logs; "
+                "размерность векторов (EMBEDDING_DIMENSION); уменьшите index_batch_size]"
+            )
+        result["html_count"], result["md_count"] = _count_html_md(md_dir)
+        return result
+    finally:
+        with state_lock:
+            current_work.pop(ident, None)
+            state["current_task_points"] = 0
+            state["current_task_estimated_total"] = None
+        try:
+            shutil.rmtree(md_dir.parent)
+        except OSError:
+            pass
+
+
 def run_ingest(
     source_dirs_with_versions: list[tuple[Path | str, str]],
     languages: list[str] | None = None,
@@ -877,6 +988,11 @@ def run_ingest(
     skipped = len(skipped_files)
     if verbose and skipped > 0:
         _log(f"[ingest] Cache hit: skip {skipped} already indexed .hbk (unchanged)")
+    if verbose and len(tasks) > 0 and not cache_entries and not skip_cache:
+        _log(
+            "[ingest] Cache empty or missing; full re-index. "
+            "If you did not run reinit --force, check INGEST_CACHE_FILE and that data/ingest_cache is persisted."
+        )
 
     if dry_run:
         if verbose:
@@ -970,7 +1086,7 @@ def run_ingest(
     )
     writer.start()
 
-    # Ensure collection exists once (avoid race when multiple workers call build_index)
+    # Ensure collection exists once before workers run (each worker may call build_index in parallel)
     if incremental:
         client = QdrantClient(host=qdrant_host, port=qdrant_port, check_compatibility=False)
         if not client.collection_exists(collection):
@@ -986,36 +1102,48 @@ def run_ingest(
     total_indexed = 0
     done = 0
     failed: list[tuple[Path, str, str, str]] = []  # (path, version, language, error_message)
-    main_ident = threading.get_ident()
     try:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
                 executor.submit(
-                    _unpack_and_build_docs,
+                    _unpack_build_and_index,
                     path,
                     version,
                     lang,
                     base,
                     unpack_hbk,
                     build_docs,
+                    qdrant_host,
+                    qdrant_port,
+                    collection,
+                    incremental,
+                    index_batch_size,
+                    embedding_batch_size,
+                    embedding_workers,
                     current_work,
                     state_lock,
+                    state,
+                    build_index,
                 ): (path, version, lang)
                 for path, version, lang in tasks
             }
             for future in as_completed(futures):
-                path_hbk, version, language = futures[future]
+                _ = futures[future]
                 done += 1
-                md_dir, unpacked, _, _, err_msg = future.result()
-                if md_dir is None or not md_dir.exists():
-                    reason = (err_msg or "unknown").split("\n")[0].strip()[:200]
-                    failed.append((path_hbk, version, language, err_msg or "unknown"))
+                r = future.result()
+                path_hbk = r["path_hbk"]
+                version = r["version"]
+                language = r["language"]
+                err_msg = r["error"]
+                if err_msg:
+                    failed.append((path_hbk, version, language, err_msg))
+                    reason = err_msg.split("\n")[0].strip()[:200]
                     fail_entry = {
                         "path": path_hbk.name,
                         "path_full": str(path_hbk),
                         "version": version,
                         "language": language,
-                        "error": (err_msg or "unknown").split("\n")[0].strip()[:200],
+                        "error": reason,
                     }
                     with state_lock:
                         failed_tasks_list.append(fail_entry)
@@ -1029,6 +1157,10 @@ def run_ingest(
                                 "status": "fail",
                             }
                         )
+                        state["done_tasks"] = done
+                        state["total_points"] = total_indexed
+                    if rid is not None:
+                        _append_failed_to_cache(rid, fail_entry)
                     for fo in folders:
                         if fo["version"] == version and fo["language"] == language:
                             fo["err_count"] = fo.get("err_count", 0) + 1
@@ -1036,11 +1168,6 @@ def run_ingest(
                             if fo["tasks_done"] + fo["err_count"] >= fo["hbk_count"]:
                                 fo["status"] = "done"
                             break
-                    if rid is not None:
-                        _append_failed_to_cache(rid, fail_entry)
-                    with state_lock:
-                        state["done_tasks"] = done
-                        state["total_points"] = total_indexed
                     _write_ingest_status(
                         started_at=started_at,
                         embedding_backend=embedding_backend,
@@ -1056,174 +1183,56 @@ def run_ingest(
                     )
                     if verbose:
                         _log(
-                            f"[ingest] [{done}/{len(tasks)}] skip (unpack/build failed) {version}/{language} — {path_hbk}"
+                            f"[ingest] [{done}/{len(tasks)}] failed {version}/{language} — {path_hbk}: {reason}"
                         )
-                        _log(f"[ingest]   reason: {reason}")
                     continue
-                try:
-                    if verbose:
-                        _log(
-                            f"[ingest] [{done}/{len(tasks)}] indexing {version}/{language} — {path_hbk}"
-                        )
-                    with state_lock:
-                        state["current_task_points"] = 0
-                        current_work[main_ident] = {
+                n = r["points"]
+                total_indexed += n
+                key = r["cache_key"]
+                h = r["file_hash"]
+                if key and h:
+                    cache_entries[key] = {"hash": h, "indexed": True, "points": n}
+                    _update_ingest_cache_entry(key, h, n)
+                with state_lock:
+                    completed_files.append(
+                        {
                             "path": path_hbk.name,
                             "version": version,
                             "language": language,
-                            "stage": "indexing",
+                            "points": n,
+                            "status": "ok",
                         }
-
-                    def _on_batch(
-                        pts: int,
-                        phase: str | None = None,
-                        total_estimated: int | None = None,
-                    ) -> None:
-                        with state_lock:
-                            state["current_task_points"] = pts
-                            if total_estimated is not None:
-                                state["current_task_estimated_total"] = total_estimated
-                            if main_ident in current_work:
-                                current_work[main_ident]["points"] = pts
-                                if total_estimated is not None:
-                                    current_work[main_ident]["estimated_total"] = total_estimated
-                                if phase:
-                                    current_work[main_ident]["stage"] = phase
-
-                    try:
-                        n = build_index(
-                            docs_dir=md_dir,
-                            qdrant_host=qdrant_host,
-                            qdrant_port=qdrant_port,
-                            collection=collection,
-                            incremental=incremental,
-                            extra_payload={"version": version, "language": language},
-                            batch_size=index_batch_size,
-                            embedding_batch_size=embedding_batch_size,
-                            embedding_workers=embedding_workers,
-                            source_dir=str(unpacked) if unpacked and unpacked.exists() else None,
-                            progress_callback=_on_batch,
-                        )
-                        total_indexed += n
-                        key = _ingest_cache_key(version, language, path_hbk)
-                        h = task_hashes.get((version, language, path_hbk.name)) or _file_sha256(
-                            path_hbk
-                        )
-                        if h:
-                            cache_entries[key] = {"hash": h, "indexed": True, "points": n}
-                            _update_ingest_cache_entry(key, h, n)
-                        with state_lock:
-                            completed_files.append(
-                                {
-                                    "path": path_hbk.name,
-                                    "version": version,
-                                    "language": language,
-                                    "points": n,
-                                    "status": "ok",
-                                }
-                            )
-                        html_c, md_c = _count_html_md(md_dir)
-                        for fo in folders:
-                            if fo["version"] == version and fo["language"] == language:
-                                fo["html_count"] = fo.get("html_count", 0) + html_c
-                                fo["md_count"] = fo.get("md_count", 0) + md_c
-                                fo["points"] = fo.get("points", 0) + n
-                                fo["tasks_done"] = fo.get("tasks_done", 0) + 1
-                                if fo["tasks_done"] + fo.get("err_count", 0) >= fo["hbk_count"]:
-                                    fo["status"] = "done"
-                                break
-                        with state_lock:
-                            state["done_tasks"] = done
-                            state["total_points"] = total_indexed
-                            current_snapshot = list(current_work.values())
-                        _write_ingest_status(
-                            started_at=started_at,
-                            embedding_backend=embedding_backend,
-                            total_tasks=len(tasks),
-                            done_tasks=done,
-                            total_points=total_indexed,
-                            folders=folders,
-                            status="in_progress",
-                            current=current_snapshot,
-                            failed_tasks=failed_tasks_list,
-                            completed_files=completed_files,
-                            max_workers=max_workers,
-                            embedding_workers=embedding_workers,
-                        )
-                        if verbose:
-                            _log(
-                                f"[ingest] [{done}/{len(tasks)}] indexed {n} points ({version}/{language}) — {path_hbk}, total={total_indexed}"
-                            )
-                    finally:
-                        with state_lock:
-                            current_work.pop(main_ident, None)
-                            state["current_task_points"] = 0
-                            state["current_task_estimated_total"] = None
-                        try:
-                            shutil.rmtree(md_dir.parent)
-                        except OSError:
-                            pass
-                except Exception as e:
-                    err_msg = f"{type(e).__name__}: {e}"
-                    err_str = str(e).lower()
-                    if "500" in err_str or "unexpectedresponse" in type(e).__name__.lower():
-                        err_msg += (
-                            " [Qdrant 500: проверьте make qdrant-logs; "
-                            "размерность векторов (EMBEDDING_DIMENSION); уменьшите index_batch_size]"
-                        )
-                    fail_entry = {
-                        "path": path_hbk.name,
-                        "path_full": str(path_hbk),
-                        "version": version,
-                        "language": language,
-                        "error": err_msg,
-                    }
-                    with state_lock:
-                        failed_tasks_list.append(fail_entry)
-                        rid = state.get("run_id")
-                        completed_files.append(
-                            {
-                                "path": path_hbk.name,
-                                "version": version,
-                                "language": language,
-                                "points": 0,
-                                "status": "fail",
-                            }
-                        )
-                        failed.append((path_hbk, version, language, err_msg))
-                        state["done_tasks"] = done
-                        state["total_points"] = total_indexed
-                    if rid is not None:
-                        _append_failed_to_cache(rid, fail_entry)
-                    for fo in folders:
-                        if fo["version"] == version and fo["language"] == language:
-                            fo["err_count"] = fo.get("err_count", 0) + 1
-                            fo["tasks_done"] = fo.get("tasks_done", 0) + 1
-                            if fo["tasks_done"] + fo.get("err_count", 0) >= fo["hbk_count"]:
-                                fo["status"] = "done"
-                            break
-                    _write_ingest_status(
-                        started_at=started_at,
-                        embedding_backend=embedding_backend,
-                        total_tasks=len(tasks),
-                        done_tasks=done,
-                        total_points=total_indexed,
-                        folders=folders,
-                        status="in_progress",
-                        failed_tasks=failed_tasks_list,
-                        completed_files=completed_files,
-                        max_workers=max_workers,
-                        embedding_workers=embedding_workers,
                     )
-                    if verbose:
-                        _log(
-                            f"[ingest] [{done}/{len(tasks)}] indexing failed {version}/{language} — {path_hbk}: {err_msg}"
-                        )
-                    try:
-                        shutil.rmtree(md_dir.parent)
-                    except OSError:
-                        pass
-                    # Continue with next task instead of raising (recovery: remaining files still get indexed)
+                    state["done_tasks"] = done
+                    state["total_points"] = total_indexed
+                    current_snapshot = list(current_work.values())
+                for fo in folders:
+                    if fo["version"] == version and fo["language"] == language:
+                        fo["html_count"] = fo.get("html_count", 0) + r["html_count"]
+                        fo["md_count"] = fo.get("md_count", 0) + r["md_count"]
+                        fo["points"] = fo.get("points", 0) + n
+                        fo["tasks_done"] = fo.get("tasks_done", 0) + 1
+                        if fo["tasks_done"] + fo.get("err_count", 0) >= fo["hbk_count"]:
+                            fo["status"] = "done"
+                        break
+                _write_ingest_status(
+                    started_at=started_at,
+                    embedding_backend=embedding_backend,
+                    total_tasks=len(tasks),
+                    done_tasks=done,
+                    total_points=total_indexed,
+                    folders=folders,
+                    status="in_progress",
+                    current=current_snapshot,
+                    failed_tasks=failed_tasks_list,
+                    completed_files=completed_files,
+                    max_workers=max_workers,
+                    embedding_workers=embedding_workers,
+                )
+                if verbose:
+                    _log(
+                        f"[ingest] [{done}/{len(tasks)}] indexed {n} points ({version}/{language}) — {path_hbk}, total={total_indexed}"
+                    )
     finally:
         # Всегда пишем завершение в кэш — dashboard читает реальный статус из той же БД
         with state_lock:
@@ -1491,7 +1500,12 @@ def _status_writer_loop_from_unpacked(
         with state_lock:
             if state.get("status") == "completed":
                 break
-            current = list(state.get("current") or [])
+            # Prefer current_work (parallel) so dashboard shows all active workers
+            current_work = state.get("current_work")
+            if current_work:
+                current = list(current_work.values())
+            else:
+                current = list(state.get("current") or [])
             done_tasks = state["done_tasks"]
             total_points = state["total_points"]
             current_task_points = state.get("current_task_points") or 0
@@ -1525,6 +1539,88 @@ def _read_unpacked_hash(docs_dir: Path) -> str:
         return ""
 
 
+def _index_one_unpacked_task(
+    task_index: int,
+    docs_dir: Path,
+    version: str,
+    stem: str,
+    language: str,
+    qdrant_host: str,
+    qdrant_port: int,
+    collection: str,
+    incremental: bool,
+    embedding_batch_size: int | None,
+    embedding_workers: int | None,
+    bm25: bool | None,
+    current_work: dict[int, dict[str, Any]],
+    state_lock: threading.Lock,
+    state: dict[str, Any],
+    build_index_fn: Any,
+) -> dict[str, Any]:
+    """Index one unpacked task (one version/stem). For parallel run_ingest_from_unpacked.
+    Returns dict with task_index, path_prefix, version, language, points, error, file_hash."""
+    ident = threading.get_ident()
+    path_prefix = f"{version}/{stem}"
+    result: dict[str, Any] = {
+        "task_index": task_index,
+        "path_prefix": path_prefix,
+        "version": version,
+        "language": language,
+        "stem": stem,
+        "points": 0,
+        "error": None,
+        "file_hash": _read_unpacked_hash(docs_dir),
+    }
+    with state_lock:
+        current_work[ident] = {
+            "path": path_prefix,
+            "version": version,
+            "language": language,
+            "stage": "indexing",
+        }
+    try:
+        def _on_batch(
+            pts: int,
+            phase: str | None = None,
+            total_estimated: int | None = None,
+        ) -> None:
+            with state_lock:
+                state["current_task_points"] = pts
+                if total_estimated is not None:
+                    state["current_task_estimated_total"] = total_estimated
+                if ident in current_work:
+                    current_work[ident]["points"] = pts
+                    if total_estimated is not None:
+                        current_work[ident]["estimated_total"] = total_estimated
+                    if phase:
+                        current_work[ident]["stage"] = phase
+
+        n = build_index_fn(
+            docs_dir=docs_dir,
+            qdrant_host=qdrant_host,
+            qdrant_port=qdrant_port,
+            collection=collection,
+            incremental=incremental,
+            extra_payload={"version": version, "language": language, "hbk_slug": stem},
+            source_dir=str(docs_dir),
+            path_prefix=path_prefix,
+            embedding_batch_size=embedding_batch_size,
+            embedding_workers=embedding_workers,
+            bm25=bm25,
+            progress_callback=_on_batch,
+        )
+        result["points"] = n
+        return result
+    except Exception as e:
+        result["error"] = f"{type(e).__name__}: {e}"
+        return result
+    finally:
+        with state_lock:
+            current_work.pop(ident, None)
+            state["current_task_points"] = 0
+            state["current_task_estimated_total"] = None
+
+
 def run_ingest_from_unpacked(
     unpacked_base: Path | str,
     qdrant_host: str = "localhost",
@@ -1535,12 +1631,14 @@ def run_ingest_from_unpacked(
     embedding_batch_size: int | None = None,
     embedding_workers: int | None = None,
     bm25: bool | None = None,
+    max_workers: int | None = None,
 ) -> int:
     """
     Index help from unpacked dir (data/unpacked structure).
     Scans version/stem dirs, uses path_prefix for payload path.
     Skips tasks already in ingest cache (same version, language, content hash).
     Writes ingest status to SQLite so dashboard shows current file and progress.
+    max_workers: parallel tasks (default from INGEST_MAX_WORKERS env or 4). 1 = sequential.
     Returns total points indexed.
     """
     from qdrant_client import QdrantClient
@@ -1599,6 +1697,15 @@ def run_ingest_from_unpacked(
             _log(f"[ingest-from-unpacked] Could not check collection: {safe_error_message(e)}")
         return 0
 
+    if max_workers is None:
+        raw = (os.environ.get("INGEST_MAX_WORKERS") or "").strip()
+        if raw.isdigit():
+            max_workers = max(1, int(raw))
+        else:
+            max_workers = 4
+    else:
+        max_workers = max(1, max_workers)
+
     embedding_backend = (os.environ.get("EMBEDDING_BACKEND") or "local").strip().lower()
     if embedding_backend not in ("local", "openai_api", "deterministic"):
         embedding_backend = "none"
@@ -1609,6 +1716,7 @@ def run_ingest_from_unpacked(
         for _, v, _, lang in tasks
     ]
     state_lock = threading.Lock()
+    current_work: dict[int, dict[str, Any]] = {}
     state: dict[str, Any] = {
         "started_at": started_at,
         "embedding_backend": embedding_backend,
@@ -1616,6 +1724,7 @@ def run_ingest_from_unpacked(
         "done_tasks": 0,
         "total_points": 0,
         "current": [],
+        "current_work": current_work,
         "current_task_points": 0,
         "current_task_estimated_total": None,
         "completed_files": [],
@@ -1660,101 +1769,92 @@ def run_ingest_from_unpacked(
             if verbose:
                 _log(f"[ingest-from-unpacked] WARN: {safe_error_message(e)}")
     total = 0
-    for task_index, (docs_dir, version, stem, language) in enumerate(tasks):
-        path_prefix = f"{version}/{stem}"
-        current_entry = {
-            "path": path_prefix,
-            "version": version,
-            "language": language,
-            "stage": "indexing",
+    done_count = 0
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(
+                _index_one_unpacked_task,
+                task_index,
+                docs_dir,
+                version,
+                stem,
+                language,
+                qdrant_host,
+                qdrant_port,
+                collection,
+                incremental,
+                embedding_batch_size,
+                embedding_workers,
+                bm25,
+                current_work,
+                state_lock,
+                state,
+                build_index,
+            ): task_index
+            for task_index, (docs_dir, version, stem, language) in enumerate(tasks)
         }
-        with state_lock:
-            state["current"] = [current_entry]
-
-        def _on_batch(
-            pts: int,
-            phase: str | None = None,
-            total_estimated: int | None = None,
-        ) -> None:
-            with state_lock:
-                state["current_task_points"] = pts
-                if total_estimated is not None:
-                    state["current_task_estimated_total"] = total_estimated
-                if state["current"] and phase:
-                    state["current"][0]["stage"] = phase or "indexing"
-
-        try:
-            n = build_index(
-                docs_dir=docs_dir,
-                qdrant_host=qdrant_host,
-                qdrant_port=qdrant_port,
-                collection=collection,
-                incremental=incremental,
-                extra_payload={"version": version, "language": language, "hbk_slug": stem},
-                source_dir=str(docs_dir),
-                path_prefix=path_prefix,
-                embedding_batch_size=embedding_batch_size,
-                embedding_workers=embedding_workers,
-                bm25=bm25,
-                progress_callback=_on_batch,
-            )
-            total += n
-            file_hash = _read_unpacked_hash(docs_dir)
-            if file_hash:
-                cache_key = f"{version}/{language}/{stem}"
-                _update_ingest_cache_entry(cache_key, file_hash, n)
-            with state_lock:
-                state["done_tasks"] = task_index + 1
-                state["total_points"] = total
-                state["current"] = []
-                state["current_task_points"] = 0
-                state["current_task_estimated_total"] = None
-                state["completed_files"].append(
-                    {
-                        "path": path_prefix,
-                        "version": version,
-                        "language": language,
-                        "points": n,
-                        "status": "ok",
-                    }
-                )
-                if task_index < len(state["folders"]):
-                    state["folders"][task_index]["tasks_done"] = 1
-                    state["folders"][task_index]["points"] = n
-            if verbose:
-                _log(f"[ingest-from-unpacked] {path_prefix}: {n} points")
-        except Exception as e:
-            if verbose:
-                _log(f"[ingest-from-unpacked] skip {path_prefix}: {safe_error_message(e)}")
-            err_msg = f"{type(e).__name__}: {e}"
-            fail_entry = {
-                "path": path_prefix,
-                "path_full": path_prefix,
-                "version": version,
-                "language": language,
-                "error": err_msg[:500],
-            }
-            with state_lock:
-                state["failed"].append(fail_entry)
+        for future in as_completed(futures):
+            task_index = futures[future]
+            done_count += 1
+            r = future.result()
+            path_prefix = r["path_prefix"]
+            version = r["version"]
+            language = r["language"]
+            stem = r["stem"]
+            if r["error"]:
+                if verbose:
+                    _log(f"[ingest-from-unpacked] skip {path_prefix}: {r['error']}")
+                fail_entry = {
+                    "path": path_prefix,
+                    "path_full": path_prefix,
+                    "version": version,
+                    "language": language,
+                    "error": r["error"][:500],
+                }
+                with state_lock:
+                    state["failed"].append(fail_entry)
+                    state["done_tasks"] = done_count
+                    state["total_points"] = total
+                    state["completed_files"].append(
+                        {
+                            "path": path_prefix,
+                            "version": version,
+                            "language": language,
+                            "points": 0,
+                            "status": "fail",
+                        }
+                    )
                 rid = state.get("run_id")
-                state["done_tasks"] = task_index + 1
-                state["current"] = []
-                state["current_task_points"] = 0
-                state["current_task_estimated_total"] = None
-                state["completed_files"].append(
-                    {
-                        "path": path_prefix,
-                        "version": version,
-                        "language": language,
-                        "points": 0,
-                        "status": "fail",
-                    }
-                )
-            if rid is not None:
-                _append_failed_to_cache(rid, fail_entry)
+                if rid is not None:
+                    _append_failed_to_cache(rid, fail_entry)
+            else:
+                n = r["points"]
+                total += n
+                file_hash = r.get("file_hash") or ""
+                if file_hash:
+                    cache_key = f"{version}/{language}/{stem}"
+                    _update_ingest_cache_entry(cache_key, file_hash, n)
+                with state_lock:
+                    state["done_tasks"] = done_count
+                    state["total_points"] = total
+                    state["completed_files"].append(
+                        {
+                            "path": path_prefix,
+                            "version": version,
+                            "language": language,
+                            "points": n,
+                            "status": "ok",
+                        }
+                    )
+                    if task_index < len(state["folders"]):
+                        state["folders"][task_index]["tasks_done"] = 1
+                        state["folders"][task_index]["points"] = n
+                if verbose:
+                    _log(f"[ingest-from-unpacked] {path_prefix}: {n} points")
 
     with state_lock:
         state["status"] = "completed"
+        current_work.clear()
     _write_ingest_status(
         started_at=started_at,
         embedding_backend=embedding_backend,

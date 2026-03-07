@@ -1132,11 +1132,11 @@ def _minimal_dashboard_data(**overrides):
 
 @patch("onec_help.dashboard_data.get_dashboard_data")
 def test_cmd_dashboard_not_exists(mock_get_data, capsys: pytest.CaptureFixture[str]) -> None:
-    """dashboard with no index prints 'Index does not exist' and returns 0."""
+    """dashboard with no index still renders (No collections, empty tasks) and returns 0."""
     mock_get_data.return_value = _minimal_dashboard_data()
     assert cmd_dashboard(make_args(once=True)) == 0
     out = capsys.readouterr().out
-    assert "Index does not exist" in out
+    assert "Tasks" in out or "Ingest" in out  # dashboard rendered
 
 
 @patch("onec_help.dashboard_data.get_dashboard_data")

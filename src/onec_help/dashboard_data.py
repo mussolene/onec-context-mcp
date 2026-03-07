@@ -1,6 +1,7 @@
 """Dashboard data aggregation: ingest, Qdrant, snippets, standards/snippets loading markers.
 No Rich dependency; pure data for render_dashboard()."""
 
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,21 @@ def _load_marker_exists(name: str) -> bool:
         return False
 
 
+def _read_load_status(name: str) -> dict[str, int] | None:
+    """Read load_<name>.status.json (loaded, total). Returns None if missing or invalid."""
+    try:
+        cache_dir = Path(_ingest_cache_path()).parent
+        path = cache_dir / f"load_{name}.status.json"
+        if not path.exists():
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, dict) and "loaded" in data and "total" in data:
+            return {"loaded": int(data["loaded"]), "total": int(data["total"])}
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        pass
+    return None
+
+
 def _storage_path_mb() -> float | None:
     """DB size in MB from QDRANT_STORAGE_PATH if set and dir exists."""
     path = os.environ.get("QDRANT_STORAGE_PATH")
@@ -70,6 +86,8 @@ def get_dashboard_data(
     snippets_last = read_last_snippets_run()
     standards_loading = _load_marker_exists("standards")
     snippets_loading = _load_marker_exists("snippets")
+    standards_loading_pts = _read_load_status("standards") if standards_loading else None
+    snippets_loading_pts = _read_load_status("snippets") if snippets_loading else None
     storage_path_mb = _storage_path_mb()
     mcp_metrics = get_mcp_metrics()
 
@@ -82,6 +100,8 @@ def get_dashboard_data(
         "snippets": snippets_last,
         "standards_loading": standards_loading,
         "snippets_loading": snippets_loading,
+        "standards_loading_pts": standards_loading_pts,
+        "snippets_loading_pts": snippets_loading_pts,
         "storage_path_mb": storage_path_mb,
         "mcp_metrics": mcp_metrics,
     }
