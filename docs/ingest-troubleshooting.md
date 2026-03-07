@@ -62,7 +62,25 @@
 
 Если процесса нет — статус в `ingest_current` «заморожен»; при следующем запуске ingest он будет перезаписан новым прогрессом.
 
-### 2.2. Где смотреть логи (Docker)
+### 2.2. Standards / Snippets «стоят», справка (ingest) уже в эмбеддинге
+
+Если в дашборде **Standards** и **Snippets** показывают «embed → Qdrant» без роста счётчика, а **Ingest** при этом идёт по эмбеддингу — все три процесса делят один и тот же **Ollama** (или другой API эмбеддингов). Запросы обрабатываются по очереди, поэтому load_standards и load_snippets могут почти не продвигаться, пока ingest занял API.
+
+**Что проверить:**
+
+1. **Логи контейнера ingest-worker** — ошибки load_standards/load_snippets (watchdog запускает их как подпроцессы):
+   ```bash
+   docker compose -f docker-compose.base.yml -f docker-compose.yml logs ingest-worker --tail 300
+   ```
+   Ищите строки вида: `[watchdog] load-standards exited 1: ...`, `load-snippets │ Embedding not available`, таймауты, `connection refused` к Ollama.
+
+2. **Один каталог маркеров** — дашборд должен читать тот же каталог, куда пишет worker. Локальный дашборд: по умолчанию `data/ingest_cache` (или `INGEST_CACHE_FILE` → родительский каталог). В Docker у worker путь `/app/var/ingest_cache` (volume `./data/ingest_cache`). Если дашборд запущен на хосте без этого каталога/volume — маркеры `load_standards.running`, `load_snippets.status.json` он не увидит.
+
+3. **Ollama** — при нехватке ресурсов или перегрузке возможны таймауты. Логи Ollama на хосте (если запущена как сервис): `journalctl -u ollama -n 100` или вывод в консоль. Увеличить `EMBEDDING_TIMEOUT` в .env для ingest-worker.
+
+4. **Устаревший маркер** — если процесс load_standards/load_snippets упал (kill, OOM), файлы `load_*.running` могли остаться. Через 10 минут дашборд считает их устаревшими и перестаёт показывать «loading». Вручную удалить: `data/ingest_cache/load_standards.running`, `load_snippets.running`.
+
+### 2.4. Где смотреть логи (Docker)
 
 У контейнера **ingest-worker** основной вывод идёт **не** в `docker logs`, а в файлы внутри контейнера (entrypoint перенаправляет фоновые процессы):
 
@@ -79,7 +97,7 @@ docker exec <ingest-worker-container> tail -500 /app/var/log/ingest.log
 docker exec <ingest-worker-container> tail -500 /app/var/ingest_cache/ingest_stderr.log
 ```
 
-### 2.3. Ошибки в логах
+### 2.5. Ошибки в логах
 
 В логах ищите:
 
@@ -92,11 +110,11 @@ docker exec <ingest-worker-container> tail -500 /app/var/ingest_cache/ingest_std
 - **Redis** — кэш и статус хранятся только в Redis; при недоступности Redis (connection refused) ingest и дашборд не смогут читать/писать статус. Убедитесь, что контейнер redis запущен и REDIS_URL задан.
 - **TimeoutError** (embedding API batch error, retrying with smaller batches) — LM Studio или API не успевает ответить. Увеличить `EMBEDDING_TIMEOUT` или уменьшить `EMBEDDING_BATCH_SIZE`; проверить, что LM Studio запущен и модель загружена.
 
-### 2.4. Дашборд не обновляется
+### 2.6. Дашборд не обновляется
 
 **Кэш и статус — только Redis.** Живой статус ингеста и история запусков хранятся в Redis (ключи `ingest:current`, `ingest:runs`, `ingest:failed:*`). Дашборд и ingest-worker используют один и тот же Redis (REDIS_URL в docker-compose задаётся для mcp и ingest-worker). Если Redis недоступен — проверьте, что контейнер redis запущен и REDIS_URL=redis://redis:6379/0.
 
-### 2.5. Ошибки в кэше (ingest_failed)
+### 2.7. Ошибки в кэше (ingest_failed)
 
 Ошибки завершённых задач пишутся в Redis (списки `ingest:failed:{run_id}`). После завершения run их можно посмотреть через последний run. Пока run в статусе `in_progress`, в failed могут быть только уже упавшие задачи; текущая «зависшая» задача туда не попадёт, пока не упадёт по исключению.
 

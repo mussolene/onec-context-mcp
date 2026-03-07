@@ -686,18 +686,16 @@ def cmd_load_snippets(args: argparse.Namespace) -> int:
             except OSError:
                 pass
 
-            done_so_far: list[int] = [0]
-
             def _progress(loaded: int, tot: int, skipped: int) -> None:
+                # loaded/tot from memory.upsert_curated_snippets are cumulative and total
                 progress_line(
                     f"load-snippets │ {loaded + skipped}/{tot} │ {loaded} loaded │ {skipped} skip"
                 )
-                done_so_far[0] += loaded
                 try:
                     status_path.write_text(
                         json.dumps(
                             {
-                                "loaded": done_so_far[0],
+                                "loaded": loaded,
                                 "total": total_items,
                                 "phase": "embedding",
                             },
