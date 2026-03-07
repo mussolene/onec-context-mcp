@@ -137,6 +137,31 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                         "total": tot_sn,
                     }
                 )
+        # When ingest in progress but standards/snippets not loading: show loaded state so user sees they feed onec_help_memory
+        memory_coll = next(
+            (c for c in (data.get("collections") or []) if (c.get("name") or "").strip() == "onec_help_memory"),
+            None,
+        )
+        memory_pts = (memory_coll.get("points_count") or 0) if memory_coll else 0
+        if memory_pts > 0:
+            if not standards_loading:
+                workers.append(
+                    {
+                        "label": "Standards → onec_help_memory (loaded)",
+                        "short": "Standards → onec_help_memory",
+                        "pts": None,
+                        "total": None,
+                    }
+                )
+            if not snippets_loading:
+                workers.append(
+                    {
+                        "label": "Snippets → onec_help_memory (loaded)",
+                        "short": "Snippets → onec_help_memory",
+                        "pts": None,
+                        "total": None,
+                    }
+                )
         if workers:
             # One compact table: [#] task (short) | progress bar
             workers_table = Table(show_header=False, box=None, padding=(0, 1))
