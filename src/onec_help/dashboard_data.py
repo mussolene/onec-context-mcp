@@ -5,14 +5,14 @@ import os
 from pathlib import Path
 from typing import Any
 
+from .indexer import get_all_collections_status, get_index_status
 from .ingest import (
     _ingest_cache_path,
-    read_ingest_status,
     read_ingest_failed_log,
+    read_ingest_status,
     read_last_ingest_failed,
     read_last_ingest_run,
 )
-from .indexer import get_all_collections_status, get_index_status
 from .mcp_metrics import get_metrics as get_mcp_metrics
 from .snippets_cache import read_last_snippets_run
 

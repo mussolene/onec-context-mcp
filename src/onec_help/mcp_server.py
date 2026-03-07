@@ -14,6 +14,7 @@ from .mcp_metrics import record_request as _record_mcp_request
 
 def _record_mcp_tool(f):
     """Decorator: record MCP tool call (success/fail) for dashboard metrics."""
+
     def wrapper(*args, **kwargs):
         name = f.__name__
         try:
@@ -23,6 +24,7 @@ def _record_mcp_tool(f):
         except Exception:
             _record_mcp_request(name, False)
             raise
+
     wrapper.__name__ = f.__name__
     return wrapper
 

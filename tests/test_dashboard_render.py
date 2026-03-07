@@ -1,6 +1,5 @@
 """Tests for dashboard_render.render_dashboard()."""
 
-
 from onec_help.dashboard_render import render_dashboard
 
 

@@ -171,11 +171,18 @@ def test_main_unpack_usage() -> None:
 
 
 @patch("onec_help.dashboard_data.get_dashboard_data")
-def test_cmd_index_status_ingest_backend_none(mock_get_data, capsys: pytest.CaptureFixture[str]) -> None:
+def test_cmd_index_status_ingest_backend_none(
+    mock_get_data, capsys: pytest.CaptureFixture[str]
+) -> None:
     """index-status with completed ingest shows Tasks panel with last run."""
     mock_get_data.return_value = _minimal_dashboard_data(
         index_status={"exists": True, "points_count": 10},
-        ingest_last_run={"status": "completed", "embedding_backend": "none", "done_tasks": 1, "total_tasks": 1},
+        ingest_last_run={
+            "status": "completed",
+            "embedding_backend": "none",
+            "done_tasks": 1,
+            "total_tasks": 1,
+        },
         collections=[],
     )
     assert cmd_index_status(make_args()) == 0
@@ -184,11 +191,19 @@ def test_cmd_index_status_ingest_backend_none(mock_get_data, capsys: pytest.Capt
 
 
 @patch("onec_help.dashboard_data.get_dashboard_data")
-def test_cmd_index_status_ingest_speed_none(mock_get_data, capsys: pytest.CaptureFixture[str]) -> None:
+def test_cmd_index_status_ingest_speed_none(
+    mock_get_data, capsys: pytest.CaptureFixture[str]
+) -> None:
     """index-status with ingest in progress shows elapsed in Tasks."""
     mock_get_data.return_value = _minimal_dashboard_data(
         index_status={"exists": True, "points_count": 10},
-        ingest={"status": "in_progress", "embedding_backend": "openai_api", "elapsed_sec": 5.0, "done_tasks": 1, "total_tasks": 5},
+        ingest={
+            "status": "in_progress",
+            "embedding_backend": "openai_api",
+            "elapsed_sec": 5.0,
+            "done_tasks": 1,
+            "total_tasks": 5,
+        },
         collections=[],
     )
     assert cmd_index_status(make_args()) == 0
@@ -224,7 +239,9 @@ def test_cmd_index_status_storage_path_oserror(
 
 
 @patch("onec_help.dashboard_data.get_dashboard_data")
-def test_cmd_index_status_ingest_with_eta(mock_get_data, capsys: pytest.CaptureFixture[str]) -> None:
+def test_cmd_index_status_ingest_with_eta(
+    mock_get_data, capsys: pytest.CaptureFixture[str]
+) -> None:
     """index-status with ingest in progress shows ETA in Tasks."""
     mock_get_data.return_value = _minimal_dashboard_data(
         index_status={"exists": True},
@@ -237,7 +254,9 @@ def test_cmd_index_status_ingest_with_eta(mock_get_data, capsys: pytest.CaptureF
 
 
 @patch("onec_help.dashboard_data.get_dashboard_data")
-def test_cmd_index_status_ingest_with_current_workers(mock_get_data, capsys: pytest.CaptureFixture[str]) -> None:
+def test_cmd_index_status_ingest_with_current_workers(
+    mock_get_data, capsys: pytest.CaptureFixture[str]
+) -> None:
     """index-status with ingest in progress shows task progress in Tasks."""
     mock_get_data.return_value = _minimal_dashboard_data(
         index_status={"exists": True},
@@ -266,7 +285,12 @@ def test_cmd_index_status_shows_embeddings_and_db_size(
     mock_get_data.return_value = _minimal_dashboard_data(
         index_status={"exists": True},
         collections=[
-            {"name": "onec_help", "points_count": 100, "indexed_vectors_count": 100, "segments_count": 1},
+            {
+                "name": "onec_help",
+                "points_count": 100,
+                "indexed_vectors_count": 100,
+                "segments_count": 1,
+            },
         ],
         storage_path_mb=0.5,
     )
@@ -319,7 +343,12 @@ def test_cmd_index_status_shows_failed_task_details(
         ingest_last_run={"failed_count": 1, "done_tasks": 4, "total_tasks": 5},
         collections=[{"name": "onec_help", "points_count": 100}],
         failed_tasks=[
-            {"version": "8.3", "language": "ru", "path": "shcntx_ru.hbk", "error": "7z failed: invalid archive"},
+            {
+                "version": "8.3",
+                "language": "ru",
+                "path": "shcntx_ru.hbk",
+                "error": "7z failed: invalid archive",
+            },
         ],
     )
     assert cmd_index_status(make_args()) == 0

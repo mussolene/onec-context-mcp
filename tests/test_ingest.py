@@ -244,7 +244,9 @@ def test_load_ingest_cache_indexed_set(tmp_path: Path) -> None:
 
 def test_read_unpacked_hash(tmp_path: Path) -> None:
     """_read_unpacked_hash returns hash from .hbk_info.json or empty string."""
-    (tmp_path / ".hbk_info.json").write_text('{"hash": "abc123", "language": "ru"}', encoding="utf-8")
+    (tmp_path / ".hbk_info.json").write_text(
+        '{"hash": "abc123", "language": "ru"}', encoding="utf-8"
+    )
     assert _read_unpacked_hash(tmp_path) == "abc123"
     (tmp_path / "no_hash").mkdir(parents=True, exist_ok=True)
     (tmp_path / "no_hash" / ".hbk_info.json").write_text("{}", encoding="utf-8")

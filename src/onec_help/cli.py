@@ -189,8 +189,12 @@ def cmd_index_status(args: argparse.Namespace) -> int:
                 from rich.console import Console
             except ImportError:
                 # Fallback: print compact line when Rich not available
-                data = __import__("onec_help.dashboard_data", fromlist=["get_dashboard_data"]).get_dashboard_data()
-                line = __import__("onec_help.dashboard_render", fromlist=["render_dashboard_compact"]).render_dashboard_compact(data, spinner=spinner)
+                data = __import__(
+                    "onec_help.dashboard_data", fromlist=["get_dashboard_data"]
+                ).get_dashboard_data()
+                line = __import__(
+                    "onec_help.dashboard_render", fromlist=["render_dashboard_compact"]
+                ).render_dashboard_compact(data, spinner=spinner)
                 print(line.rstrip("\n"))
             else:
                 if watch:
@@ -250,7 +254,9 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
         return render_dashboard(data)
 
     try:
-        with Live(_gen(), console=console, refresh_per_second=1 / interval, transient=False) as live:
+        with Live(
+            _gen(), console=console, refresh_per_second=1 / interval, transient=False
+        ) as live:
             while True:
                 import time
 
@@ -702,7 +708,11 @@ def cmd_load_snippets(args: argparse.Namespace) -> int:
                 items.extend(src_items)
                 # Update cache per source
                 key = str(path)
-                sig = _file_signature(path) if stype == "json" else _folder_signature(path, folder_ext)
+                sig = (
+                    _file_signature(path)
+                    if stype == "json"
+                    else _folder_signature(path, folder_ext)
+                )
                 if sig:
                     update_snippets_cache(key, sig, len(src_items))
 
@@ -851,8 +861,8 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
         # ITS v8std only: dirs_to_load stays empty
 
     try:
-        import time as _time
         import shutil as _shutil
+        import time as _time
 
         from ._utils import progress_done, progress_line
         from .memory import get_memory_store

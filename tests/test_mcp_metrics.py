@@ -1,17 +1,16 @@
 """Tests for mcp_metrics: record_request and get_metrics."""
 
-import os
 from pathlib import Path
 from unittest.mock import patch
-
-import pytest
 
 from onec_help.mcp_metrics import get_metrics, record_request
 
 
 def test_get_metrics_empty_when_no_db() -> None:
     """get_metrics returns total=0, last_hour=0 when DB does not exist."""
-    with patch("onec_help.mcp_metrics._metrics_db_path", return_value="/nonexistent/mcp_metrics.db"):
+    with patch(
+        "onec_help.mcp_metrics._metrics_db_path", return_value="/nonexistent/mcp_metrics.db"
+    ):
         m = get_metrics()
     assert m["total"] == 0
     assert m["last_hour"] == 0

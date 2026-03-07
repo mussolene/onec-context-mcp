@@ -2,8 +2,6 @@
 
 from unittest.mock import patch
 
-import pytest
-
 from onec_help.dashboard_data import get_dashboard_data
 
 
@@ -32,7 +30,11 @@ def test_get_dashboard_data_returns_expected_keys() -> None:
 @patch("onec_help.dashboard_data.get_index_status")
 def test_get_dashboard_data_index_status_error(mock_get_index_status) -> None:
     """When get_index_status returns error, data contains index_status with error key."""
-    mock_get_index_status.return_value = {"error": "connection refused", "exists": False, "points_count": 0}
+    mock_get_index_status.return_value = {
+        "error": "connection refused",
+        "exists": False,
+        "points_count": 0,
+    }
     data = get_dashboard_data()
     assert data["index_status"].get("error") == "connection refused"
 

@@ -8,10 +8,10 @@ import pytest
 from onec_help.watchdog import (
     _process_pending_memory,
     _run_ingest,
-    _run_load_standards,
     _run_load_snippets,
-    _scan_standards_dir,
+    _run_load_standards,
     _scan_snippets_dir,
+    _scan_standards_dir,
     run_watchdog,
 )
 

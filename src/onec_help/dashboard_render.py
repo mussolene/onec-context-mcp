@@ -29,7 +29,9 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 eta = f", ETA {format_duration(eta_sec)}"
             except (ZeroDivisionError, TypeError):
                 pass
-        tasks_lines.append(f"Ingest: in progress {done}/{total}{eta} ({format_duration(elapsed)} elapsed)")
+        tasks_lines.append(
+            f"Ingest: in progress {done}/{total}{eta} ({format_duration(elapsed)} elapsed)"
+        )
     elif ingest_last:
         total = ingest_last.get("total_tasks") or 0
         done = ingest_last.get("done_tasks") or 0
@@ -52,7 +54,9 @@ def render_dashboard(data: dict[str, Any]) -> Any:
         tasks_lines.append("Snippets: loading…")
     elif snippets:
         items = snippets.get("items_loaded")
-        tasks_lines.append(f"Snippets: last run, {items} items" if items is not None else "Snippets: last run")
+        tasks_lines.append(
+            f"Snippets: last run, {items} items" if items is not None else "Snippets: last run"
+        )
     else:
         tasks_lines.append("Snippets: —")
 
@@ -69,7 +73,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
         err_table.add_column("Error", max_width=err_max_len, overflow="ellipsis")
         for t in failed[:20]:
             err = (t.get("error") or "")[:err_max_len]
-            if len((t.get("error") or "")) > err_max_len:
+            if len(t.get("error") or "") > err_max_len:
                 err = err + "…"
             err_table.add_row(
                 (t.get("version") or "—")[:12],
@@ -78,7 +82,9 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 err,
             )
         panels.append(
-            Panel(err_table, title=f"[bold]Errors[/bold] ({len(failed)} failed)", border_style="red")
+            Panel(
+                err_table, title=f"[bold]Errors[/bold] ({len(failed)} failed)", border_style="red"
+            )
         )
     else:
         total_err = (data.get("ingest_last_run") or {}).get("failed_count") or 0
@@ -137,7 +143,6 @@ def render_dashboard_compact(data: dict[str, Any], *, spinner: str = "") -> str:
     parts: list[str] = []
     prefix = f"{spinner} index-status".strip() if spinner else "index-status"
 
-    index_status = data.get("index_status") or {}
     collections = data.get("collections") or []
     if collections:
         total_pts = sum(
@@ -168,9 +173,7 @@ def render_dashboard_compact(data: dict[str, Any], *, spinner: str = "") -> str:
         total = ingest_last.get("total_tasks") or 0
         failed = ingest_last.get("failed_count") or 0
         elapsed = ingest_last.get("total_elapsed_sec")
-        parts.append(
-            f"Ingest ✓ {format_duration(elapsed)}" if elapsed else "Ingest ✓ done"
-        )
+        parts.append(f"Ingest ✓ {format_duration(elapsed)}" if elapsed else "Ingest ✓ done")
         if failed:
             parts.append(f"{failed} failed")
     else:
@@ -180,7 +183,7 @@ def render_dashboard_compact(data: dict[str, Any], *, spinner: str = "") -> str:
     total_err = (data.get("ingest_last_run") or {}).get("failed_count") or len(failed_tasks)
     if total_err > 0 and failed_tasks:
         err0 = (failed_tasks[0].get("error") or "")[:80]
-        if len((failed_tasks[0].get("error") or "")) > 80:
+        if len(failed_tasks[0].get("error") or "") > 80:
             err0 += "…"
         parts.append(f"Failed: {total_err} {err0}")
 

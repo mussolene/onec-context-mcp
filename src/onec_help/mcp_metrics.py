@@ -5,7 +5,6 @@ import sqlite3
 import time
 from typing import Any
 
-
 _TABLE = "requests"
 _DEFAULT_DB = "mcp_metrics.db"
 

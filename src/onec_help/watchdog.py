@@ -151,7 +151,9 @@ def run_watchdog(
             current = _scan_hbk_like_ingest(base)
             # Retry ingest on next poll if previous run failed (recovery after crash/OOM)
             if last_ingest_failed and current:
-                print("[watchdog] retrying ingest after previous failure", file=sys.stderr, flush=True)
+                print(
+                    "[watchdog] retrying ingest after previous failure", file=sys.stderr, flush=True
+                )
                 last_ingest_failed = not _run_ingest()
             if current != last_hbk:
                 prev_keys = set(last_hbk)
