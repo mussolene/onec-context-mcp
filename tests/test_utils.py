@@ -1,7 +1,7 @@
 """Tests for _utils."""
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from onec_help._utils import (
     dir_size_on_disk,
@@ -56,6 +56,28 @@ def test_progress_done_writes_newline() -> None:
         stderr.write.assert_called_once()
         assert stderr.write.call_args[0][0].endswith("\n")
         assert "done" in stderr.write.call_args[0][0]
+
+
+def test_progress_line_uses_rich_when_tty() -> None:
+    """When TTY and Rich available, progress_line uses console.print."""
+    fake_console = MagicMock()
+    with patch("sys.stderr") as stderr:
+        stderr.isatty.return_value = True
+        with patch("onec_help._utils._rich_console", return_value=fake_console):
+            progress_line("hello", overwrite=True)
+    fake_console.print.assert_called_once()
+    assert fake_console.print.call_args[0][0] == "hello"
+    assert fake_console.print.call_args[1].get("end") == "\r"
+
+
+def test_progress_done_uses_rich_when_tty() -> None:
+    """When TTY and Rich available, progress_done uses console.print."""
+    fake_console = MagicMock()
+    with patch("sys.stderr") as stderr:
+        stderr.isatty.return_value = True
+        with patch("onec_help._utils._rich_console", return_value=fake_console):
+            progress_done("done")
+    fake_console.print.assert_called_once_with("done")
 
 
 def test_format_duration() -> None:
