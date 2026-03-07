@@ -27,6 +27,7 @@ def record_request(
     if _use_redis():
         try:
             from . import redis_cache
+
             redis_cache.mcp_request_record(
                 tool_name=tool_name,
                 success=success,
@@ -47,6 +48,7 @@ def _metrics_db_path() -> str:
         return path
     try:
         from .ingest import _ingest_cache_path
+
         parent = os.path.dirname(_ingest_cache_path())
         return os.path.join(parent, _DEFAULT_DB)
     except Exception:
@@ -83,6 +85,7 @@ def get_metrics() -> dict[str, Any]:
     if _use_redis():
         try:
             from . import redis_cache
+
             return redis_cache.mcp_metrics_get()
         except Exception:
             pass

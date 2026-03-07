@@ -1,5 +1,7 @@
 """MCP server for 1C Help: search_1c_help, get_1c_help_topic, get_1c_function_info."""
 
+import functools
+import inspect
 import logging
 import os
 import re
@@ -13,8 +15,10 @@ from .mcp_metrics import record_request as _record_mcp_request
 
 
 def _record_mcp_tool(f):
-    """Decorator: record MCP tool call (success/fail, duration, error) for dashboard metrics."""
+    """Decorator: record MCP tool call (success/fail, duration, error) for dashboard metrics.
+    Preserves f's signature so FastMCP can introspect parameters (no *args)."""
 
+    @functools.wraps(f)
     def wrapper(*args, **kwargs):
         name = f.__name__
         t0 = time.monotonic()
@@ -31,7 +35,10 @@ def _record_mcp_tool(f):
             )
             raise
 
-    wrapper.__name__ = f.__name__
+    try:
+        wrapper.__signature__ = inspect.signature(f)
+    except (ValueError, TypeError):
+        pass
     return wrapper
 
 
@@ -338,8 +345,8 @@ def _build_mcp_app(help_path: Path) -> Any:
 
     mcp = FastMCP("1C Help")
 
-    @_record_mcp_tool
     @mcp.tool()
+    @_record_mcp_tool
     def search_1c_help(
         query: str,
         limit: int = 8,
@@ -396,8 +403,8 @@ def _build_mcp_app(help_path: Path) -> Any:
             idx += 1
         return "\n".join(lines)
 
-    @_record_mcp_tool
     @mcp.tool()
+    @_record_mcp_tool
     def search_1c_help_keyword(
         query: str,
         limit: int = 10,
@@ -430,8 +437,8 @@ def _build_mcp_app(help_path: Path) -> Any:
             lines.append(f"   {text}...")
         return "\n".join(lines)
 
-    @_record_mcp_tool
     @mcp.tool()
+    @_record_mcp_tool
     def search_1c_help_with_content(
         query: str,
         limit: int = 3,
@@ -465,8 +472,8 @@ def _build_mcp_app(help_path: Path) -> Any:
                 parts.append(f"---\n## {path}\n\n{content}")
         return "\n\n".join(parts) if parts else "No content could be retrieved."
 
-    @_record_mcp_tool
     @mcp.tool()
+    @_record_mcp_tool
     def get_1c_code_answer(
         query: str,
         limit: int = 3,
@@ -569,8 +576,8 @@ def _build_mcp_app(help_path: Path) -> Any:
                 parts.append("\n### Из справки\n\n" + "\n\n".join(help_blocks))
         return "\n".join(parts)
 
-    @_record_mcp_tool
     @mcp.tool()
+    @_record_mcp_tool
     def get_1c_help_topic(
         topic_path: str,
         version: str | None = None,
@@ -605,8 +612,8 @@ def _build_mcp_app(help_path: Path) -> Any:
             return content
         return "Topic not found."
 
-    @_record_mcp_tool
     @mcp.tool()
+    @_record_mcp_tool
     def save_1c_snippet(
         code_snippet: str,
         description: str = "",
@@ -663,8 +670,8 @@ def _build_mcp_app(help_path: Path) -> Any:
         except Exception as e:
             return f"Failed to save: {safe_error_message(e)}"
 
-    @_record_mcp_tool
     @mcp.tool()
+    @_record_mcp_tool
     def get_form_metadata(xml_content: str) -> str:
         """Parse Form.xml content and return attributes and commands.
         xml_content: raw XML of Form.xml — must be complete with all xmlns declarations
@@ -689,8 +696,8 @@ def _build_mcp_app(help_path: Path) -> Any:
             lines.append(f"- {c.get('name', '')} → {c.get('action', '')}")
         return "\n".join(lines) if lines else "No attributes or commands found."
 
-    @_record_mcp_tool
     @mcp.tool()
+    @_record_mcp_tool
     def get_module_info(uri_or_path: str) -> str:
         """Infer module type and context from file path.
         uri_or_path: path or file URI to Module.bsl / ObjectModule.bsl.
@@ -727,8 +734,8 @@ def _build_mcp_app(help_path: Path) -> Any:
             lines.append(f"**Object:** {object_name}")
         return "\n".join(lines)
 
-    @_record_mcp_tool
     @mcp.tool()
+    @_record_mcp_tool
     def get_1c_help_related(
         topic_path: str,
         version: str | None = None,
@@ -750,8 +757,8 @@ def _build_mcp_app(help_path: Path) -> Any:
         lines = [f"- **{r.get('title', '')}** — `{r.get('path', '')}`" for r in items]
         return "\n".join(lines)
 
-    @_record_mcp_tool
     @mcp.tool()
+    @_record_mcp_tool
     def list_1c_help_titles(limit: int = 100, path_prefix: str = "") -> str:
         """List topic titles and paths for browsing. path_prefix: filter by path start (e.g. 'zif' for command-line params)."""
         items = _list_titles(limit=limit, path_prefix=path_prefix)
@@ -762,8 +769,8 @@ def _build_mcp_app(help_path: Path) -> Any:
         ]
         return "\n".join(lines)
 
-    @_record_mcp_tool
     @mcp.tool()
+    @_record_mcp_tool
     def compare_1c_help(
         topic_path_or_query: str,
         version_left: str,
@@ -786,8 +793,8 @@ def _build_mcp_app(help_path: Path) -> Any:
             include_diff=include_diff,
         )
 
-    @_record_mcp_tool
     @mcp.tool()
+    @_record_mcp_tool
     def get_1c_help_index_status() -> str:
         """Returns index status (topics count, collection, versions, languages) and ingest progress.
         When ingest is running: current file, ETA, speed, errors."""
@@ -920,8 +927,8 @@ def _build_mcp_app(help_path: Path) -> Any:
             return 2
         return 3
 
-    @_record_mcp_tool
     @mcp.tool()
+    @_record_mcp_tool
     def get_1c_function_info(
         name: str,
         path: str | None = None,

@@ -22,9 +22,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
+from . import env_config, redis_cache
 from ._utils import mask_path_for_log, safe_error_message
-from . import redis_cache
-from . import env_config
 
 # How often to write status to Redis while ingest runs (seconds); env INDEX_STATUS_INTERVAL_SEC
 STATUS_UPDATE_INTERVAL_SEC = 2.0

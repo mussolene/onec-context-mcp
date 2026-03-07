@@ -8,7 +8,6 @@ from typing import Any
 
 from . import env_config
 from .indexer import get_all_collections_status, get_index_status
-from .sparse_bm25 import bm25_vocab_path
 from .ingest import (
     _ingest_cache_path,
     read_ingest_errors_log,
@@ -19,6 +18,7 @@ from .ingest import (
 )
 from .mcp_metrics import get_metrics as get_mcp_metrics
 from .snippets_cache import read_last_snippets_run
+from .sparse_bm25 import bm25_vocab_path
 
 # Markers older than this (seconds) are treated as stale (crashed process); don't show "loading"
 _LOAD_MARKER_STALE_SEC = 600  # 10 min

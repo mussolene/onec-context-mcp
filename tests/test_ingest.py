@@ -305,9 +305,7 @@ def test_read_ingest_status_from_redis() -> None:
 
 def test_read_last_ingest_run() -> None:
     """read_last_ingest_run returns last run from Redis when present (fakeredis)."""
-    run_id = _create_ingest_run(
-        started_at=1000.0, embedding_backend="openai_api", total_tasks=10
-    )
+    run_id = _create_ingest_run(started_at=1000.0, embedding_backend="openai_api", total_tasks=10)
     assert run_id is not None
     _write_ingest_status(
         started_at=1000.0,
@@ -330,9 +328,7 @@ def test_read_last_ingest_run() -> None:
 
 def test_read_last_ingest_failed() -> None:
     """read_last_ingest_failed returns failed tasks from Redis for latest run (fakeredis)."""
-    run_id = _create_ingest_run(
-        started_at=1000.0, embedding_backend="openai_api", total_tasks=5
-    )
+    run_id = _create_ingest_run(started_at=1000.0, embedding_backend="openai_api", total_tasks=5)
     assert run_id is not None
     _append_failed_to_cache(
         run_id,
@@ -361,9 +357,7 @@ def test_read_last_ingest_failed() -> None:
 
 def test_failed_tasks_written_to_cache_before_run_completes() -> None:
     """Errors are written to Redis as they occur; read_last_ingest_failed returns them (fakeredis)."""
-    run_id = _create_ingest_run(
-        started_at=1000.0, embedding_backend="openai_api", total_tasks=5
-    )
+    run_id = _create_ingest_run(started_at=1000.0, embedding_backend="openai_api", total_tasks=5)
     assert run_id is not None
     _append_failed_to_cache(
         run_id,

@@ -11,8 +11,9 @@ _use_sqlite = patch("onec_help.mcp_metrics._use_redis", return_value=False)
 
 def test_get_metrics_empty_when_no_db() -> None:
     """get_metrics returns total=0, last_hour=0 when DB does not exist."""
-    with _use_sqlite, patch(
-        "onec_help.mcp_metrics._metrics_db_path", return_value="/nonexistent/mcp_metrics.db"
+    with (
+        _use_sqlite,
+        patch("onec_help.mcp_metrics._metrics_db_path", return_value="/nonexistent/mcp_metrics.db"),
     ):
         m = get_metrics()
     assert m["total"] == 0

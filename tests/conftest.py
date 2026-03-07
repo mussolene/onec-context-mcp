@@ -127,14 +127,18 @@ def redis_mock_for_ingest(request):
         return
     try:
         import fakeredis
+
         client = fakeredis.FakeRedis(decode_responses=True)
     except ImportError:
         # Fallback: minimal in-memory Redis mock (dict-based) so tests don't require fakeredis
         from unittest.mock import MagicMock
+
         storage = {}
         client = MagicMock()
+
         def hgetall(key):
             return storage.get(key, {})
+
         def hset(key, key_or_map=None, value=None, mapping=None):
             if key not in storage:
                 storage[key] = {}
@@ -142,27 +146,36 @@ def redis_mock_for_ingest(request):
                 storage[key].update(mapping)
             elif key_or_map is not None and value is not None:
                 storage[key][key_or_map] = value
+
         def get(key):
             return storage.get(key)
+
         def set(key, value, ex=None):
             storage[key] = value
+
         def delete(*keys):
             for k in keys:
                 storage.pop(k, None)
+
         def lpush(key, *values):
             storage.setdefault(key, []).insert(0, *reversed(values))
+
         def ltrim(key, start, end):
-            storage[key] = (storage.get(key) or [])[start:end + 1]
+            storage[key] = (storage.get(key) or [])[start : end + 1]
+
         def lrange(key, start, end):
             L = storage.get(key) or []
             if end == -1:
                 end = len(L)
-            return L[start:end + 1]
+            return L[start : end + 1]
+
         def rpush(key, *values):
             storage.setdefault(key, []).extend(values)
+
         def incr(key):
             storage[key] = int(storage.get(key) or 0) + 1
             return storage[key]
+
         client.hgetall.side_effect = hgetall
         client.hset.side_effect = hset
         client.get.side_effect = get

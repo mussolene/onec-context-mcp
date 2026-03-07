@@ -11,9 +11,9 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from . import redis_cache
 from ._utils import safe_error_message
 from .ingest import _ingest_cache_path, collect_hbk_tasks, discover_version_dirs
-from . import redis_cache
 
 _STANDARDS_EXT = frozenset({".md"})
 _SNIPPETS_EXT = frozenset({".json", ".bsl", ".1c", ".md"})
@@ -339,7 +339,7 @@ def _run_ingest() -> bool:
         _append_ingest_run_log(
             -1,
             b"",
-            f"[watchdog] ingest timeout ({timeout_sec}s)\n".encode("utf-8"),
+            f"[watchdog] ingest timeout ({timeout_sec}s)\n".encode(),
         )
         print(
             f"[watchdog] ingest failed: timeout ({timeout_sec}s), will retry on next poll",

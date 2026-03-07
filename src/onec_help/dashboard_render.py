@@ -30,7 +30,11 @@ def render_dashboard(data: dict[str, Any]) -> Any:
         est_pts = ingest.get("estimated_total_points")
         eta = ""
         eta_sec_from_ingest = ingest.get("eta_sec")
-        if eta_sec_from_ingest is not None and isinstance(eta_sec_from_ingest, (int, float)) and eta_sec_from_ingest >= 0:
+        if (
+            eta_sec_from_ingest is not None
+            and isinstance(eta_sec_from_ingest, (int, float))
+            and eta_sec_from_ingest >= 0
+        ):
             eta = f", ETA {format_duration(eta_sec_from_ingest)}"
         elif done and total and done < total and elapsed:
             try:
@@ -44,7 +48,9 @@ def render_dashboard(data: dict[str, Any]) -> Any:
             pts_str = f", {pts_so_far} pts" if pts_so_far > 0 else ""
             if est_pts is not None and est_pts > 0:
                 pts_str += f" (est. ~{est_pts})"
-        ingest_line = f"Ingest: in progress {done}/{total}{pts_str}{eta} ({format_duration(elapsed)} elapsed)"
+        ingest_line = (
+            f"Ingest: in progress {done}/{total}{pts_str}{eta} ({format_duration(elapsed)} elapsed)"
+        )
         last_batch = ingest.get("last_batch_sec")
         if last_batch is not None and isinstance(last_batch, (int, float)) and last_batch > 0:
             ingest_line += f"  │  Last batch: {last_batch}s"
@@ -78,25 +84,27 @@ def render_dashboard(data: dict[str, Any]) -> Any:
         if standards_loading and standards_pts and standards_pts.get("phase") != "parsing":
             tot_s = standards_pts.get("total") or 0
             if tot_s > 0:
-                workers.append({
-                    "label": "Standards — embed → Qdrant",
-                    "pts": standards_pts.get("loaded", 0),
-                    "total": tot_s,
-                })
+                workers.append(
+                    {
+                        "label": "Standards — embed → Qdrant",
+                        "pts": standards_pts.get("loaded", 0),
+                        "total": tot_s,
+                    }
+                )
         snippets_loading = data.get("snippets_loading")
         snippets_pts = data.get("snippets_loading_pts")
         if snippets_loading and snippets_pts and snippets_pts.get("phase") != "parsing":
             tot_sn = snippets_pts.get("total") or 0
             if tot_sn > 0:
-                workers.append({
-                    "label": "Snippets — embed → Qdrant",
-                    "pts": snippets_pts.get("loaded", 0),
-                    "total": tot_sn,
-                })
+                workers.append(
+                    {
+                        "label": "Snippets — embed → Qdrant",
+                        "pts": snippets_pts.get("loaded", 0),
+                        "total": tot_sn,
+                    }
+                )
         if workers:
-            tasks_parts.append(
-                Text(f"  Workers: {len(workers)} (ingest, standards, snippets)\n")
-            )
+            tasks_parts.append(Text(f"  Workers: {len(workers)} (ingest, standards, snippets)\n"))
             for idx, w in enumerate(workers):
                 i = idx + 1
                 pts_val = w.get("pts")
@@ -115,7 +123,9 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 if total_val is not None and total_val > 0:
                     bar_table.add_row(
                         Text(f"[{i}]"),
-                        ProgressBar(total=float(total_val), completed=float(pts_val or 0), width=28),
+                        ProgressBar(
+                            total=float(total_val), completed=float(pts_val or 0), width=28
+                        ),
                     )
             if bar_table.row_count > 0:
                 tasks_parts.append(bar_table)
@@ -144,26 +154,32 @@ def render_dashboard(data: dict[str, Any]) -> Any:
     snippets_loading = data.get("snippets_loading")
     snippets_pts = data.get("snippets_loading_pts")
     snippets = data.get("snippets")
-    if not (ingest and ingest.get("status") == "in_progress") and (standards_loading or snippets_loading):
+    if not (ingest and ingest.get("status") == "in_progress") and (
+        standards_loading or snippets_loading
+    ):
         workers_extra: list[dict[str, Any]] = []
         if standards_loading and standards_pts and standards_pts.get("phase") != "parsing":
             tot_s = standards_pts.get("total") or 0
             if tot_s > 0:
-                workers_extra.append({
-                    "label": "Standards — embed → Qdrant",
-                    "pts": standards_pts.get("loaded", 0),
-                    "total": tot_s,
-                })
+                workers_extra.append(
+                    {
+                        "label": "Standards — embed → Qdrant",
+                        "pts": standards_pts.get("loaded", 0),
+                        "total": tot_s,
+                    }
+                )
         elif standards_loading:
             workers_extra.append({"label": "Standards — parsing", "pts": None, "total": None})
         if snippets_loading and snippets_pts and snippets_pts.get("phase") != "parsing":
             tot_sn = snippets_pts.get("total") or 0
             if tot_sn > 0:
-                workers_extra.append({
-                    "label": "Snippets — embed → Qdrant",
-                    "pts": snippets_pts.get("loaded", 0),
-                    "total": tot_sn,
-                })
+                workers_extra.append(
+                    {
+                        "label": "Snippets — embed → Qdrant",
+                        "pts": snippets_pts.get("loaded", 0),
+                        "total": tot_sn,
+                    }
+                )
         elif snippets_loading:
             workers_extra.append({"label": "Snippets — parsing", "pts": None, "total": None})
         if workers_extra:
@@ -186,7 +202,9 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 if total_val is not None and total_val > 0:
                     bar_table_extra.add_row(
                         Text(f"[{i}]"),
-                        ProgressBar(total=float(total_val), completed=float(pts_val or 0), width=28),
+                        ProgressBar(
+                            total=float(total_val), completed=float(pts_val or 0), width=28
+                        ),
                     )
             if bar_table_extra.row_count > 0:
                 tasks_parts.append(bar_table_extra)
@@ -198,7 +216,9 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 items = snippets.get("items_loaded")
                 tasks_parts.append(
                     Text(
-                        f"\nSnippets: last run, {items} items" if items is not None else "\nSnippets: last run"
+                        f"\nSnippets: last run, {items} items"
+                        if items is not None
+                        else "\nSnippets: last run"
                     )
                 )
             else:
@@ -264,12 +284,14 @@ def render_dashboard(data: dict[str, Any]) -> Any:
         db_table.add_column("Indexed vectors")
         db_table.add_column("Segments")
         db_table.add_column("BM25")
+        db_table.add_column("Status")
         for c in collections:
             name = c.get("name") or "—"
             pts = c.get("points_count")
             vecs = c.get("indexed_vectors_count")
             segs = c.get("segments_count")
             bm25 = c.get("bm25")
+            status = c.get("status") or "—"
             bm25_str = "yes" if bm25 else "no"
             db_table.add_row(
                 name,
@@ -277,11 +299,27 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 str(vecs) if vecs is not None else "—",
                 str(segs) if segs is not None else "—",
                 bm25_str,
+                str(status),
             )
         db_parts = [
             db_table,
-            Text("[dim]Points ≈ stored count (Qdrant API); Indexed vectors = in search index; can differ. BM25 = sparse vector text-bm25.[/dim]"),
+            Text(
+                "[dim]Points ≈ stored count (Qdrant API); Indexed vectors = in search index; can differ. BM25 = sparse vector text-bm25.[/dim]"
+            ),
         ]
+        # When BM25 is present, indexed_vectors_count often stays = points until optimizer builds sparse index (then ~2×)
+        if any(
+            c.get("bm25")
+            and c.get("indexed_vectors_count") is not None
+            and c.get("points_count")
+            and c.get("indexed_vectors_count") == c.get("points_count")
+            for c in collections
+        ):
+            db_parts.append(
+                Text(
+                    "[dim]Indexed = Points for BM25 collection: sparse index may not be built yet (optimizer async). Status yellow = optimizing; grey = trigger in Qdrant Web UI. Expect ~2× when done.[/dim]"
+                )
+            )
         bm25_vocab = data.get("bm25_vocab") or {}
         if bm25_vocab:
             vocab_lines = [
@@ -290,7 +328,11 @@ def render_dashboard(data: dict[str, Any]) -> Any:
             ]
             db_parts.append(Text("\n".join(vocab_lines)))
         if standards_loading_db or snippets_loading_db:
-            db_parts.append(Text("[dim]Updating: standards/snippets → onec_help_memory (progress in Tasks)[/dim]"))
+            db_parts.append(
+                Text(
+                    "[dim]Updating: standards/snippets → onec_help_memory (progress in Tasks)[/dim]"
+                )
+            )
         # onec_help_memory = standards + snippets + save_1c_snippet; pts may be less than sum of sources until load completes
         for c in collections or []:
             if (c.get("name") or "").strip() == "onec_help_memory":
@@ -331,7 +373,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
         mcp_line += f"  │  Max response: {format_duration(max_sec)}"
     if errors_total > 0:
         mcp_line += f"  │  Errors: {errors_total}"
-    mcp_content: Any = Text(mcp_line)
+    mcp_content = Text(mcp_line)
     if errors_recent:
         mcp_content = Group(
             mcp_content,
@@ -342,85 +384,14 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 for e in errors_recent[:5]
             ],
         )
+    if total == 0 and last_hour == 0:
+        mcp_content = Group(
+            mcp_content,
+            Text(""),
+            Text(
+                "[dim]0 requests — call an MCP tool from Cursor (e.g. get_1c_help_index_status). Same REDIS_URL for MCP and dashboard (Docker: redis://redis:6379/0).[/dim]"
+            ),
+        )
     panels.append(Panel(mcp_content, title="[bold]MCP requests[/bold]", border_style="cyan"))
 
     return Group(*panels)
-
-
-def render_dashboard_compact(data: dict[str, Any], *, spinner: str = "") -> str:
-    """Single-line summary from dashboard data. Caller checks index_status.error first."""
-    parts: list[str] = []
-    prefix = f"{spinner} dashboard".strip() if spinner else "dashboard"
-
-    collections = data.get("collections") or []
-    index_status = data.get("index_status") or {}
-    if collections:
-        total_pts = sum(
-            p
-            for c in collections
-            if (p := c.get("points_count")) is not None and isinstance(p, int)
-        )
-        for c in collections:
-            parts.append(f"{c.get('name', '?')}:{c.get('points_count', '—')} pts")
-        if total_pts > 0 and len(collections) > 1:
-            parts.append(f"total:{total_pts}")
-        versions = index_status.get("versions") or []
-        if versions:
-            ver_str = ",".join(versions[:5])
-            if len(versions) > 5:
-                ver_str += f"+{len(versions) - 5}"
-            parts.append(f"1C: {ver_str}")
-        storage_mb = data.get("storage_path_mb")
-        if storage_mb is not None:
-            parts.append(f"DB:{storage_mb}MB")
-
-    ingest = data.get("ingest")
-    ingest_last = data.get("ingest_last_run")
-    if ingest and ingest.get("status") == "in_progress":
-        done = ingest.get("done_tasks") or 0
-        total = ingest.get("total_tasks") or 0
-        elapsed = ingest.get("elapsed_sec")
-        ing = f"Ingest ⟳ {done}/{total} tasks"
-        if elapsed is not None:
-            ing += f" elapsed {format_duration(elapsed)}"
-        parts.append(ing)
-    elif ingest_last:
-        done = ingest_last.get("done_tasks") or 0
-        total = ingest_last.get("total_tasks") or 0
-        failed = ingest_last.get("failed_count") or 0
-        elapsed = ingest_last.get("total_elapsed_sec")
-        parts.append(f"Ingest ✓ {format_duration(elapsed)}" if elapsed else "Ingest ✓ done")
-        if failed:
-            parts.append(f"{failed} failed")
-    else:
-        parts.append("Ingest: no data")
-
-    failed_tasks = data.get("failed_tasks") or []
-    total_err = (data.get("ingest_last_run") or {}).get("failed_count") or len(failed_tasks)
-    if total_err > 0 and failed_tasks:
-        err0 = (failed_tasks[0].get("error") or "")[:80]
-        if len(failed_tasks[0].get("error") or "") > 80:
-            err0 += "…"
-        parts.append(f"Failed: {total_err} {err0}")
-
-    std_pts = data.get("standards_loading_pts")
-    if data.get("standards_loading"):
-        parts.append(
-            f"Standards: loading {std_pts.get('loaded', 0)}/{std_pts.get('total', 0)} pts"
-            if std_pts
-            else "Standards: loading…"
-        )
-    snip_pts = data.get("snippets_loading_pts")
-    if data.get("snippets_loading"):
-        parts.append(
-            f"Snippets: loading {snip_pts.get('loaded', 0)}/{snip_pts.get('total', 0)} pts"
-            if snip_pts
-            else "Snippets: loading…"
-        )
-
-    snippets = data.get("snippets")
-    if snippets:
-        items = snippets.get("items_loaded")
-        parts.append(f"Snippets ✓ {items} items" if items is not None else "Snippets ✓")
-
-    return f"{prefix} │ {' │ '.join(parts)}\n"

@@ -1198,8 +1198,17 @@ def cmd_reinit(args: argparse.Namespace) -> int:
     return 1 if any(r != 0 for r in results) else 0
 
 
+def _bm25_vocab_dir() -> Path:
+    """Path to data/bm25_vocab (for backup/restore)."""
+    d = Path(env_config.get_data_dir())
+    if not d.is_absolute():
+        d = Path.cwd() / d
+    return d.resolve() / "bm25_vocab"
+
+
 def cmd_qdrant_backup(args: argparse.Namespace) -> int:
-    """Создать снапшот коллекции и сохранить в data/backup/."""
+    """Создать снапшот коллекции и сохранить в data/backup/; копировать BM25 vocab."""
+    import shutil
     import urllib.request
     from datetime import datetime
 
@@ -1231,6 +1240,14 @@ def cmd_qdrant_backup(args: argparse.Namespace) -> int:
         with urllib.request.urlopen(req, timeout=600) as resp:
             out_path.write_bytes(resp.read())
 
+        # 3. Copy BM25 vocab (for keyword search after restore)
+        vocab_src = _bm25_vocab_dir()
+        vocab_dst = out_dir / "bm25_vocab"
+        if vocab_src.is_dir():
+            if vocab_dst.exists():
+                shutil.rmtree(vocab_dst)
+            shutil.copytree(vocab_src, vocab_dst)
+            print(f"BM25 vocab copied: {vocab_dst}")
         print(f"Backup saved: {out_path}")
         return 0
     except Exception as e:
@@ -1239,7 +1256,8 @@ def cmd_qdrant_backup(args: argparse.Namespace) -> int:
 
 
 def cmd_qdrant_restore(args: argparse.Namespace) -> int:
-    """Восстановить коллекцию из снапшота."""
+    """Восстановить коллекцию из снапшота и BM25 vocab при наличии."""
+    import shutil
     import urllib.request
 
     host = env_config.get_qdrant_host()
@@ -1280,6 +1298,15 @@ def cmd_qdrant_restore(args: argparse.Namespace) -> int:
         with urllib.request.urlopen(req, timeout=600) as resp:
             json.loads(resp.read().decode())
 
+        # Restore BM25 vocab if present in backup
+        vocab_src = backup_dir / "bm25_vocab"
+        vocab_dst = _bm25_vocab_dir()
+        if vocab_src.is_dir():
+            vocab_dst.parent.mkdir(parents=True, exist_ok=True)
+            if vocab_dst.exists():
+                shutil.rmtree(vocab_dst)
+            shutil.copytree(vocab_src, vocab_dst)
+            print(f"BM25 vocab restored: {vocab_dst}")
         print(f"Restored from {snap_path}")
         return 0
     except Exception as e:
@@ -1435,7 +1462,7 @@ def main() -> int:
     # add-bm25
     p_add_bm25 = sub.add_parser(
         "add-bm25",
-        help="Add BM25 sparse vectors to all collections that lack it (no re-ingest, no re-embedding)",
+        help="Add BM25 sparse vectors to all collections (clears bm25_vocab and existing BM25, then adds)",
     )
     p_add_bm25.set_defaults(func=cmd_add_bm25)
 

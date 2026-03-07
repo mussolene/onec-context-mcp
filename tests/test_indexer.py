@@ -27,7 +27,6 @@ from onec_help.indexer import (
     get_topic_by_path,
     get_topic_content,
     get_topic_from_index,
-    get_topic_metadata,
     list_index_nav_items,
     list_index_titles,
     search_hybrid,
@@ -372,9 +371,16 @@ def test_get_all_collections_status(mock_client: MagicMock) -> None:
             SimpleNamespace(name="onec_help_memory"),
         ]
     )
+    # get_collection is called once per collection in the loop and once per collection in _collection_has_sparse (4 calls total)
     mock_instance.get_collection.side_effect = [
-        MagicMock(points_count=100, indexed_vectors_count=100, segments_count=2),
-        MagicMock(points_count=50, indexed_vectors_count=50, segments_count=1),
+        MagicMock(points_count=100, indexed_vectors_count=100, segments_count=2, status="green"),
+        MagicMock(
+            config=MagicMock(params=MagicMock(sparse_vectors={"text-bm25": None}))
+        ),  # _collection_has_sparse(onec_help)
+        MagicMock(points_count=50, indexed_vectors_count=50, segments_count=1, status="green"),
+        MagicMock(
+            config=MagicMock(params=MagicMock(sparse_vectors={}))
+        ),  # _collection_has_sparse(onec_help_memory)
     ]
     result = get_all_collections_status(qdrant_host="localhost", qdrant_port=6333)
     assert len(result) == 2
@@ -382,8 +388,10 @@ def test_get_all_collections_status(mock_client: MagicMock) -> None:
     assert result[0]["points_count"] == 100
     assert result[0]["indexed_vectors_count"] == 100
     assert result[0]["segments_count"] == 2
+    assert result[0]["status"] == "green"
     assert result[1]["name"] == "onec_help_memory"
     assert result[1]["points_count"] == 50
+    assert result[1]["indexed_vectors_count"] == 50
 
 
 @patch("onec_help.indexer.QdrantClient", None)
@@ -1009,82 +1017,6 @@ def test_apply_outgoing_links_substitutes_and_appends_section() -> None:
     assert "new/path.md" in out
     assert "Связанные темы" in out
     assert "- [New](new/path.md)" in out
-
-
-def test_get_topic_metadata_no_qdrant_returns_defaults() -> None:
-    """get_topic_metadata returns default dict when Filter/FieldCondition/MatchValue unavailable."""
-    with patch.object(indexer_mod, "Filter", None):
-        out = get_topic_metadata("doc.md", qdrant_host="localhost", qdrant_port=6333)
-    assert out["breadcrumb"] == []
-    assert out["outgoing_links"] == []
-    assert out["entity_type"] == "topic"
-    assert out["hbk_slug"] == ""
-
-
-@patch("onec_help.indexer.QdrantClient")
-def test_get_topic_metadata_returns_payload_fields(mock_client: MagicMock) -> None:
-    """get_topic_metadata returns breadcrumb, outgoing_links, entity_type, hbk_slug from scroll."""
-    mock_instance = MagicMock()
-    mock_client.return_value = mock_instance
-    mock_instance.scroll.return_value = (
-        [
-            MagicMock(
-                payload={
-                    "path": "doc.md",
-                    "breadcrumb": ["Справка", "Типы"],
-                    "outgoing_links": [{"href": "a.html", "resolved_path": "a.md"}],
-                    "entity_type": "topic",
-                    "hbk_slug": "doc",
-                }
-            )
-        ],
-        None,
-    )
-    out = get_topic_metadata("doc.md", qdrant_host="localhost", qdrant_port=6333)
-    assert out["breadcrumb"] == ["Справка", "Типы"]
-    assert len(out["outgoing_links"]) == 1
-    assert out["entity_type"] == "topic"
-    assert out["hbk_slug"] == "doc"
-
-
-@patch("onec_help.indexer.QdrantClient")
-def test_get_topic_metadata_no_match_returns_defaults(mock_client: MagicMock) -> None:
-    """get_topic_metadata returns default dict when no point matches."""
-    mock_instance = MagicMock()
-    mock_client.return_value = mock_instance
-    mock_instance.scroll.return_value = ([], None)
-    out = get_topic_metadata("missing.md", qdrant_host="localhost", qdrant_port=6333)
-    assert out["breadcrumb"] == []
-    assert out["outgoing_links"] == []
-    assert out["entity_type"] == "topic"
-    assert out["hbk_slug"] == ""
-
-
-@patch("onec_help.indexer.QdrantClient")
-def test_get_topic_metadata_fallback_suffix_match(mock_client: MagicMock) -> None:
-    """get_topic_metadata fallback: scroll without filter finds point by path suffix."""
-    mock_instance = MagicMock()
-    mock_client.return_value = mock_instance
-    mock_instance.scroll.side_effect = [
-        ([], None),
-        (
-            [
-                MagicMock(
-                    payload={
-                        "path": "8.3/ru/doc.md",
-                        "breadcrumb": ["A", "B"],
-                        "outgoing_links": [],
-                        "entity_type": "topic",
-                        "hbk_slug": "doc",
-                    }
-                )
-            ],
-            None,
-        ),
-    ]
-    out = get_topic_metadata("doc.md", qdrant_host="localhost", qdrant_port=6333)
-    assert out["breadcrumb"] == ["A", "B"]
-    assert out["hbk_slug"] == "doc"
 
 
 @patch("onec_help.indexer.QdrantClient")

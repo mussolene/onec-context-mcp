@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import time
 from pathlib import Path
 from typing import Any
 
@@ -99,9 +98,7 @@ def record_snippets_run(
 ) -> None:
     """Record snippets load run for dashboard."""
     try:
-        redis_cache.snippets_run_record(
-            files_processed, files_skipped, items_loaded, started_at
-        )
+        redis_cache.snippets_run_record(files_processed, files_skipped, items_loaded, started_at)
     except Exception:
         pass
 

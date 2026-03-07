@@ -11,7 +11,8 @@ import json
 import logging
 import os
 import time
-from typing import Any, Iterator
+from collections.abc import Iterator
+from typing import Any
 
 _LOG = logging.getLogger(__name__)
 
@@ -51,7 +52,13 @@ class _NoOpRedis:
     def hgetall(self, name: str) -> dict[str, str]:
         return {}
 
-    def hset(self, name: str, key: str | None = None, value: str | None = None, mapping: dict | None = None) -> None:
+    def hset(
+        self,
+        name: str,
+        key: str | None = None,
+        value: str | None = None,
+        mapping: dict | None = None,
+    ) -> None:
         pass
 
     def delete(self, *keys: str) -> None:
@@ -326,7 +333,9 @@ def ingest_run_append_failed(
     try:
         r = get_redis()
         key = f"{_INGEST_FAILED_PREFIX}{run_id}"
-        item = json.dumps({"version": version, "language": language, "path": path, "error": error[:500]})
+        item = json.dumps(
+            {"version": version, "language": language, "path": path, "error": error[:500]}
+        )
         r.rpush(key, item)
     except Exception as e:
         _LOG.debug("ingest_run_append_failed: %s", e)

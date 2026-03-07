@@ -1,6 +1,6 @@
 """Tests for dashboard_render.render_dashboard()."""
 
-from onec_help.dashboard_render import render_dashboard, render_dashboard_compact
+from onec_help.dashboard_render import render_dashboard
 
 
 def test_render_dashboard_returns_rich_group() -> None:
@@ -298,48 +298,6 @@ def test_render_dashboard_errors_placeholder_no_details() -> None:
     assert "re-run" in out or "3" in out
 
 
-def test_render_dashboard_compact_versions_storage_in_progress() -> None:
-    """render_dashboard_compact includes versions, storage, in_progress, snippets."""
-    data = {
-        "collections": [
-            {"name": "onec_help", "points_count": 50},
-            {"name": "memory", "points_count": 30},
-        ],
-        "index_status": {"versions": ["8.3", "8.2", "8.1"], "languages": ["ru"]},
-        "ingest": {"status": "in_progress", "done_tasks": 2, "total_tasks": 5, "elapsed_sec": 10},
-        "ingest_last_run": None,
-        "failed_tasks": [],
-        "snippets": {"items_loaded": 100},
-        "standards_loading": True,
-        "snippets_loading": False,
-        "storage_path_mb": 5.0,
-    }
-    out = render_dashboard_compact(data)
-    assert "dashboard" in out
-    assert "50" in out and "30" in out
-    assert "5.0" in out or "5" in out
-    assert "Ingest" in out and "2/5" in out
-    assert "Standards: loading" in out
-    assert "Snippets" in out and "100" in out
-
-
-def test_render_dashboard_compact_failed_long_error() -> None:
-    """render_dashboard_compact truncates long error to 80 chars."""
-    data = {
-        "collections": [],
-        "index_status": {},
-        "ingest": None,
-        "ingest_last_run": {"failed_count": 1},
-        "failed_tasks": [{"error": "a" * 100}],
-        "snippets": None,
-        "standards_loading": False,
-        "snippets_loading": False,
-    }
-    out = render_dashboard_compact(data)
-    assert "Failed" in out
-    assert "…" in out or "a" in out
-
-
 def test_render_dashboard_versions_truncate_more_than_15() -> None:
     """Database panel shows versions truncated to 15 with '… +N' when more than 15."""
     from rich.console import Console
@@ -367,20 +325,3 @@ def test_render_dashboard_versions_truncate_more_than_15() -> None:
     out = cap.get()
     assert "8.3.0" in out
     assert "+5" in out or "…" in out
-
-
-def test_render_dashboard_compact_versions_more_than_five() -> None:
-    """render_dashboard_compact truncates versions to 5 and appends +N."""
-    data = {
-        "collections": [{"name": "c", "points_count": 1}],
-        "index_status": {"versions": ["v1", "v2", "v3", "v4", "v5", "v6", "v7"]},
-        "ingest": None,
-        "ingest_last_run": None,
-        "failed_tasks": [],
-        "snippets": None,
-        "standards_loading": False,
-        "snippets_loading": False,
-    }
-    out = render_dashboard_compact(data)
-    assert "1C:" in out
-    assert "+2" in out or "v7" in out

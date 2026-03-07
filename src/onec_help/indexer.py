@@ -17,6 +17,7 @@ try:
         MatchAny,
         MatchValue,
         Modifier,
+        OptimizersConfigDiff,
         PointStruct,
         SparseVector,
         SparseVectorParams,
@@ -31,6 +32,7 @@ except ImportError:
     Filter = None  # type: ignore
     MatchAny = None  # type: ignore
     MatchValue = None  # type: ignore
+    OptimizersConfigDiff = None  # type: ignore
     SparseVector = None  # type: ignore
     SparseVectorParams = None  # type: ignore
     Modifier = None  # type: ignore
@@ -406,10 +408,16 @@ def build_index(
                 items.append((rel_str, text, title, point_index, outgoing_links))
         if not items:
             continue
-        def _embed_progress(done_in_batch: int, total_in_batch: int) -> None:
+
+        def _embed_progress(
+            done_in_batch: int,
+            total_in_batch: int,
+            _total: int = total,
+            _est: int = total_estimated,
+        ) -> None:
             if progress_callback and callable(progress_callback):
                 try:
-                    progress_callback(total + done_in_batch, "embedding", total_estimated)
+                    progress_callback(_total + done_in_batch, "embedding", _est)
                 except (TypeError, Exception):
                     pass
 
@@ -632,6 +640,16 @@ def _collection_info_int(info: Any, *keys: str) -> int:
     return 0
 
 
+def _collection_status_str(info: Any) -> str | None:
+    """Get collection status (green/yellow/grey/red) for dashboard."""
+    v = getattr(info, "status", None)
+    if v is None and isinstance(info, dict):
+        v = info.get("status")
+    if v is not None and isinstance(v, str):
+        return v
+    return None
+
+
 def get_all_collections_status(
     qdrant_host: str | None = None,
     qdrant_port: int | None = None,
@@ -668,6 +686,7 @@ def get_all_collections_status(
                 )
                 segs = _collection_info_int(info, "segments_count", "segmentsCount")
                 has_bm25 = _collection_has_sparse(client, name)
+                status_str = _collection_status_str(info)
                 result.append(
                     {
                         "name": name,
@@ -675,6 +694,7 @@ def get_all_collections_status(
                         "indexed_vectors_count": vecs,
                         "segments_count": segs,
                         "bm25": has_bm25,
+                        "status": status_str,
                     }
                 )
             except Exception:
@@ -685,6 +705,7 @@ def get_all_collections_status(
                         "indexed_vectors_count": None,
                         "segments_count": None,
                         "bm25": False,
+                        "status": None,
                     }
                 )
     except Exception as e:
@@ -754,7 +775,7 @@ def add_bm25_to_collection(
         raise RuntimeError(f"Collection {collection} does not exist. Run ingest first.")
 
     if _collection_has_sparse(client, collection):
-        # Collection has BM25; save vocab to host (e.g. after mounting data/bm25_vocab)
+        # Collection already has BM25; only save vocab to host
         points: list[Any] = []
         offset = None
         while True:
@@ -785,7 +806,7 @@ def add_bm25_to_collection(
         return getattr(client.get_collection(collection), "points_count", 0) or 0
 
     # Scroll all points
-    points: list[Any] = []
+    points = []
     offset = None
     while True:
         res, next_offset = client.scroll(
@@ -824,8 +845,6 @@ def add_bm25_to_collection(
 
     vectors_bm25, vocab, doc_freq = build_bm25_vectors(texts)
     N = len(texts)
-
-    # Save vocab for search
     vocab_path = bm25_vocab_path(collection)
     save_vocab(vocab_path, vocab, doc_freq, N)
 
@@ -835,15 +854,16 @@ def add_bm25_to_collection(
             dim = len(d)
             break
     sparse_config = {SPARSE_VECTOR_NAME: SparseVectorParams(modifier=Modifier.IDF)}
-
-    # Recreate collection with dense + sparse
+    optimizers = (
+        OptimizersConfigDiff(indexing_threshold=1) if OptimizersConfigDiff is not None else None
+    )
     client.recreate_collection(
         collection_name=collection,
         vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
         sparse_vectors_config=sparse_config,
+        optimizers_config=optimizers,
     )
 
-    # Upsert in batches
     for i in range(0, len(points), batch_size):
         batch_ids = ids[i : i + batch_size]
         batch_payloads = payloads[i : i + batch_size]
@@ -872,18 +892,91 @@ def add_bm25_to_collection(
     return len(points)
 
 
+def _remove_bm25_from_collection(
+    client: Any,
+    collection: str,
+    batch_size: int,
+    verbose: bool,
+) -> None:
+    """Remove sparse (BM25) from collection: scroll all, recreate dense-only, upsert."""
+    from . import embedding
+
+    points = []
+    offset = None
+    while True:
+        res, next_offset = client.scroll(
+            collection_name=collection,
+            limit=batch_size,
+            offset=offset,
+            with_payload=True,
+            with_vectors=True,
+        )
+        points.extend(res or [])
+        if next_offset is None:
+            break
+        offset = next_offset
+    if not points:
+        return
+    dim = embedding.get_embedding_dimension()
+    for p in points:
+        vec = getattr(p, "vector", None)
+        if isinstance(vec, dict):
+            vec = vec.get("") or vec.get(None)
+        if isinstance(vec, list) and len(vec) > 0:
+            dim = len(vec)
+            break
+    client.recreate_collection(
+        collection_name=collection,
+        vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
+    )
+    for i in range(0, len(points), batch_size):
+        batch = points[i : i + batch_size]
+        batch_struct = []
+        for p in batch:
+            vec = getattr(p, "vector", None)
+            if isinstance(vec, dict):
+                vec = vec.get("") or vec.get(None)
+            dense = vec if isinstance(vec, list) else []
+            batch_struct.append(
+                PointStruct(
+                    id=getattr(p, "id", 0),
+                    vector=dense,
+                    payload=getattr(p, "payload", None) or {},
+                )
+            )
+        client.upsert(collection_name=collection, points=batch_struct)
+    if verbose:
+        print(f"[add-bm25] {collection}: removed BM25 ({len(points)} points)", file=sys.stderr)
+
+
 def add_bm25_to_all_collections(
     qdrant_host: str | None = None,
     qdrant_port: int | None = None,
     batch_size: int = 200,
     verbose: bool = True,
 ) -> dict[str, int]:
-    """Add BM25 to every collection that has dense vectors but no sparse. Returns {collection: points_migrated}."""
+    """Add BM25 to all collections. Before run: deletes bm25_vocab and removes existing BM25
+    from collections, then adds BM25 to every collection."""
     if QdrantClient is None:
         raise RuntimeError("qdrant-client required for add-bm25")
     host = qdrant_host or env_config.get_qdrant_host()
     port = qdrant_port or env_config.get_qdrant_port()
     client = QdrantClient(host=host, port=port, check_compatibility=False)
+
+    # Delete bm25_vocab files and BM25 indexes (recreate dense-only) before adding
+    base = Path(env_config.get_data_dir())
+    if not base.is_absolute():
+        base = Path.cwd() / base
+    vocab_dir = base.resolve() / "bm25_vocab"
+    if vocab_dir.is_dir():
+        for f in vocab_dir.glob("*.json"):
+            try:
+                f.unlink()
+            except OSError:
+                pass
+        if verbose:
+            print("[add-bm25] Cleared bm25_vocab", file=sys.stderr)
+
     resp = client.get_collections()
     raw_list = getattr(resp, "collections", None) or []
     names = []
@@ -891,12 +984,17 @@ def add_bm25_to_all_collections(
         name = getattr(c, "name", None) or (c.get("name") if isinstance(c, dict) else None) or ""
         if name:
             names.append(name)
-    result: dict[str, int] = {}
+
     for name in names:
         if _collection_has_sparse(client, name):
-            if verbose:
-                print(f"[add-bm25] {name}: already has BM25, skip", file=sys.stderr)
-            continue
+            try:
+                _remove_bm25_from_collection(client, name, batch_size, verbose)
+            except Exception as e:
+                if verbose:
+                    print(f"[add-bm25] {name}: failed to remove BM25 — {e}", file=sys.stderr)
+
+    result: dict[str, int] = {}
+    for name in names:
         try:
             n = add_bm25_to_collection(
                 qdrant_host=host,
@@ -1528,77 +1626,6 @@ def get_topic_content(
         version=version,
         language=language,
     )
-
-
-def get_topic_metadata(
-    topic_path: str,
-    qdrant_host: str | None = None,
-    qdrant_port: int | None = None,
-    collection: str = COLLECTION_NAME,
-    version: str | None = None,
-    language: str | None = None,
-) -> dict[str, Any]:
-    """Return metadata for a topic from Qdrant: breadcrumb, outgoing_links, entity_type, hbk_slug."""
-    out: dict[str, Any] = {
-        "breadcrumb": [],
-        "outgoing_links": [],
-        "entity_type": "topic",
-        "hbk_slug": "",
-    }
-    if QdrantClient is None or Filter is None or FieldCondition is None or MatchValue is None:
-        return out
-    host = qdrant_host or env_config.get_qdrant_host()
-    port = qdrant_port or env_config.get_qdrant_port()
-    topic_path = topic_path.lstrip("/")
-    path_variants = [topic_path]
-    if not topic_path.endswith(".md") and not topic_path.endswith(".html"):
-        path_variants.append(topic_path + ".md")
-        path_variants.append(topic_path + ".html")
-    client = QdrantClient(host=host, port=port, check_compatibility=False)
-    for pv in path_variants:
-        try:
-            must_cond = [FieldCondition(key="path", match=MatchValue(value=pv))]
-            if version:
-                must_cond.append(FieldCondition(key="version", match=MatchValue(value=version)))
-            if language:
-                must_cond.append(FieldCondition(key="language", match=MatchValue(value=language)))
-            res, _ = client.scroll(
-                collection_name=collection,
-                scroll_filter=Filter(must=must_cond),
-                limit=1,
-                with_payload=True,
-                with_vectors=False,
-            )
-            if res and len(res) > 0:
-                payload = getattr(res[0], "payload", None) or {}
-                out["breadcrumb"] = payload.get("breadcrumb") or []
-                out["outgoing_links"] = payload.get("outgoing_links") or []
-                out["entity_type"] = payload.get("entity_type") or "topic"
-                out["hbk_slug"] = payload.get("hbk_slug") or ""
-                return out
-        except Exception:
-            continue
-    # Fallback: match path by suffix (handles version/platform prefix)
-    try:
-        res, _ = client.scroll(
-            collection_name=collection,
-            limit=100,
-            with_payload=True,
-            with_vectors=False,
-        )
-        topic_norm = topic_path.replace("\\", "/")
-        for point in res or []:
-            payload = getattr(point, "payload", None) or {}
-            p = (payload.get("path") or "").replace("\\", "/")
-            if p == topic_norm or p.endswith("/" + topic_norm) or p.endswith(topic_norm):
-                out["breadcrumb"] = payload.get("breadcrumb") or []
-                out["outgoing_links"] = payload.get("outgoing_links") or []
-                out["entity_type"] = payload.get("entity_type") or "topic"
-                out["hbk_slug"] = payload.get("hbk_slug") or ""
-                return out
-    except Exception:
-        pass
-    return out
 
 
 def get_1c_help_related(
