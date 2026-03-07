@@ -139,6 +139,10 @@ docker exec <ingest-worker-container> tail -500 /app/var/ingest_cache/ingest_std
 
 **Логи Docker:** для диагностики «почему не растёт» смотрите логи **Qdrant** (не ingest-worker): `docker logs <qdrant-container> --tail 100`. Ошибок оптимизатора там обычно нет — просто отложенная сборка сегментов. При необходимости уменьшите `indexing_threshold` в конфиге Qdrant или дождитесь следующего цикла оптимизатора.
 
+### 2.9. add-bm25: onec_help failed — timed out
+
+При большом объёме коллекции (десятки тысяч точек) команда **add-bm25** может завершаться с **timed out**: клиент Qdrant даёт ограниченное время на каждый HTTP-запрос (upsert батча). По умолчанию **QDRANT_TIMEOUT=300** (в коде и в docker-compose для mcp). Если таймаут всё ещё срабатывает — задайте в `.env` или в `environment` сервиса mcp значение выше, например `QDRANT_TIMEOUT=600`, затем снова выполните `make add-bm25`.
+
 ---
 
 ## 3. Что делать

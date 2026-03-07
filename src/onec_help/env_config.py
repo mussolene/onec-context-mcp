@@ -64,3 +64,17 @@ def get_qdrant_storage_path() -> str | None:
     """Path to Qdrant storage dir for dashboard (optional)."""
     v = (os.environ.get("QDRANT_STORAGE_PATH") or "").strip()
     return v or None
+
+
+QDRANT_TIMEOUT_DEFAULT = 300
+
+
+def get_qdrant_timeout() -> int:
+    """Timeout in seconds for Qdrant HTTP/gRPC requests. Default 300 (for add-bm25 on large collections)."""
+    v = (os.environ.get("QDRANT_TIMEOUT") or "").strip()
+    if not v:
+        return QDRANT_TIMEOUT_DEFAULT
+    try:
+        return max(5, int(v))
+    except ValueError:
+        return QDRANT_TIMEOUT_DEFAULT

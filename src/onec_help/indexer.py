@@ -770,7 +770,8 @@ def add_bm25_to_collection(
         raise RuntimeError("qdrant-client required for add-bm25")
     host = qdrant_host or env_config.get_qdrant_host()
     port = qdrant_port or env_config.get_qdrant_port()
-    client = QdrantClient(host=host, port=port, check_compatibility=False)
+    timeout = env_config.get_qdrant_timeout()
+    client = QdrantClient(host=host, port=port, timeout=timeout, check_compatibility=False)
     if not client.collection_exists(collection):
         raise RuntimeError(f"Collection {collection} does not exist. Run ingest first.")
 
@@ -961,7 +962,8 @@ def add_bm25_to_all_collections(
         raise RuntimeError("qdrant-client required for add-bm25")
     host = qdrant_host or env_config.get_qdrant_host()
     port = qdrant_port or env_config.get_qdrant_port()
-    client = QdrantClient(host=host, port=port, check_compatibility=False)
+    timeout = env_config.get_qdrant_timeout()
+    client = QdrantClient(host=host, port=port, timeout=timeout, check_compatibility=False)
 
     # Delete bm25_vocab files and BM25 indexes (recreate dense-only) before adding
     base = Path(env_config.get_data_dir())

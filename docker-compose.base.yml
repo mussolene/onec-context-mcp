@@ -34,6 +34,7 @@ services:
       QDRANT_PORT: ${QDRANT_PORT:-6333}
       QDRANT_COLLECTION: ${QDRANT_COLLECTION:-onec_help}
       QDRANT_STORAGE_PATH: /qdrant_storage
+      QDRANT_TIMEOUT: ${QDRANT_TIMEOUT:-300}
       # По умолчанию SSE — лучше совместим с Cursor (streamable-http даёт ECONNRESET / tools не видны).
       MCP_TRANSPORT: ${MCP_TRANSPORT:-sse}
       MCP_HOST: ${MCP_HOST:-0.0.0.0}
