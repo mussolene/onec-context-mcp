@@ -667,12 +667,14 @@ def get_all_collections_status(
                     or pts
                 )
                 segs = _collection_info_int(info, "segments_count", "segmentsCount")
+                has_bm25 = _collection_has_sparse(client, name)
                 result.append(
                     {
                         "name": name,
                         "points_count": pts,
                         "indexed_vectors_count": vecs,
                         "segments_count": segs,
+                        "bm25": has_bm25,
                     }
                 )
             except Exception:
@@ -682,6 +684,7 @@ def get_all_collections_status(
                         "points_count": None,
                         "indexed_vectors_count": None,
                         "segments_count": None,
+                        "bm25": False,
                     }
                 )
     except Exception as e:

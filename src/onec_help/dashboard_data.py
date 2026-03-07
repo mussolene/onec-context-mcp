@@ -8,6 +8,7 @@ from typing import Any
 
 from . import env_config
 from .indexer import get_all_collections_status, get_index_status
+from .sparse_bm25 import bm25_vocab_path
 from .ingest import (
     _ingest_cache_path,
     read_ingest_errors_log,
@@ -66,6 +67,25 @@ def _read_load_status(name: str) -> dict[str, Any] | None:
     return None
 
 
+def _bm25_vocab_stats_for_collections(
+    collection_names: list[str],
+) -> dict[str, dict[str, int]]:
+    """Return BM25 vocab stats per collection: { name: { terms, documents } }. Skips missing files."""
+    out: dict[str, dict[str, int]] = {}
+    for name in collection_names or []:
+        path = bm25_vocab_path(name)
+        if not path.is_file():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            vocab = data.get("vocab") or {}
+            N = int(data.get("N") or 0)
+            out[name] = {"terms": len(vocab), "documents": N}
+        except (OSError, json.JSONDecodeError, TypeError):
+            continue
+    return out
+
+
 def _storage_path_mb() -> float | None:
     """DB size in MB from QDRANT_STORAGE_PATH if set and dir exists."""
     path = env_config.get_qdrant_storage_path()
@@ -98,6 +118,8 @@ def get_dashboard_data(
     # Всегда запрашиваем актуальное состояние Qdrant (без кэша, не зависит от ингеста/загрузки)
     index_status = get_index_status(qdrant_host=qdrant_host, qdrant_port=qdrant_port)
     collections = get_all_collections_status(qdrant_host=qdrant_host, qdrant_port=qdrant_port)
+    collection_names = [c.get("name") for c in (collections or []) if c.get("name")]
+    bm25_vocab = _bm25_vocab_stats_for_collections(collection_names)
     snippets_last = read_last_snippets_run()
     standards_loading = _load_marker_exists("standards")
     snippets_loading = _load_marker_exists("snippets")
@@ -119,4 +141,5 @@ def get_dashboard_data(
         "snippets_loading_pts": snippets_loading_pts,
         "storage_path_mb": storage_path_mb,
         "mcp_metrics": mcp_metrics,
+        "bm25_vocab": bm25_vocab,
     }

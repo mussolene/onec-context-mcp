@@ -263,18 +263,32 @@ def render_dashboard(data: dict[str, Any]) -> Any:
         db_table.add_column("Points")
         db_table.add_column("Indexed vectors")
         db_table.add_column("Segments")
+        db_table.add_column("BM25")
         for c in collections:
             name = c.get("name") or "—"
             pts = c.get("points_count")
             vecs = c.get("indexed_vectors_count")
             segs = c.get("segments_count")
+            bm25 = c.get("bm25")
+            bm25_str = "yes" if bm25 else "no"
             db_table.add_row(
                 name,
                 str(pts) if pts is not None else "—",
                 str(vecs) if vecs is not None else "—",
                 str(segs) if segs is not None else "—",
+                bm25_str,
             )
-        db_parts: list[Any] = [db_table]
+        db_parts = [
+            db_table,
+            Text("[dim]Points ≈ stored count (Qdrant API); Indexed vectors = in search index; can differ. BM25 = sparse vector text-bm25.[/dim]"),
+        ]
+        bm25_vocab = data.get("bm25_vocab") or {}
+        if bm25_vocab:
+            vocab_lines = [
+                f"BM25 vocab: {name} — {st.get('terms', 0):,} terms, {st.get('documents', 0):,} docs"
+                for name, st in bm25_vocab.items()
+            ]
+            db_parts.append(Text("\n".join(vocab_lines)))
         if standards_loading_db or snippets_loading_db:
             db_parts.append(Text("[dim]Updating: standards/snippets → onec_help_memory (progress in Tasks)[/dim]"))
         # onec_help_memory = standards + snippets + save_1c_snippet; pts may be less than sum of sources until load completes
