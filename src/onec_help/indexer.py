@@ -411,7 +411,7 @@ def build_index(
 
         def _embed_progress(
             done_in_batch: int,
-            total_in_batch: int,
+            total_in_batch: int,  # used by get_embedding_batch callback signature
             _total: int = total,
             _est: int = total_estimated,
         ) -> None:
@@ -818,9 +818,7 @@ def add_bm25_to_collection(
             if verbose:
                 print(f"[add-bm25] Recovering from {tmp_collection}...", file=sys.stderr)
             try:
-                _recover_add_bm25_swap(
-                    client, collection, tmp_collection, batch_size, verbose
-                )
+                _recover_add_bm25_swap(client, collection, tmp_collection, batch_size, verbose)
             finally:
                 try:
                     marker_path.unlink()
@@ -859,7 +857,11 @@ def add_bm25_to_collection(
         return 0
 
     if verbose:
-        print(f"[add-bm25] Migrating {len(points)} points (safe: tmp first)...", file=sys.stderr, flush=True)
+        print(
+            f"[add-bm25] Migrating {len(points)} points (safe: tmp first)...",
+            file=sys.stderr,
+            flush=True,
+        )
 
     texts = []
     dense_vectors = []

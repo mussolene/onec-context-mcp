@@ -371,9 +371,7 @@ def _build_mcp_app(help_path: Path) -> Any:
 
     mcp = FastMCP("1C Help")
     if _HAS_ERROR_MIDDLEWARE and ErrorHandlingMiddleware is not None:
-        mcp.add_middleware(
-            ErrorHandlingMiddleware(error_callback=_mcp_error_to_redis_callback)
-        )
+        mcp.add_middleware(ErrorHandlingMiddleware(error_callback=_mcp_error_to_redis_callback))
 
     @mcp.tool()
     @_record_mcp_tool

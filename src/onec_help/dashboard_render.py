@@ -5,6 +5,12 @@ from typing import Any
 from ._utils import format_duration
 
 
+def _dim(text: str) -> "Text":
+    """Dimmed text via style (avoids raw [dim] tags when Console markup is disabled, e.g. non-TTY)."""
+    from rich.text import Text
+    return Text(text, style="dim")
+
+
 def render_dashboard(data: dict[str, Any]) -> Any:
     """Build Rich renderable from get_dashboard_data() result. Returns Group of Panels."""
     from rich.console import Group
@@ -73,12 +79,13 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 else (stage or "indexing")[:8]
             )
             label = f"{version}/{lang} — {path} — {stage_label}"
-            workers.append({"label": label, "pts": pts, "total": est})
+            short = f"{version[:10]}/{path[:14]} {stage_label}"
+            workers.append({"label": label, "short": short, "pts": pts, "total": est})
         if not workers:
             pts = ingest.get("current_task_points")
             est = ingest.get("current_task_estimated_total")
             if pts is not None and est is not None and est > 0:
-                workers.append({"label": "Ingest (current)", "pts": pts, "total": est})
+                workers.append({"label": "Ingest (current)", "short": "Ingest (current)", "pts": pts, "total": est})
         standards_loading = data.get("standards_loading")
         standards_pts = data.get("standards_loading_pts")
         if standards_loading and standards_pts and standards_pts.get("phase") != "parsing":
@@ -87,6 +94,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 workers.append(
                     {
                         "label": "Standards — embed → Qdrant",
+                        "short": "Standards → Qdrant",
                         "pts": standards_pts.get("loaded", 0),
                         "total": tot_s,
                     }
@@ -99,38 +107,37 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 workers.append(
                     {
                         "label": "Snippets — embed → Qdrant",
+                        "short": "Snippets → Qdrant",
                         "pts": snippets_pts.get("loaded", 0),
                         "total": tot_sn,
                     }
                 )
         if workers:
-            tasks_parts.append(Text(f"  Workers: {len(workers)} (ingest, standards, snippets)\n"))
+            # One compact table: [#] task (short) | progress bar
+            workers_table = Table(show_header=False, box=None, padding=(0, 1))
+            workers_table.add_column(style="dim", width=4)  # [1]..[10]
+            workers_table.add_column(max_width=38)  # short task label
+            workers_table.add_column(min_width=20, max_width=28)  # bar
             for idx, w in enumerate(workers):
                 i = idx + 1
                 pts_val = w.get("pts")
                 total_val = w.get("total")
+                short = w.get("short") or w["label"]
+                short = short if len(short) <= 38 else (short[:35] + "…")
                 if total_val is not None and total_val > 0:
-                    tasks_parts.append(Text(f"  [{i}] {w['label']} {(pts_val or 0)}/{total_val}\n"))
-                else:
-                    tasks_parts.append(Text(f"  [{i}] {w['label']}\n"))
-            bar_table = Table(show_header=False, box=None, padding=(0, 1))
-            bar_table.add_column(style="dim", width=5)  # [1]..[10]
-            bar_table.add_column(min_width=24, max_width=40)  # progress bar
-            for idx, w in enumerate(workers):
-                i = idx + 1
-                pts_val = w.get("pts")
-                total_val = w.get("total")
-                if total_val is not None and total_val > 0:
-                    bar_table.add_row(
+                    workers_table.add_row(
                         Text(f"[{i}]"),
+                        Text(f"{short} {(pts_val or 0)}/{total_val}"),
                         ProgressBar(
-                            total=float(total_val), completed=float(pts_val or 0), width=28
+                            total=float(total_val), completed=float(pts_val or 0), width=22
                         ),
                     )
-            if bar_table.row_count > 0:
-                tasks_parts.append(bar_table)
+                else:
+                    workers_table.add_row(Text(f"[{i}]"), Text(short), Text("—"))
+            tasks_parts.append(Text(f"  Workers: {len(workers)}\n"))
+            tasks_parts.append(workers_table)
             if current_tasks and len(current_tasks) > 10:
-                tasks_parts.append(Text(f"  … and {len(current_tasks) - 10} more ingest tasks\n"))
+                tasks_parts.append(Text(f"  … +{len(current_tasks) - 10} more\n"))
     elif ingest_last:
         total = ingest_last.get("total_tasks") or 0
         done = ingest_last.get("done_tasks") or 0
@@ -164,50 +171,49 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 workers_extra.append(
                     {
                         "label": "Standards — embed → Qdrant",
+                        "short": "Standards → Qdrant",
                         "pts": standards_pts.get("loaded", 0),
                         "total": tot_s,
                     }
                 )
         elif standards_loading:
-            workers_extra.append({"label": "Standards — parsing", "pts": None, "total": None})
+            workers_extra.append({"label": "Standards — parsing", "short": "Standards parsing", "pts": None, "total": None})
         if snippets_loading and snippets_pts and snippets_pts.get("phase") != "parsing":
             tot_sn = snippets_pts.get("total") or 0
             if tot_sn > 0:
                 workers_extra.append(
                     {
                         "label": "Snippets — embed → Qdrant",
+                        "short": "Snippets → Qdrant",
                         "pts": snippets_pts.get("loaded", 0),
                         "total": tot_sn,
                     }
                 )
         elif snippets_loading:
-            workers_extra.append({"label": "Snippets — parsing", "pts": None, "total": None})
+            workers_extra.append({"label": "Snippets — parsing", "short": "Snippets parsing", "pts": None, "total": None})
         if workers_extra:
-            tasks_parts.append(Text(f"  Workers: {len(workers_extra)} (standards, snippets)\n"))
+            workers_extra_table = Table(show_header=False, box=None, padding=(0, 1))
+            workers_extra_table.add_column(style="dim", width=4)
+            workers_extra_table.add_column(max_width=38)
+            workers_extra_table.add_column(min_width=20, max_width=28)
             for idx, w in enumerate(workers_extra):
                 i = idx + 1
                 pts_val = w.get("pts")
                 total_val = w.get("total")
+                short = w.get("short") or w["label"]
+                short = short if len(short) <= 38 else (short[:35] + "…")
                 if total_val is not None and total_val > 0:
-                    tasks_parts.append(Text(f"  [{i}] {w['label']} {(pts_val or 0)}/{total_val}\n"))
-                else:
-                    tasks_parts.append(Text(f"  [{i}] {w['label']}\n"))
-            bar_table_extra = Table(show_header=False, box=None, padding=(0, 1))
-            bar_table_extra.add_column(style="dim", width=5)
-            bar_table_extra.add_column(min_width=24, max_width=40)
-            for idx, w in enumerate(workers_extra):
-                i = idx + 1
-                pts_val = w.get("pts")
-                total_val = w.get("total")
-                if total_val is not None and total_val > 0:
-                    bar_table_extra.add_row(
+                    workers_extra_table.add_row(
                         Text(f"[{i}]"),
+                        Text(f"{short} {(pts_val or 0)}/{total_val}"),
                         ProgressBar(
-                            total=float(total_val), completed=float(pts_val or 0), width=28
+                            total=float(total_val), completed=float(pts_val or 0), width=22
                         ),
                     )
-            if bar_table_extra.row_count > 0:
-                tasks_parts.append(bar_table_extra)
+                else:
+                    workers_extra_table.add_row(Text(f"[{i}]"), Text(short), Text("—"))
+            tasks_parts.append(Text(f"  Workers: {len(workers_extra)}\n"))
+            tasks_parts.append(workers_extra_table)
     if not (ingest and ingest.get("status") == "in_progress"):
         if not standards_loading:
             tasks_parts.append(Text("\nStandards: no data (watchdog or load-standards)"))
@@ -248,7 +254,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
             )
         err_content: Any = Group(
             err_table,
-            Text("[dim]Ingest errors (Redis). MCP errors → see panel «MCP requests».[/dim]"),
+            _dim("Ingest errors (Redis). MCP errors → see panel «MCP requests»."),
         )
         panels.append(
             Panel(
@@ -270,7 +276,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
         else:
             panels.append(
                 Panel(
-                    "—\n[dim]Ingest only. MCP errors → «MCP requests» or docker compose logs mcp.[/dim]",
+                    Group(Text("—\n"), _dim("Ingest only. MCP errors → «MCP requests» or docker compose logs mcp.")),
                     title="[bold]Errors[/bold]",
                     border_style="dim",
                 )
@@ -309,8 +315,8 @@ def render_dashboard(data: dict[str, Any]) -> Any:
             )
         db_parts = [
             db_table,
-            Text(
-                "[dim]Points ≈ stored count (Qdrant API); Indexed vectors = in search index; can differ. BM25 = sparse vector text-bm25.[/dim]"
+            _dim(
+                "Points ≈ stored count (Qdrant API); Indexed vectors = in search index; can differ. BM25 = sparse vector text-bm25."
             ),
         ]
         # When BM25 is present, indexed_vectors_count often stays = points until optimizer builds sparse index (then ~2×)
@@ -322,8 +328,8 @@ def render_dashboard(data: dict[str, Any]) -> Any:
             for c in collections
         ):
             db_parts.append(
-                Text(
-                    "[dim]Indexed = Points for BM25 collection: sparse index may not be built yet (optimizer async). Status yellow = optimizing; grey = trigger in Qdrant Web UI. Expect ~2× when done.[/dim]"
+                _dim(
+                    "Indexed = Points for BM25 collection: sparse index may not be built yet (optimizer async). Status yellow = optimizing; grey = trigger in Qdrant Web UI. Expect ~2× when done."
                 )
             )
         bm25_vocab = data.get("bm25_vocab") or {}
@@ -335,15 +341,15 @@ def render_dashboard(data: dict[str, Any]) -> Any:
             db_parts.append(Text("\n".join(vocab_lines)))
         if standards_loading_db or snippets_loading_db:
             db_parts.append(
-                Text(
-                    "[dim]Updating: standards/snippets → onec_help_memory (progress in Tasks)[/dim]"
+                _dim(
+                    "Updating: standards/snippets → onec_help_memory (progress in Tasks)"
                 )
             )
         # onec_help_memory = standards + snippets + save_1c_snippet; pts may be less than sum of sources until load completes
         for c in collections or []:
             if (c.get("name") or "").strip() == "onec_help_memory":
                 db_parts.append(
-                    Text("[dim]onec_help_memory: standards + snippets + save_1c_snippet[/dim]")
+                    _dim("onec_help_memory: standards + snippets + save_1c_snippet")
                 )
                 break
         versions = index_status.get("versions") or []
@@ -384,28 +390,30 @@ def render_dashboard(data: dict[str, Any]) -> Any:
         mcp_content = Group(
             mcp_content,
             Text(""),
-            Text("[dim]Last errors:[/dim]"),
+            _dim("Last errors:"),
             *[
                 Text(f"  {e.get('tool', '?')}: {(e.get('error') or '')[:80]}")
                 for e in errors_recent[:5]
             ],
             Text(""),
-            Text("[dim]Full MCP logs: docker compose logs mcp.[/dim]"),
+            _dim("Full MCP logs: docker compose logs mcp."),
         )
     if total == 0 and last_hour == 0:
         mcp_content = Group(
             mcp_content,
             Text(""),
-            Text(
-                "[dim]0 requests — call an MCP tool from Cursor (e.g. get_1c_help_index_status). Same REDIS_URL for MCP and dashboard (Docker: redis://redis:6379/0).[/dim]"
+            _dim(
+                "0 requests — call an MCP tool from Cursor (e.g. get_1c_help_index_status). Same REDIS_URL for MCP and dashboard (Docker: redis://redis:6379/0)."
             ),
-            Text("[dim]MCP errors (tools + protocol) appear here; full logs: docker compose logs mcp.[/dim]"),
+            _dim(
+                "MCP errors (tools + protocol) appear here; full logs: docker compose logs mcp."
+            ),
         )
     elif errors_total == 0 and (total > 0 or last_hour > 0):
         mcp_content = Group(
             mcp_content,
             Text(""),
-            Text("[dim]Full MCP logs: docker compose logs mcp.[/dim]"),
+            _dim("Full MCP logs: docker compose logs mcp."),
         )
     panels.append(Panel(mcp_content, title="[bold]MCP requests[/bold]", border_style="cyan"))
 

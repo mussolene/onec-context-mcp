@@ -1,18 +1,26 @@
 # 1C Help: app container (Python + p7zip-full + cron для индексации по расписанию).
 # Сборка в два этапа: builder ставит зависимости и пакет, runtime — только runtime-зависимости и артефакты.
 # Без local-эмбеддингов: docker build --build-arg EMBEDDING_BACKEND=openai_api -t onec-help .
+# Кэш зависимостей: BuildKit cache mount для uv (повторные сборки не качают пакеты заново). Требует DOCKER_BUILDKIT=1 (по умолчанию в Docker 23+).
 FROM python:3.14-slim AS builder
 
 ARG EMBEDDING_BACKEND=openai_api
+ENV UV_SYSTEM_PYTHON=1
+ENV UV_LINK_MODE=copy
 
 WORKDIR /app
+
+# Установка uv (кэш pip для самой uv)
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install uv
 
 # Только pyproject.toml: зависимости и пакет из него (без Flask/requirements.lock)
 COPY pyproject.toml README.md ./
 COPY src/ src/
-# Установка без -e: образ содержит только site-packages, без копирования исходников в финал
-RUN pip install --no-cache-dir .[mcp] \
-    && if [ "$EMBEDDING_BACKEND" = "local" ]; then pip install --no-cache-dir .[embed]; fi
+# Установка через uv с кэшем: при повторной сборке пакеты берутся из кэша, не из сети
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install .[mcp] \
+    && if [ "$EMBEDDING_BACKEND" = "local" ]; then uv pip install .[embed]; fi
 
 # --- Runtime: только slim + утилиты и артефакты из builder ---
 FROM python:3.14-slim
