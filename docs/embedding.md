@@ -80,7 +80,7 @@
 
 ## Ingest: статус бэкенда
 
-При `ingest` или `index-status` backend отображается как `local`, `openai_api`, `deterministic` или `none`. Раньше deterministic показывался как `none` — исправлено в ingest.py (проверка `"deterministic"` в имени бэкенда).
+При `ingest` или `dashboard` backend отображается как `local`, `openai_api`, `deterministic` или `none`. Раньше deterministic показывался как `none` — исправлено в ingest.py (проверка `"deterministic"` в имени бэкенда).
 
 ## Документация
 

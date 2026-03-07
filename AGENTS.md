@@ -9,11 +9,11 @@
 ## Команды и сценарии
 
 - **Единая точка входа:** **ingest** — загрузка/обновление индекса (поиск .hbk в HELP_SOURCE_BASE, распаковка, Markdown, Qdrant). **reinit --force** — полная перезагрузка: очистка коллекций и кэша, затем init (ingest + load-snippets + load-standards). Без миграций и отдельных шагов unpacked.
-- **Локально:** `python -m onec_help ingest|reinit|init|index-status|dashboard|mcp|unpack|build-index|load-snippets|load-standards|watchdog ...`
+- **Локально:** `python -m onec_help ingest|reinit|init|dashboard|mcp|unpack|build-index|load-snippets|load-standards|watchdog ...`
 - **init** — ingest + load-snippets + load-standards (HELP_SOURCE_BASE, SNIPPETS_DIR, STANDARDS_REPOS). Не стирает данные.
 - **reinit --force** — очистка коллекций и cache, затем init. Для перезапуска «с нуля».
 - **Docker:** по умолчанию `make up` — только **qdrant** и **mcp**. Для индексации и watchdog: **`make ingest-up`** (поднимает ingest-worker с watchdog). Индексация вручную: `make ingest` (требует запущенный ingest-worker). Полная перезагрузка: `make reinit ARGS='--force'`. Cron в 3:00 — в full-режиме. BSL LS — `make bsl-start`.
-- **dashboard** — единый дашборд (Tasks, Errors, Qdrant) через Rich; `--once` для одного кадра, иначе Live с `--interval`. **index-status** — `--watch` и `--exit-when-done` для выхода по завершении ingest.
+- **dashboard** — дашборд (Tasks, Errors, Qdrant, версии 1С): `--once` один кадр, иначе Live с `--interval`.
 - **read-hbk-container** — чтение .hbk как бинарного контейнера (alkoleft/hbk-viewer): сущности, извлечение в каталог, TOC в JSON (вспомогательная команда).
 - **Сниппеты:** ./data/snippets, parse-fastcode/parse-helpf пишут туда, `load-snippets` загружает. `make snippets` — оба сайта; `make parse-helpf` — только FAQ.
 - **Стандарты:** `make load-standards` — v8-code-style и v8std (STANDARDS_REPOS).
@@ -33,7 +33,7 @@
 
 ### Ingest завис (0 done, прогресс не растёт)
 
-Если **index-status** показывает «embedding», 4500/25503 pts и **Summary: 13 tasks │ 0 done** долго без изменений:
+Если **dashboard** показывает «embedding», 4500/25503 pts и **Summary: 13 tasks │ 0 done** долго без изменений:
 
 1. **Проверить, жив ли процесс и логи:** Docker — основной лог ingest в контейнере: `docker exec <ingest-worker-container> tail -200 /app/var/log/ingest.log`. Ищите ошибки: **Bus error** (часто OOM — уменьшить батч/воркеры или память контейнера), 429 (rate limit), timeout, connection refused.
 2. **Если воркер упал** — статус в кэше (ingest_current) остаётся последним записанным; новый запуск ingest перезапишет его. Запустите ingest заново: `make ingest` (или `make ingest-up` и дождитесь выполнения).

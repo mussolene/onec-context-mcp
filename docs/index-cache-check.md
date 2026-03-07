@@ -47,5 +47,5 @@
 ## Как проверить текущее состояние
 
 - **Кэш индексации:** наличие файла по пути из `INGEST_CACHE_FILE` (по умолчанию `data/ingest_cache/ingest_cache.db`). Если файла нет или он пустой — кэш отсутствует или обнулён.
-- **Индекс Qdrant:** вызов инструмента `get_1c_help_index_status` через MCP или команда `python -m onec_help index-status`. Если коллекции нет или 0 points — индекс пуст.
+- **Индекс Qdrant:** вызов инструмента `get_1c_help_index_status` через MCP или команда `python -m onec_help dashboard --once`. Если коллекции нет или 0 points — индекс пуст.
 - **Docker:** `docker compose ps`, `docker volume ls` — убедиться, что контейнеры и тома с данными на месте.

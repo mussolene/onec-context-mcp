@@ -22,7 +22,7 @@ def _env_path(name: str, default=None):
 
 
 def _load_operation_running_path(name: str) -> Path:
-    """Path to marker file so index-status can show 'Standards/Snippets: loading…'."""
+    """Path to marker file so dashboard can show 'Standards/Snippets: loading…'."""
     from .ingest import _ingest_cache_path
 
     return Path(_ingest_cache_path()).parent / f"load_{name}.running"
@@ -143,93 +143,16 @@ def _short_error(err: str, max_len: int = 40) -> str:
     return e
 
 
-def _render_index_status(*, spinner: str = "", compact: bool = False) -> tuple[Any, int]:
-    """Build index status from dashboard data. compact: one line; else Rich panels.
-    Returns (output: str | Rich renderable, exit_code)."""
-    from .dashboard_data import get_dashboard_data
-    from .dashboard_render import render_dashboard, render_dashboard_compact
-
-    data = get_dashboard_data()
-    index_status = data.get("index_status") or {}
-    if index_status.get("error"):
-        return f"Error: {index_status['error']}\n", 1
-    if not data.get("collections") and not data.get("ingest") and not data.get("ingest_last_run"):
-        return "Index does not exist. Run: python -m onec_help ingest\n", 0
-    if compact:
-        return render_dashboard_compact(data, spinner=spinner), 0
-    return render_dashboard(data), 0
-
-
-def cmd_index_status(args: argparse.Namespace) -> int:
-    """Print index status: rich multi-line or compact. Watch mode: live refresh."""
+def cmd_dashboard(args: argparse.Namespace) -> int:
+    """Print dashboard (Tasks, Errors, Database). --once: one frame; else Live refresh."""
     import time
 
-    from ._utils import progress_done, progress_line
+    from .dashboard_data import get_dashboard_data
+    from .dashboard_render import render_dashboard
 
-    watch = getattr(args, "watch", False)
-    interval = float(getattr(args, "interval", 2))
-    compact = getattr(args, "compact", False)
-    exit_when_done = getattr(args, "exit_when_done", False)
-    tick = [0]
+    once = getattr(args, "once", False)
+    interval = max(0.5, float(getattr(args, "interval", 3)))
 
-    def _print_update() -> int:
-        spinner = ("◐", "◓", "◑", "◒")[tick[0] % 4] if watch else ""
-        out, code = _render_index_status(spinner=spinner, compact=compact)
-        if code != 0:
-            print(out, file=sys.stderr)
-            return code
-        if compact:
-            line = out.rstrip("\n")
-            if watch:
-                progress_line(line)
-            else:
-                print(line)
-        else:
-            try:
-                from rich.console import Console
-            except ImportError:
-                # Fallback: print compact line when Rich not available
-                data = __import__(
-                    "onec_help.dashboard_data", fromlist=["get_dashboard_data"]
-                ).get_dashboard_data()
-                line = __import__(
-                    "onec_help.dashboard_render", fromlist=["render_dashboard_compact"]
-                ).render_dashboard_compact(data, spinner=spinner)
-                print(line.rstrip("\n"))
-            else:
-                if watch:
-                    sys.stdout.write("\033[H\033[J")
-                    try:
-                        intv = int(interval)
-                        hint = "Ctrl+C to stop" if not exit_when_done else "exit when idle"
-                        sys.stdout.write(f"\033[1;1H\033[K⟳ refresh {intv}s  {hint}\n")
-                    except (ValueError, OSError):
-                        pass
-                Console().print(out)
-        tick[0] += 1
-        return 0
-
-    if not watch:
-        tick[0] = 0
-        return _print_update()
-
-    try:
-        while True:
-            _print_update()
-            if exit_when_done:
-                from .ingest import read_ingest_status
-
-                if read_ingest_status() is None:
-                    break
-            time.sleep(interval)
-    except KeyboardInterrupt:
-        progress_done("")
-        return 0
-    return 0
-
-
-def cmd_dashboard(args: argparse.Namespace) -> int:
-    """Print dashboard (Tasks, Errors, Database). Requires rich. --once: single frame; else Live refresh."""
     try:
         from rich.console import Console
         from rich.live import Live
@@ -237,29 +160,29 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
         print("Install rich: pip install rich", file=sys.stderr)
         return 1
 
-    from .dashboard_data import get_dashboard_data
-    from .dashboard_render import render_dashboard
-
-    interval = max(0.5, float(getattr(args, "interval", 3)))
-    once = getattr(args, "once", False)
-    console = Console()
+    data = get_dashboard_data()
+    idx_err = (data.get("index_status") or {}).get("error")
+    if idx_err:
+        print(f"Error: {idx_err}", file=sys.stderr)
+        return 1
+    if not data.get("collections") and not data.get("ingest") and not data.get("ingest_last_run"):
+        print("Index does not exist. Run: python -m onec_help ingest")
+        return 0
 
     if once:
-        data = get_dashboard_data()
+        console = Console()
         console.print(render_dashboard(data))
         return 0
 
     def _gen():
-        data = get_dashboard_data()
-        return render_dashboard(data)
+        return render_dashboard(get_dashboard_data())
 
+    console = Console()
     try:
         with Live(
             _gen(), console=console, refresh_per_second=1 / interval, transient=False
         ) as live:
             while True:
-                import time
-
                 time.sleep(interval)
                 live.update(_gen())
     except KeyboardInterrupt:
@@ -1740,42 +1663,10 @@ def main() -> int:
     )
     p_parse_helpf.set_defaults(func=cmd_parse_helpf)
 
-    # index-status (ingest: embedding speed, per-folder, ETA, total time)
-    p_status = sub.add_parser(
-        "index-status",
-        help="Show index status (topics, versions, languages; ingest: embedding speed, per-folder, ETA)",
-    )
-    p_status.add_argument(
-        "--watch",
-        "-w",
-        action="store_true",
-        help="Refresh in-place every N seconds (progress-like display)",
-    )
-    p_status.add_argument(
-        "--interval",
-        "-n",
-        type=float,
-        default=2,
-        metavar="SEC",
-        help="Refresh interval for --watch (default: 2)",
-    )
-    p_status.add_argument(
-        "--exit-when-done",
-        action="store_true",
-        help="In --watch mode: exit when no ingest is running (no active indexing)",
-    )
-    p_status.add_argument(
-        "--compact",
-        "-c",
-        action="store_true",
-        help="Single-line output (for piping/scripts)",
-    )
-    p_status.set_defaults(func=cmd_index_status)
-
-    # dashboard (Tasks, Errors, Database; Rich panels)
+    # dashboard (Tasks, Errors, Qdrant, versions 1C)
     p_dashboard = sub.add_parser(
         "dashboard",
-        help="Show dashboard (Tasks, Errors, Qdrant). Rich panels; --once for single frame.",
+        help="Show dashboard (Tasks, Errors, Qdrant, versions 1C). --once: one frame; else Live refresh.",
     )
     p_dashboard.add_argument(
         "--once",

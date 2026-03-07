@@ -43,9 +43,7 @@ _embedding_model = None
 _EMBEDDING_BACKEND = os.environ.get("EMBEDDING_BACKEND", "local").strip().lower()
 # Должна совпадать при индексации (ingest) и при поиске (MCP/search_index), иначе семантика ломается
 # Default: nomic-embed (768). For local use HuggingFace id; for API Ollama/LM Studio use short name.
-_EMBEDDING_MODEL = (
-    os.environ.get("EMBEDDING_MODEL") or "nomic-ai/nomic-embed-text-v2-moe"
-).strip()
+_EMBEDDING_MODEL = (os.environ.get("EMBEDDING_MODEL") or "nomic-ai/nomic-embed-text-v2-moe").strip()
 _LMSTUDIO_PREFERRED_EMBEDDING_MODELS = (
     "nomic-embed",  # nomic-embed-text-v2-moe (multilingual, 768), nomic-embed-text
     "paraphrase-multilingual",

@@ -16,12 +16,26 @@ from .ingest import (
 from .mcp_metrics import get_metrics as get_mcp_metrics
 from .snippets_cache import read_last_snippets_run
 
+# Markers older than this (seconds) are treated as stale (crashed process); don't show "loading"
+_LOAD_MARKER_STALE_SEC = 600  # 10 min
+
 
 def _load_marker_exists(name: str) -> bool:
-    """True if load_<name>.running marker exists in ingest cache dir."""
+    """True if load_<name>.running marker exists and is not stale (recent mtime)."""
     try:
+        import time
+
         cache_dir = Path(_ingest_cache_path()).parent
-        return (cache_dir / f"load_{name}.running").exists()
+        path = cache_dir / f"load_{name}.running"
+        if not path.exists():
+            return False
+        try:
+            mtime = path.stat().st_mtime
+            if (time.time() - mtime) > _LOAD_MARKER_STALE_SEC:
+                return False  # stale: process likely crashed without removing marker
+        except OSError:
+            return False
+        return True
     except Exception:
         return False
 

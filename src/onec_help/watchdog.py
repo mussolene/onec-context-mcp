@@ -6,8 +6,8 @@ Uses same discovery as ingest (discover_version_dirs + collect_hbk_tasks) for .h
 State for hbk/standards/snippets is stored in the same SQLite DB as ingest (one place).
 """
 
-import sqlite3
 import os
+import sqlite3
 import subprocess
 import sys
 import time

@@ -24,7 +24,7 @@
       "rich>=13.0",
   ]
   ```
-  Либо добавить `rich` в основные `dependencies`, чтобы `index-status` и будущий `dashboard` всегда могли им пользоваться (рекомендуется для единого стека).
+  Либо добавить `rich` в основные `dependencies`, чтобы `dashboard` и будущий `dashboard` всегда могли им пользоваться (рекомендуется для единого стека).
 - В `[dependency-groups] dev` при использовании uv добавить `rich` для тестов.
 - **Docker:** в `Dockerfile` или `docker-compose` при сборке образа с dashboard установить `pip install -e ".[dashboard]"` или включить rich в основной install.
 
@@ -91,12 +91,12 @@
 
 ---
 
-## Этап 3. Перевод index-status на Rich (опционально)
+## Этап 3. Перевод dashboard на Rich (опционально)
 
-- Заменить или дополнить текущую логику `_render_index_status_rich` в `cli.py`:
-  - Либо оставить текущий текстовый вывод (ASCII-рамки) для `index-status` без зависимости от Rich и добавить опцию `index-status --rich`, которая при наличии Rich рендерит через Panel/Table.
+- Заменить или дополнить текущую логику `render_dashboard (Rich)` в `cli.py`:
+  - Либо оставить текущий текстовый вывод (ASCII-рамки) для `dashboard` без зависимости от Rich и добавить опцию `dashboard --rich`, которая при наличии Rich рендерит через Panel/Table.
   - Либо полностью перевести rich-режим на Rich: строить `Group(Panel(...), Panel(...))` из тех же данных и выводить через `Console().print(...)`. Тогда при отсутствии Rich использовать только compact-режим или тот же ASCII-вывод как fallback.
-- Тесты: существующие тесты `_render_index_status_rich_*` в `tests/test_cli.py` должны по-прежнему проходить; при переходе на Rich проверять через capture вывода, что ключевые поля (ingest status, failed, collections) присутствуют в строке.
+- Тесты: существующие тесты dashboard в `tests/test_cli.py` должны по-прежнему проходить; при переходе на Rich проверять через capture вывода, что ключевые поля (ingest status, failed, collections) присутствуют в строке.
 
 ---
 
@@ -114,7 +114,7 @@
 ## Этап 5. Документация и Makefile
 
 - **README.md:** в разделе команд добавить пункт про `python -m onec_help dashboard` (и при необходимости `pip install -e ".[dashboard]"` или указать, что rich входит в зависимости). Кратко: что показывает, `--once` и `--interval`, Ctrl+C для выхода.
-- **AGENTS.md:** в разделе про индекс/статус упомянуть команду `dashboard` и при необходимости `index-status --watch` / `--exit-when-done`.
+- **AGENTS.md:** в разделе про индекс/статус упомянуть команду `dashboard` и при необходимости `dashboard --watch` / `--exit-when-done`.
 - **docs/dashboard-and-resilience.md:** в конце добавить ссылку на этот план и кратко: «Реализация по плану docs/plan-rich-dashboard.md».
 - **Makefile:** при необходимости цель `dashboard` (например `$(COMPOSE) exec $(INDEX_STATUS_SERVICE) python -m onec_help dashboard`) или для локального запуска `python -m onec_help dashboard`.
 
@@ -131,7 +131,7 @@
 | 2.2 | Создать dashboard_render.py (или в cli), render_dashboard(data) | test_dashboard_render / test_cli |
 | 2.3 | В cli: подкоманда dashboard, --once и Live-режим | test_cli cmd_dashboard |
 | 2.4 | Полный прогон тестов дашборда | pytest -k dashboard |
-| 3   | (Опционально) index-status с Rich или --rich | test_cli _render_index_status_rich |
+| 3   | (Опционально) dashboard с Rich или --rich | test_cli dashboard |
 | 4   | (Опционально) MCP metrics + панель в дашборде | unit на запись/чтение |
 | 5   | README, AGENTS, Makefile, ссылка в dashboard-and-resilience | — |
 
@@ -144,4 +144,4 @@
 - Этап 4 не блокирует 2–3; дашборд без MCP-панели уже полезен.
 - Этап 5 — после стабилизации 1–2 (и при необходимости 3–4).
 
-После выполнения плана прогресс и статистика будут выводиться через Rich, дашборд даст единый экран по задачам, ошибкам и базе, с возможностью добавить учёт запросов к MCP и опционально перевести на Rich и вывод index-status.
+После выполнения плана прогресс и статистика будут выводиться через Rich, дашборд даст единый экран по задачам, ошибкам и базе, с возможностью добавить учёт запросов к MCP и опционально перевести на Rich и вывод dashboard.

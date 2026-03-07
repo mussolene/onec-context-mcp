@@ -80,6 +80,56 @@ def test_progress_done_uses_rich_when_tty() -> None:
     fake_console.print.assert_called_once_with("done")
 
 
+def test_rich_console_returns_none_when_rich_not_available() -> None:
+    """When rich.console cannot be imported, _rich_console returns None; progress_line uses stderr."""
+    real_import = __import__
+
+    def mock_import(name, *args, **kwargs):
+        if name == "rich.console":
+            raise ImportError("No module named 'rich'")
+        return real_import(name, *args, **kwargs)
+
+    with patch("builtins.__import__", side_effect=mock_import), patch("sys.stderr") as stderr:
+        stderr.isatty.return_value = True
+        progress_line("fallback")
+    stderr.write.assert_called()
+    assert "fallback" in "".join(c[0][0] for c in stderr.write.call_args_list)
+
+
+def test_progress_line_overwrite_false_uses_print_no_carriage_return() -> None:
+    """When overwrite=False, progress_line uses console.print without end='\\r'."""
+    fake_console = MagicMock()
+    with patch("sys.stderr") as stderr:
+        stderr.isatty.return_value = True
+        with patch("onec_help._utils._rich_console", return_value=fake_console):
+            progress_line("msg", overwrite=False)
+    fake_console.print.assert_called_once_with("msg")
+
+
+def test_progress_line_console_raises_fallback_to_stderr() -> None:
+    """When console.print raises, progress_line falls back to stderr."""
+    fake_console = MagicMock()
+    fake_console.print.side_effect = OSError("write failed")
+    with patch("sys.stderr") as stderr:
+        stderr.isatty.return_value = True
+        with patch("onec_help._utils._rich_console", return_value=fake_console):
+            progress_line("fallback")
+    stderr.write.assert_called()
+    assert "fallback" in "".join(c[0][0] for c in stderr.write.call_args_list)
+
+
+def test_progress_done_console_raises_fallback_to_stderr() -> None:
+    """When console.print raises in progress_done, fall back to stderr."""
+    fake_console = MagicMock()
+    fake_console.print.side_effect = RuntimeError("display error")
+    with patch("sys.stderr") as stderr:
+        stderr.isatty.return_value = True
+        with patch("onec_help._utils._rich_console", return_value=fake_console):
+            progress_done("fallback")
+    stderr.write.assert_called_once()
+    assert "fallback" in stderr.write.call_args[0][0]
+
+
 def test_format_duration() -> None:
     """format_duration returns human-readable strings."""
     assert format_duration(0) == "0s"

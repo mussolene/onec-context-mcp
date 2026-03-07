@@ -153,7 +153,7 @@ def record_snippets_run(
     items_loaded: int,
     started_at: float,
 ) -> None:
-    """Record snippets load run for index-status."""
+    """Record snippets load run for dashboard."""
     try:
         conn = _conn()
         _init_tables(conn)
@@ -171,7 +171,7 @@ def record_snippets_run(
 
 
 def read_last_snippets_run() -> dict[str, Any] | None:
-    """Last snippets load run for index-status. Same shape as read_last_ingest_run."""
+    """Last snippets load run for dashboard. Same shape as read_last_ingest_run."""
     try:
         conn = _conn()
         row = conn.execute(
@@ -207,7 +207,7 @@ def get_cached_items_total() -> int:
 
 
 def read_snippets_cache_entries(limit: int = 50) -> list[dict[str, Any]]:
-    """Cached sources for display in index-status."""
+    """Cached sources for display in dashboard."""
     entries: list[dict[str, Any]] = []
     try:
         conn = _conn()

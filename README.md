@@ -63,8 +63,7 @@ pip install -e ".[dev]"
 | **`ingest`** | Распаковать .hbk в data/unpacked (DATA_UNPACKED_DIR), построить Markdown, проиндексировать в Qdrant. Кэш по хэшу. INGEST_USE_TEMP=1 — временная папка с удалением. Опции: `--no-cache`, `--embedding-batch-size`, `--embedding-workers` |
 | **`reinit [--force]`** | init (ingest + load-snippets + load-standards). С `--force` — сначала очистить коллекции и кэш, затем init. |
 | **`init`** | ingest + load-snippets + load-standards (без очистки). |
-| **`index-status`** | Статус индекса: число тем, эмбеддинги, размер БД; при запущенном ingest — прогресс, ETA. `--watch` — автообновление; `--exit-when-done` — выход по завершении ingest. |
-| **`dashboard`** | Дашборд (Tasks, Errors, Qdrant) — Rich-панели. `--once` — один кадр и выход; иначе обновление по `--interval` (по умолчанию 3 с). Остановка: Ctrl+C. Требует `rich`. |
+| **`dashboard`** | Дашборд: задачи, ошибки, Qdrant, версии 1С. `--once` — один кадр; иначе Live с `--interval`. |
 | **`mcp [directory]`** | MCP-сервер (stdio/HTTP; нужен fastmcp). Каталог по умолчанию: HELP_PATH или `data` |
 | **`unpack <archive> [--output-dir]`** | Распаковать один .hbk (для диагностики) |
 | **`unpack-diag <archive> [-o dir]`** | Диагностика распаковки при ошибках |
@@ -87,7 +86,7 @@ pip install -e ".[dev]"
 | `QDRANT_HOST` | Хост Qdrant | `localhost` |
 | `QDRANT_PORT` | Порт Qdrant | `6333` |
 | `QDRANT_COLLECTION` | Имя коллекции в Qdrant | `onec_help` |
-| `QDRANT_STORAGE_PATH` | Путь к каталогу хранилища Qdrant (для `index-status`: вывод размера БД на диске) | — |
+| `QDRANT_STORAGE_PATH` | Путь к каталогу хранилища Qdrant (для dashboard: вывод размера БД на диске) | — |
 | `HELP_PATH` | Базовый каталог справки (для MCP) | `/data` |
 | `HELP_SOURCE_BASE` | Корень каталогов с версиями 1С (ingest) | — |
 | `HELP_SOURCES_DIR` | То же, альтернативное имя | — |
@@ -96,7 +95,7 @@ pip install -e ".[dev]"
 | `DATA_UNPACKED_DIR` | Каталог распакованной справки (по умолчанию ingest пишет сюда) | `data/unpacked` |
 | `INGEST_USE_TEMP` | `1` — временная папка с удалением после индексации (старый режим) | 0 |
 | `HELP_INGEST_TEMP` | Временный каталог при INGEST_USE_TEMP=1 | — |
-| `INGEST_CACHE_FILE` | Путь к SQLite-кэшу: хэш .hbk, статус ingest. Ingest и index-status читают/пишут в одну БД. В Docker — `/app/var/ingest_cache/ingest_cache.db` (volume `ingest_cache`) | `data/ingest_cache/ingest_cache.db` |
+| `INGEST_CACHE_FILE` | Путь к SQLite-кэшу: хэш .hbk, статус ingest. Ingest и dashboard читают/пишут в одну БД. В Docker — `/app/var/ingest_cache/ingest_cache.db` (volume `ingest_cache`) | `data/ingest_cache/ingest_cache.db` |
 | `INGEST_SKIP_CACHE` | `1`/`true` — полная переиндексация без кэша (или `ingest --no-cache`) | — |
 | `HBK_LABELS` | Человекочитаемые метки: `1cv8:Справка 1С,shcntx:Синтаксис` | — |
 | `INGEST_FAILED_LOG` | Файл для списка неудачных .hbk | — |
@@ -169,7 +168,7 @@ python -m onec_help mcp . --transport streamable-http --host 0.0.0.0 --port 8050
 | Индексация | `make ingest` (нужен запущенный ingest-worker: `make ingest-up`) |
 | Индексация (full) | `docker compose -f docker-compose.base.yml -f docker-compose.full.yml exec mcp python -m onec_help ingest` |
 | Полная перезагрузка | `docker compose -f docker-compose.base.yml -f docker-compose.yml exec ingest-worker python -m onec_help reinit --force` (или для full: `exec mcp ...`) |
-| Статус индекса | `docker compose -f docker-compose.base.yml -f docker-compose.yml exec mcp python -m onec_help index-status` |
+| Статус индекса | `docker compose -f docker-compose.base.yml -f docker-compose.yml exec mcp python -m onec_help dashboard --once` |
 
 ---
 
@@ -187,7 +186,7 @@ python -m onec_help mcp . --transport streamable-http --host 0.0.0.0 --port 8050
 | `make ingest-full` | Индексация в режиме full |
 | `make reinit ARGS='--force'` | Полная перезагрузка: очистка + ingest + snippets + standards |
 | `make init` | ingest + load-snippets + load-standards (без очистки) |
-| `make index-status` | Статус индекса |
+| `make dashboard` | Дашборд (статус индекса, задачи, ошибки). ARGS='--once' — один кадр |
 | `make ensure-data` | Создать data/qdrant и др. (после потери базы) |
 | `make load-snippets` | Загрузить сниппеты из SNIPPETS_DIR |
 | `make load-standards` | Загрузить стандарты (v8-code-style, v8std) |

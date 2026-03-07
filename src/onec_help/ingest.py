@@ -3,7 +3,7 @@
 Unpacks to a temp dir in the container, builds docs, indexes with version/language, then cleans up.
 Supports language filter (e.g. only *_ru.hbk) and concurrent processing.
 Progress is printed to stderr so long runs are not killed by "no output" timeouts.
-Writes ingest status to SQLite cache DB (ingest_current, ingest_runs) for index-status command.
+Writes ingest status to SQLite cache DB (ingest_current, ingest_runs) for dashboard.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from ._utils import mask_path_for_log, safe_error_message
 
 # How often to write status to SQLite while ingest runs (seconds); env INDEX_STATUS_INTERVAL_SEC
 STATUS_UPDATE_INTERVAL_SEC = 2.0
-# Path for ingest cache (SQLite). data/ingest_cache — общий каталог для ingest и index-status.
+# Path for ingest cache (SQLite). data/ingest_cache — общий каталог для ingest и dashboard.
 DEFAULT_INGEST_CACHE_FILE = str(Path("data/ingest_cache/ingest_cache.db").resolve())
 _CACHE_TABLE = "ingest_cache"
 _STATUS_TABLE_RUNS = "ingest_runs"
@@ -215,7 +215,7 @@ def _log_status_error(op: str, err: Exception) -> None:
         _log_status_error._warned.add(key)  # type: ignore[attr-defined]
         _log(
             f"[ingest] WARN: ingest status {op} failed: {safe_error_message(err)}. "
-            "index-status may show incomplete data."
+            "dashboard may show incomplete data."
         )
 
 
@@ -562,7 +562,7 @@ def _write_ingest_status(
     embedding_workers: int | None = None,
     run_id: int | None = None,
 ) -> None:
-    """Write ingest status to SQLite cache DB for index-status command."""
+    """Write ingest status to SQLite cache DB for dashboard."""
     _persist_ingest_status_sqlite(
         started_at=started_at,
         embedding_backend=embedding_backend,
@@ -636,7 +636,7 @@ def read_last_ingest_run() -> dict[str, Any] | None:
 
 
 def read_last_ingest_failed(limit: int = 20) -> list[dict[str, str]]:
-    """Read failed tasks from ingest_failed table for the latest run. For index-status."""
+    """Read failed tasks from ingest_failed table for the latest run. For dashboard."""
     db_path = _ingest_cache_path()
     try:
         conn = sqlite3.connect(db_path, timeout=_sqlite_timeout())
@@ -1225,7 +1225,7 @@ def run_ingest(
                         pass
                     # Continue with next task instead of raising (recovery: remaining files still get indexed)
     finally:
-        # Всегда пишем завершение в кэш — index-status читает реальный статус из той же БД
+        # Всегда пишем завершение в кэш — dashboard читает реальный статус из той же БД
         with state_lock:
             state["status"] = "completed"
             current_work.clear()
@@ -1540,7 +1540,7 @@ def run_ingest_from_unpacked(
     Index help from unpacked dir (data/unpacked structure).
     Scans version/stem dirs, uses path_prefix for payload path.
     Skips tasks already in ingest cache (same version, language, content hash).
-    Writes ingest status to SQLite so index-status shows current file and progress.
+    Writes ingest status to SQLite so dashboard shows current file and progress.
     Returns total points indexed.
     """
     from qdrant_client import QdrantClient

@@ -9,12 +9,15 @@ def render_dashboard(data: dict[str, Any]) -> Any:
     """Build Rich renderable from get_dashboard_data() result. Returns Group of Panels."""
     from rich.console import Group
     from rich.panel import Panel
+    from rich.progress_bar import ProgressBar
     from rich.table import Table
+    from rich.text import Text
 
     panels = []
 
     # --- Panel 1: Tasks ---
     tasks_lines: list[str] = []
+    tasks_extra_renderables: list[Any] = []  # ProgressBar(s) for current task(s)
     ingest = data.get("ingest")
     ingest_last = data.get("ingest_last_run")
     if ingest and ingest.get("status") == "in_progress":
@@ -36,9 +39,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
         current_tasks = ingest.get("current") or []
         if current_tasks:
             workers = len(current_tasks)
-            tasks_lines.append(
-                f"  Active: {workers} task{'s' if workers != 1 else ''}"
-            )
+            tasks_lines.append(f"  Active: {workers} task{'s' if workers != 1 else ''}")
             for i, cur in enumerate(current_tasks[:10]):  # cap for display
                 version = (cur.get("version") or "—")[:12]
                 lang = (cur.get("language") or "—")[:8]
@@ -52,11 +53,22 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                     progress = f" {pts} pts"
                 else:
                     progress = ""
-                tasks_lines.append(
-                    f"    [{i + 1}] {version} / {lang} — {path} — {stage}{progress}"
-                )
+                tasks_lines.append(f"    [{i + 1}] {version} / {lang} — {path} — {stage}{progress}")
+                # Progress bar for this task when we have points and total
+                if pts is not None and est is not None and est > 0:
+                    tasks_extra_renderables.append(
+                        ProgressBar(total=float(est), completed=float(pts), width=40)
+                    )
             if len(current_tasks) > 10:
                 tasks_lines.append(f"    … and {len(current_tasks) - 10} more")
+        # Fallback: single current-task bar from top-level payload (e.g. from_unpacked)
+        if not tasks_extra_renderables:
+            pts = ingest.get("current_task_points")
+            est = ingest.get("current_task_estimated_total")
+            if pts is not None and est is not None and est > 0:
+                tasks_extra_renderables.append(
+                    ProgressBar(total=float(est), completed=float(pts), width=40)
+                )
     elif ingest_last:
         total = ingest_last.get("total_tasks") or 0
         done = ingest_last.get("done_tasks") or 0
@@ -85,7 +97,10 @@ def render_dashboard(data: dict[str, Any]) -> Any:
     else:
         tasks_lines.append("Snippets: —")
 
-    panels.append(Panel("\n".join(tasks_lines), title="[bold]Tasks[/bold]", border_style="blue"))
+    tasks_content: Any = "\n".join(tasks_lines)
+    if tasks_extra_renderables:
+        tasks_content = Group(Text("\n".join(tasks_lines)), "", *tasks_extra_renderables)
+    panels.append(Panel(tasks_content, title="[bold]Tasks[/bold]", border_style="blue"))
 
     # --- Panel 2: Errors ---
     failed = data.get("failed_tasks") or []
@@ -145,10 +160,24 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 str(vecs) if vecs is not None else "—",
                 str(segs) if segs is not None else "—",
             )
-        db_content = db_table
+        db_parts: list[Any] = [db_table]
+        versions = index_status.get("versions") or []
+        languages = index_status.get("languages") or []
+        if versions:
+            max_show = 15
+            if len(versions) <= max_show:
+                ver_line = f"Versions 1C: {', '.join(versions)}"
+            else:
+                ver_line = (
+                    f"Versions 1C: {', '.join(versions[:max_show])} … +{len(versions) - max_show}"
+                )
+            db_parts.append(ver_line)
+        if languages:
+            db_parts.append(f"Languages: {', '.join(languages)}")
         storage_mb = data.get("storage_path_mb")
         if storage_mb is not None:
-            db_content = Group(db_content, f"DB on disk: {storage_mb} MB")
+            db_parts.append(f"DB on disk: {storage_mb} MB")
+        db_content = Group(*db_parts)
     else:
         db_content = "No collections"
     panels.append(Panel(db_content, title="[bold]Database[/bold] (Qdrant)", border_style="green"))
@@ -164,11 +193,12 @@ def render_dashboard(data: dict[str, Any]) -> Any:
 
 
 def render_dashboard_compact(data: dict[str, Any], *, spinner: str = "") -> str:
-    """Single-line summary from dashboard data (for index-status --compact). Caller checks index_status.error first."""
+    """Single-line summary from dashboard data. Caller checks index_status.error first."""
     parts: list[str] = []
-    prefix = f"{spinner} index-status".strip() if spinner else "index-status"
+    prefix = f"{spinner} dashboard".strip() if spinner else "dashboard"
 
     collections = data.get("collections") or []
+    index_status = data.get("index_status") or {}
     if collections:
         total_pts = sum(
             p
@@ -179,6 +209,12 @@ def render_dashboard_compact(data: dict[str, Any], *, spinner: str = "") -> str:
             parts.append(f"{c.get('name', '?')}:{c.get('points_count', '—')} pts")
         if total_pts > 0 and len(collections) > 1:
             parts.append(f"total:{total_pts}")
+        versions = index_status.get("versions") or []
+        if versions:
+            ver_str = ",".join(versions[:5])
+            if len(versions) > 5:
+                ver_str += f"+{len(versions) - 5}"
+            parts.append(f"1C: {ver_str}")
         storage_mb = data.get("storage_path_mb")
         if storage_mb is not None:
             parts.append(f"DB:{storage_mb}MB")
