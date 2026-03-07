@@ -150,7 +150,8 @@ def _short_error(err: str, max_len: int = 40) -> str:
 
 
 def cmd_dashboard(args: argparse.Namespace) -> int:
-    """Print dashboard (Tasks, Errors, Database). --once: one frame; else Live refresh."""
+    """Print dashboard (Tasks, Errors, Database). --once: one frame; else Live refresh.
+    Database (Qdrant) and tasks are re-fetched each refresh from env QDRANT_HOST/QDRANT_PORT."""
     import time
 
     from .dashboard_data import get_dashboard_data
@@ -158,6 +159,8 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
 
     once = getattr(args, "once", False)
     interval = max(0.5, float(getattr(args, "interval", 3)))
+    qdrant_host = os.environ.get("QDRANT_HOST", "localhost")
+    qdrant_port = int(os.environ.get("QDRANT_PORT", "6333"))
 
     try:
         from rich.console import Console
@@ -166,7 +169,7 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
         print("Install rich: pip install rich", file=sys.stderr)
         return 1
 
-    data = get_dashboard_data()
+    data = get_dashboard_data(qdrant_host=qdrant_host, qdrant_port=qdrant_port)
     idx_err = (data.get("index_status") or {}).get("error")
     if idx_err:
         print(f"Error: {idx_err}", file=sys.stderr)
@@ -178,7 +181,9 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
         return 0
 
     def _gen():
-        return render_dashboard(get_dashboard_data())
+        return render_dashboard(
+            get_dashboard_data(qdrant_host=qdrant_host, qdrant_port=qdrant_port)
+        )
 
     console = Console()
     try:
@@ -647,6 +652,15 @@ def cmd_load_snippets(args: argparse.Namespace) -> int:
                 print("No snippets to load.", file=sys.stderr)
                 return 0
 
+            from . import embedding
+
+            if not embedding.is_embedding_available():
+                print(
+                    "load-snippets │ Embedding not available (check EMBEDDING_BACKEND and EMBEDDING_API_URL); onec_help_memory will not be updated.",
+                    file=sys.stderr,
+                )
+                return 1
+
             by_domain: dict[str, list[dict]] = {"snippets": [], "community_help": []}
             for it in items:
                 t = (it.get("type") or "snippet").lower()
@@ -654,14 +668,28 @@ def cmd_load_snippets(args: argparse.Namespace) -> int:
                 by_domain[domain].append(it)
 
             status_path = _load_operation_status_path("snippets")
+            total_items = len(items)
+            try:
+                status_path.write_text(
+                    json.dumps({"loaded": 0, "total": total_items}, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+            except OSError:
+                pass
+
+            done_so_far: list[int] = [0]
 
             def _progress(loaded: int, tot: int, skipped: int) -> None:
                 progress_line(
                     f"load-snippets │ {loaded + skipped}/{tot} │ {loaded} loaded │ {skipped} skip"
                 )
+                done_so_far[0] += loaded
                 try:
                     status_path.write_text(
-                        json.dumps({"loaded": loaded, "total": tot}, ensure_ascii=False),
+                        json.dumps(
+                            {"loaded": done_so_far[0], "total": total_items},
+                            ensure_ascii=False,
+                        ),
                         encoding="utf-8",
                     )
                 except OSError:
@@ -887,7 +915,23 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
             print("No .md files found.", file=sys.stderr)
             return 0
 
+        from . import embedding
+
+        if not embedding.is_embedding_available():
+            print(
+                "load-standards │ Embedding not available (check EMBEDDING_BACKEND and EMBEDDING_API_URL); onec_help_memory will not be updated.",
+                file=sys.stderr,
+            )
+            return 1
+
         _status_path = _load_operation_status_path("standards")
+        try:
+            _status_path.write_text(
+                json.dumps({"loaded": 0, "total": len(items)}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
 
         def _progress(loaded: int, tot: int, skipped: int) -> None:
             progress_line(

@@ -133,6 +133,32 @@ docker exec <ingest-worker-container> tail -500 /app/var/ingest_cache/ingest_std
 
 ---
 
+## 4d. Коллекция onec_help_memory не появляется (standards/snippets не загрузились)
+
+**Симптомы:** в дашборде Qdrant только коллекция `onec_help`, нет `onec_help_memory`; Standards и Snippets показывают «—» после запуска watchdog.
+
+**Причина:** load_standards и load_snippets пишут в коллекцию **onec_help_memory** только при **доступном embedding API**. Если при старте подпроцесса embedding недоступен (EMBEDDING_API_URL не отвечает, таймаут, LM Studio не запущен), команды завершаются с кодом 1 и ничего не записывают в Qdrant.
+
+**Что проверить:**
+
+1. **Лог watchdog** — при ненулевом коде выхода load_standards/load_snippets теперь пишется сообщение:
+   ```bash
+   docker exec <ingest-worker-container> tail -300 /app/var/log/watchdog.log
+   ```
+   Искать: `[watchdog] load-standards exited 1:` или `load-snippets exited 1:` и текст после (например «Embedding not available»).
+
+2. **Доступность API эмбеддингов** из контейнера ingest-worker: в нём задано `EMBEDDING_API_URL=http://host.docker.internal:1234/v1`. Убедиться, что LM Studio (или другой сервис) запущен на хосте и слушает порт 1234.
+
+3. **Запуск вручную** для проверки:
+   ```bash
+   docker exec -it <ingest-worker-container> python -m onec_help load-standards /data/standards
+   ```
+   Если в stderr появится «Embedding not available (check EMBEDDING_BACKEND and EMBEDDING_API_URL)» — исправить доступ к API и перезапустить watchdog.
+
+4. **STANDARDS_DIR / SNIPPETS_DIR** — в контейнере это `/data/standards` и `/data/snippets` (volume из `./data/standards`, `./data/snippets`). Если каталоги пусты или не смонтированы, load завершится без ошибки с «0 loaded» и коллекция не создаётся.
+
+---
+
 ## 5. Сброс базы Qdrant при сохранённом кэше (справка пропала, сниппеты подгрузились снова)
 
 **Симптомы:** в поиске нет разделов справки (onec_help пустой), при этом сниппеты и стандарты снова загрузились и есть в выдаче. Кэш ingest при этом не очищался.

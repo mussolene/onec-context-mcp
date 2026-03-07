@@ -383,12 +383,22 @@ def _run_ingest() -> bool:
 def _run_load_standards(standards_dir: str) -> None:
     """Run load-standards from given path (loads from disk only, no GitHub fetch)."""
     try:
-        subprocess.run(
+        result = subprocess.run(
             [sys.executable, "-m", "onec_help", "load-standards", standards_dir],
             capture_output=True,
             timeout=1800,
             env=os.environ.copy(),
         )
+        if result.returncode != 0:
+            tail = (
+                (result.stderr or b"").decode("utf-8", errors="replace").strip().splitlines()[-15:]
+            )
+            print(
+                f"[watchdog] load-standards exited {result.returncode}: "
+                + ("; ".join(tail) if tail else "no stderr"),
+                file=sys.stderr,
+                flush=True,
+            )
     except (subprocess.TimeoutExpired, OSError) as e:
         print(
             f"[watchdog] load-standards failed: {safe_error_message(e)}",
@@ -400,12 +410,22 @@ def _run_load_standards(standards_dir: str) -> None:
 def _run_load_snippets(snippets_dir: str) -> None:
     """Run load-snippets from given path (folder with .json / .bsl / .1c / .md)."""
     try:
-        subprocess.run(
+        result = subprocess.run(
             [sys.executable, "-m", "onec_help", "load-snippets", snippets_dir],
             capture_output=True,
             timeout=1800,
             env=os.environ.copy(),
         )
+        if result.returncode != 0:
+            tail = (
+                (result.stderr or b"").decode("utf-8", errors="replace").strip().splitlines()[-15:]
+            )
+            print(
+                f"[watchdog] load-snippets exited {result.returncode}: "
+                + ("; ".join(tail) if tail else "no stderr"),
+                file=sys.stderr,
+                flush=True,
+            )
     except (subprocess.TimeoutExpired, OSError) as e:
         print(
             f"[watchdog] load-snippets failed: {safe_error_message(e)}",

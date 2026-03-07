@@ -8,7 +8,13 @@ from unittest.mock import patch
 from onec_help.dashboard_data import get_dashboard_data
 
 
-def test_get_dashboard_data_returns_expected_keys() -> None:
+@patch("onec_help.dashboard_data.get_all_collections_status", return_value=[])
+@patch(
+    "onec_help.dashboard_data.get_index_status", return_value={"exists": True, "points_count": 0}
+)
+def test_get_dashboard_data_returns_expected_keys(
+    mock_index: object, mock_collections: object
+) -> None:
     """get_dashboard_data() returns dict with ingest, collections, index_status, snippets, loading flags, failed_tasks."""
     data = get_dashboard_data()
     assert isinstance(data, dict)
@@ -42,8 +48,12 @@ def test_get_dashboard_data_index_status_error(mock_get_index_status) -> None:
     assert data["index_status"].get("error") == "connection refused"
 
 
+@patch("onec_help.dashboard_data.get_all_collections_status", return_value=[])
+@patch("onec_help.dashboard_data.get_index_status", return_value={"exists": True})
 @patch("onec_help.dashboard_data.read_last_ingest_failed")
-def test_get_dashboard_data_respects_failed_tasks_limit(mock_failed) -> None:
+def test_get_dashboard_data_respects_failed_tasks_limit(
+    mock_failed: object, _mock_index: object, _mock_collections: object
+) -> None:
     """failed_tasks_limit is passed to read_last_ingest_failed."""
     mock_failed.return_value = []
     get_dashboard_data(failed_tasks_limit=7)
@@ -92,9 +102,13 @@ def test_load_marker_stale_not_loading(tmp_path: Path) -> None:
     old_ts = time.time() - 700  # 700 s ago so past _LOAD_MARKER_STALE_SEC (600)
     os.utime(marker, (old_ts, old_ts))
 
-    with patch(
-        "onec_help.dashboard_data._ingest_cache_path",
-        return_value=str(cache_dir / "ingest_cache.db"),
+    with (
+        patch(
+            "onec_help.dashboard_data._ingest_cache_path",
+            return_value=str(cache_dir / "ingest_cache.db"),
+        ),
+        patch("onec_help.dashboard_data.get_index_status", return_value={"exists": True}),
+        patch("onec_help.dashboard_data.get_all_collections_status", return_value=[]),
     ):
         data = get_dashboard_data()
     assert data["snippets_loading"] is False
