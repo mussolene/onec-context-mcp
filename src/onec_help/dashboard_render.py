@@ -115,8 +115,76 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 str(segs) if segs is not None else "—",
             )
         db_content = db_table
+        storage_mb = data.get("storage_path_mb")
+        if storage_mb is not None:
+            db_content = Group(db_content, f"DB on disk: {storage_mb} MB")
     else:
         db_content = "No collections"
     panels.append(Panel(db_content, title="[bold]Database[/bold] (Qdrant)", border_style="green"))
 
     return Group(*panels)
+
+
+def render_dashboard_compact(data: dict[str, Any], *, spinner: str = "") -> str:
+    """Single-line summary from dashboard data (for index-status --compact). Caller checks index_status.error first."""
+    parts: list[str] = []
+    prefix = f"{spinner} index-status".strip() if spinner else "index-status"
+
+    index_status = data.get("index_status") or {}
+    collections = data.get("collections") or []
+    if collections:
+        total_pts = sum(
+            p
+            for c in collections
+            if (p := c.get("points_count")) is not None and isinstance(p, int)
+        )
+        for c in collections:
+            parts.append(f"{c.get('name', '?')}:{c.get('points_count', '—')} pts")
+        if total_pts > 0 and len(collections) > 1:
+            parts.append(f"total:{total_pts}")
+        storage_mb = data.get("storage_path_mb")
+        if storage_mb is not None:
+            parts.append(f"DB:{storage_mb}MB")
+
+    ingest = data.get("ingest")
+    ingest_last = data.get("ingest_last_run")
+    if ingest and ingest.get("status") == "in_progress":
+        done = ingest.get("done_tasks") or 0
+        total = ingest.get("total_tasks") or 0
+        elapsed = ingest.get("elapsed_sec")
+        ing = f"Ingest ⟳ {done}/{total} tasks"
+        if elapsed is not None:
+            ing += f" elapsed {format_duration(elapsed)}"
+        parts.append(ing)
+    elif ingest_last:
+        done = ingest_last.get("done_tasks") or 0
+        total = ingest_last.get("total_tasks") or 0
+        failed = ingest_last.get("failed_count") or 0
+        elapsed = ingest_last.get("total_elapsed_sec")
+        parts.append(
+            f"Ingest ✓ {format_duration(elapsed)}" if elapsed else "Ingest ✓ done"
+        )
+        if failed:
+            parts.append(f"{failed} failed")
+    else:
+        parts.append("Ingest: —")
+
+    failed_tasks = data.get("failed_tasks") or []
+    total_err = (data.get("ingest_last_run") or {}).get("failed_count") or len(failed_tasks)
+    if total_err > 0 and failed_tasks:
+        err0 = (failed_tasks[0].get("error") or "")[:80]
+        if len((failed_tasks[0].get("error") or "")) > 80:
+            err0 += "…"
+        parts.append(f"Failed: {total_err} {err0}")
+
+    if data.get("standards_loading"):
+        parts.append("Standards: loading…")
+    if data.get("snippets_loading"):
+        parts.append("Snippets: loading…")
+
+    snippets = data.get("snippets")
+    if snippets:
+        items = snippets.get("items_loaded")
+        parts.append(f"Snippets ✓ {items} items" if items is not None else "Snippets ✓")
+
+    return f"{prefix} │ {' │ '.join(parts)}\n"

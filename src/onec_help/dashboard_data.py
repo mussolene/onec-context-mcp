@@ -1,12 +1,14 @@
 """Dashboard data aggregation: ingest, Qdrant, snippets, standards/snippets loading markers.
 No Rich dependency; pure data for render_dashboard()."""
 
+import os
 from pathlib import Path
 from typing import Any
 
 from .ingest import (
     _ingest_cache_path,
     read_ingest_status,
+    read_ingest_failed_log,
     read_last_ingest_failed,
     read_last_ingest_run,
 )
@@ -23,6 +25,19 @@ def _load_marker_exists(name: str) -> bool:
         return False
 
 
+def _storage_path_mb() -> float | None:
+    """DB size in MB from QDRANT_STORAGE_PATH if set and dir exists."""
+    path = os.environ.get("QDRANT_STORAGE_PATH")
+    if not path or not os.path.isdir(path):
+        return None
+    try:
+        from ._utils import dir_size_on_disk
+
+        return round(dir_size_on_disk(path) / (1024 * 1024), 1)
+    except OSError:
+        return None
+
+
 def get_dashboard_data(
     *,
     failed_tasks_limit: int = 20,
@@ -33,11 +48,14 @@ def get_dashboard_data(
     ingest_current = read_ingest_status()
     ingest_last_run = read_last_ingest_run()
     failed_tasks = read_last_ingest_failed(limit=failed_tasks_limit)
+    if not failed_tasks and (ingest_last_run or {}).get("failed_count", 0) > 0:
+        failed_tasks = read_ingest_failed_log(limit=failed_tasks_limit)
     index_status = get_index_status(qdrant_host=qdrant_host, qdrant_port=qdrant_port)
     collections = get_all_collections_status(qdrant_host=qdrant_host, qdrant_port=qdrant_port)
     snippets_last = read_last_snippets_run()
     standards_loading = _load_marker_exists("standards")
     snippets_loading = _load_marker_exists("snippets")
+    storage_path_mb = _storage_path_mb()
 
     return {
         "ingest": ingest_current,
@@ -48,4 +66,5 @@ def get_dashboard_data(
         "snippets": snippets_last,
         "standards_loading": standards_loading,
         "snippets_loading": snippets_loading,
+        "storage_path_mb": storage_path_mb,
     }

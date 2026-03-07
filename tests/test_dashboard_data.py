@@ -20,6 +20,7 @@ def test_get_dashboard_data_returns_expected_keys() -> None:
         "snippets",
         "standards_loading",
         "snippets_loading",
+        "storage_path_mb",
     ):
         assert key in data, f"missing key: {key}"
     assert isinstance(data["failed_tasks"], list)

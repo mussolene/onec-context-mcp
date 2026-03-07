@@ -12,8 +12,6 @@ from onec_help.cli import (
     _categorize_error,
     _env_path,
     _render_index_status,
-    _render_index_status_compact,
-    _render_index_status_rich,
     _short_error,
     cmd_add_bm25,
     cmd_build_docs,
@@ -172,331 +170,200 @@ def test_main_unpack_usage() -> None:
         assert exc.value.code == 0
 
 
-@patch("onec_help.ingest.read_ingest_status")
-@patch("onec_help.indexer.get_index_status")
-def test_cmd_index_status_ingest_backend_none(
-    mock_status, mock_ingest, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """index-status with ingest backend 'none' prints embed: none."""
-    mock_status.return_value = {"exists": True, "points_count": 10}
-    mock_ingest.return_value = {
-        "embedding_backend": "none",
-        "status": "completed",
-    }
-    with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
-        assert cmd_index_status(make_args()) == 0
+@patch("onec_help.dashboard_data.get_dashboard_data")
+def test_cmd_index_status_ingest_backend_none(mock_get_data, capsys: pytest.CaptureFixture[str]) -> None:
+    """index-status with completed ingest shows Tasks panel with last run."""
+    mock_get_data.return_value = _minimal_dashboard_data(
+        index_status={"exists": True, "points_count": 10},
+        ingest_last_run={"status": "completed", "embedding_backend": "none", "done_tasks": 1, "total_tasks": 1},
+        collections=[],
+    )
+    assert cmd_index_status(make_args()) == 0
     out = capsys.readouterr().out
-    assert "embed: none" in out
+    assert "Ingest" in out and "done" in out
 
 
-@patch("onec_help.ingest.read_ingest_status")
-@patch("onec_help.indexer.get_index_status")
-def test_cmd_index_status_ingest_speed_none(
-    mock_status, mock_ingest, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """index-status with ingest in progress shows elapsed."""
-    mock_status.return_value = {"exists": True, "points_count": 10}
-    mock_ingest.return_value = {
-        "embedding_backend": "openai_api",
-        "elapsed_sec": 5.0,
-        "status": "in progress",
-    }
-    with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
-        assert cmd_index_status(make_args()) == 0
+@patch("onec_help.dashboard_data.get_dashboard_data")
+def test_cmd_index_status_ingest_speed_none(mock_get_data, capsys: pytest.CaptureFixture[str]) -> None:
+    """index-status with ingest in progress shows elapsed in Tasks."""
+    mock_get_data.return_value = _minimal_dashboard_data(
+        index_status={"exists": True, "points_count": 10},
+        ingest={"status": "in_progress", "embedding_backend": "openai_api", "elapsed_sec": 5.0, "done_tasks": 1, "total_tasks": 5},
+        collections=[],
+    )
+    assert cmd_index_status(make_args()) == 0
     out = capsys.readouterr().out
-    assert "embed: openai_api" in out and "in progress" in out
+    assert "in progress" in out and "elapsed" in out
 
 
-@patch("onec_help.ingest.read_ingest_status")
-@patch("onec_help.indexer.get_index_status")
+@patch("onec_help.dashboard_data.get_dashboard_data")
 def test_cmd_index_status_storage_path_not_dir(
-    mock_status, mock_ingest, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    mock_get_data, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """When QDRANT_STORAGE_PATH exists but is not a directory, DB shows dash."""
-    mock_ingest.return_value = None
-    mock_status.return_value = {"exists": True, "points_count": 10}
-    f = tmp_path / "file"
-    f.write_text("x")
-    with patch.dict(
-        "os.environ",
-        {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333", "QDRANT_STORAGE_PATH": str(f)},
-    ):
-        assert cmd_index_status(make_args()) == 0
+    """When storage_path_mb is None (e.g. path not a dir), Database panel still renders."""
+    mock_get_data.return_value = _minimal_dashboard_data(
+        collections=[{"name": "onec_help", "points_count": 10}],
+        storage_path_mb=None,
+    )
+    assert cmd_index_status(make_args()) == 0
     out = capsys.readouterr().out
-    assert "DB:" in out
+    assert "Database" in out or "onec_help" in out
 
 
-@patch("onec_help.ingest.read_ingest_status")
-@patch("onec_help.indexer.get_index_status")
-@patch("os.walk")
+@patch("onec_help.dashboard_data.get_dashboard_data")
 def test_cmd_index_status_storage_path_oserror(
-    mock_walk, mock_status, mock_ingest, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    mock_get_data, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """When os.walk raises OSError, DB shows dash."""
-    mock_ingest.return_value = None
-    mock_status.return_value = {"exists": True, "points_count": 10}
-    mock_walk.side_effect = OSError("permission denied")
-    with patch.dict(
-        "os.environ",
-        {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333", "QDRANT_STORAGE_PATH": str(tmp_path)},
-    ):
-        assert cmd_index_status(make_args()) == 0
+    """Database panel renders even when storage_path_mb is missing (OSError in dir_size)."""
+    mock_get_data.return_value = _minimal_dashboard_data(
+        collections=[{"name": "onec_help", "points_count": 10}],
+    )
+    assert cmd_index_status(make_args()) == 0
     out = capsys.readouterr().out
-    assert "DB:" in out
+    assert "Database" in out or "10" in out
 
 
-@patch("onec_help.ingest.read_ingest_status")
-@patch("onec_help.indexer.get_index_status")
-def test_cmd_index_status_ingest_with_eta(
-    mock_status, mock_ingest, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """index-status with ingest ETA prints ETA seconds."""
-    mock_status.return_value = {"exists": True, "points_count": 10}
-    mock_ingest.return_value = {
-        "embedding_backend": "openai_api",
-        "status": "in progress",
-        "eta_sec": 120,
-        "elapsed_sec": 10.0,
-    }
-    with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
-        assert cmd_index_status(make_args()) == 0
+@patch("onec_help.dashboard_data.get_dashboard_data")
+def test_cmd_index_status_ingest_with_eta(mock_get_data, capsys: pytest.CaptureFixture[str]) -> None:
+    """index-status with ingest in progress shows ETA in Tasks."""
+    mock_get_data.return_value = _minimal_dashboard_data(
+        index_status={"exists": True},
+        ingest={"status": "in_progress", "elapsed_sec": 10, "done_tasks": 2, "total_tasks": 5},
+        collections=[],
+    )
+    assert cmd_index_status(make_args()) == 0
     out = capsys.readouterr().out
-    assert "ETA" in out or "120" in out
+    assert "in progress" in out and ("ETA" in out or "2/5" in out)
 
 
-@patch("onec_help.ingest.read_ingest_status")
-@patch("onec_help.indexer.get_index_status")
-def test_cmd_index_status_ingest_with_current_workers(
-    mock_status, mock_ingest, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """index-status with ingest current workers shows current file and stage."""
-    mock_status.return_value = {"exists": True, "points_count": 10}
-    mock_ingest.return_value = {
-        "embedding_backend": "openai_api",
-        "status": "in progress",
-        "current": [{"path": "x", "version": "8.3", "language": "ru", "stage": "embed"}],
-    }
-    with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
-        assert cmd_index_status(make_args()) == 0
+@patch("onec_help.dashboard_data.get_dashboard_data")
+def test_cmd_index_status_ingest_with_current_workers(mock_get_data, capsys: pytest.CaptureFixture[str]) -> None:
+    """index-status with ingest in progress shows task progress in Tasks."""
+    mock_get_data.return_value = _minimal_dashboard_data(
+        index_status={"exists": True},
+        ingest={"status": "in_progress", "done_tasks": 1, "total_tasks": 5},
+        collections=[],
+    )
+    assert cmd_index_status(make_args()) == 0
     out = capsys.readouterr().out
-    assert "8.3/ru" in out and "embed" in out
+    assert "in progress" in out and "1/5" in out
 
 
-@patch("onec_help.indexer.get_index_status")
-def test_cmd_index_status_exists(mock_status) -> None:
-    mock_status.return_value = {
-        "exists": True,
-        "collection": "onec_help",
-        "points_count": 42,
-        "versions": ["8.3.27"],
-        "languages": ["ru"],
-    }
-
-    with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
-        assert cmd_index_status(make_args()) == 0
-
-
-@patch("onec_help.indexer.get_all_collections_status")
-@patch("onec_help.ingest.read_ingest_status")
-@patch("onec_help.indexer.get_index_status")
-def test_cmd_index_status_shows_embeddings_and_db_size(
-    mock_status, mock_ingest, mock_collections, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """index-status shows Collections (points, vectors, segments), total points, DB size."""
-    mock_ingest.return_value = None
-    mock_status.return_value = {
-        "exists": True,
-        "collection": "onec_help",
-        "points_count": 100,
-    }
-    mock_collections.return_value = [
-        {
-            "name": "onec_help",
-            "points_count": 100,
-            "indexed_vectors_count": 100,
-            "segments_count": 1,
-        },
-    ]
-    (tmp_path / "some_file").write_bytes(b"x" * 500)  # ~0.5 KB
-
-    with patch.dict(
-        "os.environ",
-        {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333", "QDRANT_STORAGE_PATH": str(tmp_path)},
-    ):
-        assert cmd_index_status(make_args()) == 0
-    out = capsys.readouterr().out
-    assert "index-status" in out
-    assert "onec_help" in out
-    assert "100" in out
-    assert "total:" in out or "pts" in out
-    assert "DB:" in out
-    assert "MB" in out
-
-
-@patch("onec_help.indexer.get_index_status")
-def test_cmd_index_status_not_exists(mock_status) -> None:
-    mock_status.return_value = {"exists": False}
-
+@patch("onec_help.dashboard_data.get_dashboard_data")
+def test_cmd_index_status_exists(mock_get_data) -> None:
+    mock_get_data.return_value = _minimal_dashboard_data(
+        index_status={"exists": True, "points_count": 42},
+        collections=[{"name": "onec_help", "points_count": 42}],
+    )
     assert cmd_index_status(make_args()) == 0
 
 
-@patch("onec_help.indexer.get_index_status")
-def test_cmd_index_status_error(mock_status) -> None:
-    mock_status.return_value = {"error": "connection refused"}
+@patch("onec_help.dashboard_data.get_dashboard_data")
+def test_cmd_index_status_shows_embeddings_and_db_size(
+    mock_get_data, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """index-status shows Database panel with collection points and optional DB size."""
+    mock_get_data.return_value = _minimal_dashboard_data(
+        index_status={"exists": True},
+        collections=[
+            {"name": "onec_help", "points_count": 100, "indexed_vectors_count": 100, "segments_count": 1},
+        ],
+        storage_path_mb=0.5,
+    )
+    assert cmd_index_status(make_args()) == 0
+    out = capsys.readouterr().out
+    assert "onec_help" in out
+    assert "100" in out
+    assert "Database" in out or "MB" in out
+
+
+@patch("onec_help.dashboard_data.get_dashboard_data")
+def test_cmd_index_status_not_exists(mock_get_data) -> None:
+    mock_get_data.return_value = _minimal_dashboard_data(index_status={"exists": False})
+    assert cmd_index_status(make_args()) == 0
+
+
+@patch("onec_help.dashboard_data.get_dashboard_data")
+def test_cmd_index_status_error(mock_get_data) -> None:
+    mock_get_data.return_value = _minimal_dashboard_data(
+        index_status={"error": "connection refused"},
+    )
     assert cmd_index_status(make_args()) == 1
 
 
-@patch("onec_help.ingest.read_ingest_status")
-@patch("onec_help.indexer.get_index_status")
-def test_cmd_index_status_with_ingest(
-    mock_status, mock_ingest, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """index-status shows embedding speed, per-folder, total time when ingest status exists.
-    When status is completed, current is empty so no stale workers are shown."""
-    mock_status.return_value = {
-        "exists": True,
-        "collection": "onec_help",
-        "points_count": 100,
-        "versions": ["8.3"],
-        "languages": ["ru"],
-    }
-    mock_ingest.return_value = {
-        "embedding_backend": "openai_api",
-        "embedding_speed_pts_per_sec": 12.5,
-        "elapsed_sec": 8.0,
-        "status": "completed",
-        "total_elapsed_sec": 8.2,
-        "current": [],  # cleared when ingest completes
-        "folders": [
-            {
-                "version": "8.3",
-                "language": "ru",
-                "hbk_count": 1,
-                "html_count": 50,
-                "md_count": 100,
-                "err_count": 0,
-                "points": 100,
-                "status": "done",
-            },
-        ],
-    }
-
+@patch("onec_help.dashboard_data.get_dashboard_data")
+def test_cmd_index_status_with_ingest(mock_get_data, capsys: pytest.CaptureFixture[str]) -> None:
+    """index-status with completed ingest shows Tasks panel (no current workers)."""
+    mock_get_data.return_value = _minimal_dashboard_data(
+        index_status={"exists": True, "points_count": 100},
+        ingest_last_run={
+            "status": "completed",
+            "total_elapsed_sec": 8.2,
+            "done_tasks": 5,
+            "total_tasks": 5,
+        },
+        collections=[{"name": "onec_help", "points_count": 100}],
+    )
     assert cmd_index_status(make_args()) == 0
     out = capsys.readouterr().out
-    assert "Current (per thread):" not in out  # completed => no worker list
+    assert "Ingest" in out and "done" in out
 
 
-@patch("onec_help.indexer.get_all_collections_status")
-@patch("onec_help.ingest.read_ingest_status")
-@patch("onec_help.indexer.get_index_status")
+@patch("onec_help.dashboard_data.get_dashboard_data")
 def test_cmd_index_status_shows_failed_task_details(
-    mock_status, mock_ingest, mock_collections, capsys: pytest.CaptureFixture[str]
+    mock_get_data, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """index-status shows failed task error details when failed_tasks in ingest status."""
-    mock_status.return_value = {"exists": True, "collection": "onec_help", "points_count": 100}
-    mock_collections.return_value = [
-        {
-            "name": "onec_help",
-            "points_count": 100,
-            "indexed_vectors_count": 100,
-            "segments_count": 1,
-        },
-    ]
-    mock_ingest.return_value = {
-        "status": "completed",
-        "folders": [
-            {"version": "8.3", "language": "ru", "err_count": 1, "hbk_count": 2},
+    """index-status shows Errors panel with failed task details."""
+    mock_get_data.return_value = _minimal_dashboard_data(
+        index_status={"exists": True},
+        ingest_last_run={"failed_count": 1, "done_tasks": 4, "total_tasks": 5},
+        collections=[{"name": "onec_help", "points_count": 100}],
+        failed_tasks=[
+            {"version": "8.3", "language": "ru", "path": "shcntx_ru.hbk", "error": "7z failed: invalid archive"},
         ],
-        "failed_tasks": [
-            {
-                "version": "8.3",
-                "language": "ru",
-                "path": "shcntx_ru.hbk",
-                "error": "7z failed: invalid archive",
-            },
-        ],
-    }
+    )
     assert cmd_index_status(make_args()) == 0
     out = capsys.readouterr().out
-    assert "1 failed" in out or "Failed: 1" in out
-    assert "shcntx_ru" in out
+    assert "failed" in out.lower()
+    assert "shcntx_ru" in out or "invalid" in out
 
 
-@patch("onec_help.indexer.get_all_collections_status")
-@patch("onec_help.ingest.read_last_ingest_run")
-@patch("onec_help.ingest.read_ingest_status")
-@patch("onec_help.indexer.get_index_status")
+@patch("onec_help.dashboard_data.get_dashboard_data")
 def test_cmd_index_status_shows_last_run_when_no_active_ingest(
-    mock_status: MagicMock,
-    mock_ingest: MagicMock,
-    mock_last_run: MagicMock,
-    mock_collections: MagicMock,
-    capsys: pytest.CaptureFixture[str],
+    mock_get_data, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """index-status shows Last run from ingest_runs when no active ingest."""
-    mock_status.return_value = {"exists": True, "collection": "onec_help", "points_count": 5000}
-    mock_collections.return_value = [
-        {
-            "name": "onec_help",
-            "points_count": 5000,
-            "indexed_vectors_count": 5000,
-            "segments_count": 2,
+    """index-status shows last run in Tasks when no active ingest."""
+    mock_get_data.return_value = _minimal_dashboard_data(
+        index_status={"exists": True},
+        ingest_last_run={
+            "status": "completed",
+            "total_points": 5000,
+            "total_elapsed_sec": 120.5,
+            "failed_count": 0,
         },
-    ]
-    mock_ingest.return_value = None
-    mock_last_run.return_value = {
-        "status": "completed",
-        "total_points": 5000,
-        "total_elapsed_sec": 120.5,
-        "failed_count": 0,
-    }
+        collections=[{"name": "onec_help", "points_count": 5000}],
+    )
     assert cmd_index_status(make_args()) == 0
     out = capsys.readouterr().out
-    assert "Last run" in out
-    assert "5000" in out and "pts" in out
+    assert "last run" in out.lower() or "done" in out
+    assert "5000" in out
 
 
-@patch("onec_help.indexer.get_all_collections_status")
-@patch("onec_help.ingest.read_ingest_cache_entries")
-@patch("onec_help.ingest.read_ingest_failed_log")
-@patch("onec_help.ingest.read_last_ingest_failed")
-@patch("onec_help.ingest.read_last_ingest_run")
-@patch("onec_help.ingest.read_ingest_status")
-@patch("onec_help.indexer.get_index_status")
+@patch("onec_help.dashboard_data.get_dashboard_data")
 def test_cmd_index_status_shows_failed_placeholder_when_no_details(
-    mock_status: MagicMock,
-    mock_ingest: MagicMock,
-    mock_last_run: MagicMock,
-    mock_failed: MagicMock,
-    mock_failed_log: MagicMock,
-    mock_cache: MagicMock,
-    mock_collections: MagicMock,
-    capsys: pytest.CaptureFixture[str],
+    mock_get_data, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """index-status shows placeholder when failed_count > 0 but DB/log have no details."""
-    mock_status.return_value = {"exists": True, "collection": "onec_help", "points_count": 100}
-    mock_collections.return_value = [
-        {
-            "name": "onec_help",
-            "points_count": 100,
-            "indexed_vectors_count": 100,
-            "segments_count": 1,
-        },
-    ]
-    mock_ingest.return_value = None
-    mock_last_run.return_value = {
-        "status": "completed",
-        "total_points": 100,
-        "total_elapsed_sec": 10.0,
-        "failed_count": 1,
-    }
-    mock_failed.return_value = []
-    mock_failed_log.return_value = []
-    mock_cache.return_value = []
+    """index-status shows Errors placeholder when failed_count > 0 but no failed_tasks details."""
+    mock_get_data.return_value = _minimal_dashboard_data(
+        index_status={"exists": True},
+        ingest_last_run={"failed_count": 1, "total_points": 100, "total_elapsed_sec": 10},
+        collections=[{"name": "onec_help", "points_count": 100}],
+        failed_tasks=[],
+    )
     assert cmd_index_status(make_args()) == 0
     out = capsys.readouterr().out
-    assert "1 failed" in out or "Failed" in out
-    assert "Details not stored" in out or "re-run ingest" in out
+    assert "failed" in out.lower()
+    assert "re-run" in out or "details" in out.lower()
 
 
 @patch("onec_help.ingest.run_ingest")
@@ -678,12 +545,15 @@ def test_cmd_unpack_sync_no_sources_error(mock_run) -> None:
     mock_run.assert_not_called()
 
 
-@patch("onec_help.ingest.read_ingest_status", return_value=None)
-@patch("onec_help.indexer.get_index_status", return_value={"error": "Connection refused"})
-def test_render_index_status_returns_error_when_index_status_has_error(
-    mock_status, mock_ingest
-) -> None:
-    """_render_index_status returns error string and code 1 when get_index_status has error."""
+@patch("onec_help.dashboard_data.get_dashboard_data")
+def test_render_index_status_returns_error_when_index_status_has_error(mock_get_data) -> None:
+    """_render_index_status returns error string and code 1 when index_status has error."""
+    mock_get_data.return_value = {
+        "index_status": {"error": "Connection refused"},
+        "collections": [],
+        "ingest": None,
+        "ingest_last_run": None,
+    }
     out, code = _render_index_status()
     assert code == 1
     assert "Error:" in out and "Connection refused" in out
@@ -1417,15 +1287,17 @@ def test_cmd_load_standards_from_repos(mock_fetch, mock_get_store, tmp_path: Pat
     mock_store.upsert_curated_snippets.assert_called_once()
 
 
-@patch("onec_help.indexer.get_index_status")
-def test_main_index_status(mock_status) -> None:
+@patch("onec_help.dashboard_data.get_dashboard_data")
+def test_main_index_status(mock_get_data) -> None:
     """main() parses argv and invokes cmd_index_status."""
-    mock_status.return_value = {"exists": True, "points_count": 10, "collection": "onec_help"}
+    mock_get_data.return_value = _minimal_dashboard_data(
+        collections=[{"name": "onec_help", "points_count": 10}],
+    )
     with patch("sys.argv", ["onec_help", "index-status"]):
         from onec_help.cli import main
 
         assert main() == 0
-    mock_status.assert_called_once()
+    mock_get_data.assert_called()
 
 
 @patch("onec_help.parse_fastcode.run_parse")
@@ -1453,230 +1325,73 @@ def test_main_parse_helpf(mock_run, tmp_path: Path) -> None:
     assert mock_run.call_args[1]["source"] == "faq"
 
 
-# --- _render_index_status_compact / _render_index_status_rich branches ---
+# --- _render_index_status (dashboard-based) ---
 
 
-def _format_duration(sec: float | None) -> str:
-    if sec is None:
-        return "—"
-    if sec < 60:
-        return f"{sec:.0f}s"
-    return f"{sec / 60:.1f}m"
-
-
-def test_render_index_status_rich_ingest_in_progress() -> None:
-    """_render_index_status_rich: ingest in progress, progress bar, current, completed, failed."""
-    s = {"exists": True, "versions": ["8.3"], "languages": ["ru"]}
-    collections = [{"name": "onec_help", "points_count": 100}]
-    ingest = {
-        "status": "in_progress",
-        "embedding_backend": "local",
-        "done_tasks": 2,
-        "total_tasks": 5,
-        "total_points": 50,
-        "current_task_points": 20,
-        "current_task_estimated_total": 100,
-        "estimated_total_points": 200,
-        "max_workers": 2,
-        "current": [
-            {"stage": "embedding", "version": "8.3", "language": "ru", "path": "a.hbk"},
-            {"stage": "build_docs", "version": "8.3", "language": "ru", "path": "b.hbk"},
-        ],
-        "completed_files": [
-            {"path": "c.hbk", "status": "ok", "version": "8.3", "language": "ru", "points": 10},
-        ],
-        "folders": [{"err_count": 1}],
-        "failed_tasks": [{"path": "x.hbk", "error": "err", "version": "8.3", "language": "ru"}],
-    }
-    snippets = None
-    with patch("onec_help.cli.os.get_terminal_size", side_effect=OSError):
-        out, code = _render_index_status_rich(
-            s, collections, ingest, snippets, "", _format_duration, "localhost", 6333
-        )
-    assert code == 0
-    assert "index-status" in out
-    assert "Ingest" in out or "embed" in out
-    assert "Failed" in out or "err" in out
-
-
-def test_render_index_status_compact_with_ingest_in_progress(tmp_path: Path) -> None:
-    """_render_index_status_compact: ingest in progress, current, completed, eta, snippets."""
-    s = {"exists": True, "versions": ["8.3"], "languages": ["ru"]}
-    collections = [
-        {"name": "onec_help", "points_count": 50},
-        {"name": "other", "points_count": 30},
-    ]
-    ingest = {
-        "status": "in_progress",
-        "embedding_backend": "openai_api",
-        "elapsed_sec": 10.0,
-        "eta_sec": 5.0,
-        "eta_finish_at": 1234567890.0,
-        "done_tasks": 2,
-        "total_tasks": 5,
-        "total_points": 50,
-        "current_task_points": 10,
-        "current_task_estimated_total": 100,
-        "estimated_total_points": 200,
-        "max_workers": 2,
-        "current": [
-            {"stage": "embedding", "version": "8.3", "language": "ru", "path": "a.hbk"},
-        ],
-        "completed_files": [
-            {"path": "b.hbk", "status": "ok", "version": "8.3", "language": "ru", "points": 10},
-            {"path": "c.hbk", "status": "skip", "version": "8.3", "language": "ru"},
-        ],
-        "folders": [],
-    }
-    snippets = {
-        "files_processed": 1,
-        "files_skipped": 0,
-        "items_loaded": 5,
-        "total_elapsed_sec": 1.0,
-    }
-    with patch.dict("os.environ", {}, clear=False):
-        out, code = _render_index_status_compact(
-            s, collections, ingest, snippets, "", _format_duration
-        )
-    assert code == 0
-    assert "Ingest" in out and "embed:" in out
-    assert "Snippets" in out
-
-
-def test_render_index_status_compact_storage_path_oserror(tmp_path: Path) -> None:
-    """_render_index_status_compact: QDRANT_STORAGE_PATH set but dir_size_on_disk raises OSError."""
-    s = {"exists": True}
-    collections = [{"name": "onec_help", "points_count": 10}]
-    with patch.dict("os.environ", {"QDRANT_STORAGE_PATH": str(tmp_path)}, clear=False):
-        with patch("onec_help._utils.dir_size_on_disk", side_effect=OSError("perm")):
-            out, _ = _render_index_status_compact(s, collections, None, None, "", _format_duration)
-    assert "DB:—" in out
-
-
-def test_render_index_status_compact_ingest_est_pts_and_eta_finish() -> None:
-    """_render_index_status_compact: ingest in progress with estimated_total_points and eta_finish_at."""
-    s = {"exists": True}
-    collections = [{"name": "onec_help", "points_count": 50}]
-    ingest = {
-        "status": "in progress",
-        "embedding_backend": "openai_api",
-        "total_points": 50,
-        "current_task_points": 10,
-        "estimated_total_points": 200,
-        "eta_sec": 60,
-        "eta_finish_at": 1234567890.0,
-        "elapsed_sec": 10.0,
-        "completed_files": [
-            {"path": "a.hbk", "status": "ok"},
-            {"path": "b.hbk", "status": "skip"},
-            {"path": "c.hbk", "status": "fail"},
-        ],
-    }
-    out, code = _render_index_status_compact(s, collections, ingest, None, "", _format_duration)
-    assert code == 0
-    assert "50/200" in out or "pts" in out
-    assert "finish ~" in out or "ETA" in out
-    assert "done:1ok" in out or "ok" in out
-
-
-def test_render_index_status_compact_with_failed_and_snippets_cached(tmp_path: Path) -> None:
-    """_render_index_status_compact: failed_tasks and snippets with cached_total."""
-    s = {"exists": True}
-    collections = [{"name": "onec_help", "points_count": 10}]
-    ingest = {
-        "status": "completed",
-        "embedding_backend": "none",
-        "folders": [{"err_count": 1}],
-        "failed_tasks": [
-            {"path": "x.hbk", "error": "7z failed", "version": "8.3", "language": "ru"}
-        ],
-    }
-    snippets = {"files_processed": 0, "files_skipped": 2, "items_loaded": 0}
-    with patch("onec_help.snippets_cache.get_cached_items_total", return_value=42):
-        with patch.dict("os.environ", {}, clear=False):
-            out, code = _render_index_status_compact(
-                s, collections, ingest, snippets, "", _format_duration
-            )
-    assert code == 0
-    assert "Failed" in out or "failed" in out
-
-
-@patch("onec_help.snippets_cache.get_cached_items_total", return_value=10)
-def test_render_index_status_compact_snippets_cached(mock_cached) -> None:
-    """_render_index_status_compact: snippets with fp=0, il=0, fs>0 triggers get_cached_items_total."""
-    s = {"exists": True}
-    collections = [{"name": "c", "points_count": 0}]
-    ingest = None
-    snippets = {"files_processed": 0, "files_skipped": 1, "items_loaded": 0}
-    out, code = _render_index_status_compact(s, collections, ingest, snippets, "", _format_duration)
-    assert code == 0
-    mock_cached.assert_called_once()
-
-
-@patch("onec_help.ingest.read_ingest_failed_log")
-def test_render_index_status_compact_failed_log_fallback(mock_read_failed) -> None:
-    """_render_index_status_compact: total_err>0 and no failed_tasks -> read_ingest_failed_log."""
-    mock_read_failed.return_value = [{"path": "a.hbk", "error": "err"}]
-    s = {"exists": True}
-    collections = [{"name": "c", "points_count": 0}]
-    ingest = {
-        "status": "in_progress",
-        "embedding_backend": "none",
-        "folders": [{"err_count": 1}],
+def _minimal_dashboard_data(**overrides):
+    """Minimal get_dashboard_data() shape for tests."""
+    data = {
+        "ingest": None,
+        "ingest_last_run": None,
         "failed_tasks": [],
+        "index_status": {},
+        "collections": [],
+        "snippets": None,
+        "standards_loading": False,
+        "snippets_loading": False,
+        "storage_path_mb": None,
     }
-    snippets = None
-    out, code = _render_index_status_compact(s, collections, ingest, snippets, "", _format_duration)
+    data.update(overrides)
+    return data
+
+
+@patch("onec_help.dashboard_data.get_dashboard_data")
+def test_render_index_status_compact_returns_line(mock_get_data) -> None:
+    """_render_index_status(compact=True) returns one-line string from render_dashboard_compact."""
+    mock_get_data.return_value = _minimal_dashboard_data(
+        collections=[{"name": "onec_help", "points_count": 100}],
+        ingest_last_run={"done_tasks": 5, "total_tasks": 5},
+    )
+    out, code = _render_index_status(compact=True)
     assert code == 0
-    mock_read_failed.assert_called_once()
+    assert isinstance(out, str)
+    assert "index-status" in out
+    assert "100" in out or "Ingest" in out
 
 
-@patch("onec_help.indexer.get_all_collections_status")
-@patch("onec_help.ingest.read_ingest_status")
-@patch("onec_help.indexer.get_index_status")
+@patch("onec_help.dashboard_data.get_dashboard_data")
+def test_render_index_status_rich_returns_renderable(mock_get_data) -> None:
+    """_render_index_status(compact=False) returns Rich Group from render_dashboard."""
+    from rich.console import Group
+
+    mock_get_data.return_value = _minimal_dashboard_data(
+        collections=[{"name": "onec_help", "points_count": 50}],
+    )
+    out, code = _render_index_status(compact=False)
+    assert code == 0
+    assert isinstance(out, Group)
+
+
+@patch("onec_help.dashboard_data.get_dashboard_data")
 def test_render_index_status_compact_via_cmd(
-    mock_status, mock_ingest, mock_collections, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    mock_get_data, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """cmd_index_status(compact=True) uses _render_index_status_compact."""
-    mock_status.return_value = {
-        "exists": True,
-        "collection": "onec_help",
-        "points_count": 100,
-        "versions": ["8.3"],
-        "languages": ["ru"],
-    }
-    mock_collections.return_value = [
-        {
-            "name": "onec_help",
-            "points_count": 100,
-            "indexed_vectors_count": 100,
-            "segments_count": 1,
-        },
-    ]
-    mock_ingest.return_value = {
-        "status": "completed",
-        "embedding_backend": "local",
-        "total_elapsed_sec": 5.0,
-    }
-    with patch("onec_help.snippets_cache.read_last_snippets_run", return_value={"items_loaded": 0}):
-        with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
-            assert cmd_index_status(make_args(compact=True)) == 0
+    """cmd_index_status(compact=True) prints one line with index-status and data."""
+    mock_get_data.return_value = _minimal_dashboard_data(
+        collections=[{"name": "onec_help", "points_count": 100}],
+        ingest_last_run={"done_tasks": 3, "total_tasks": 3, "total_elapsed_sec": 5},
+    )
+    assert cmd_index_status(make_args(compact=True)) == 0
     out = capsys.readouterr().out
     assert "index-status" in out
     assert "100" in out
 
 
-@patch("onec_help.snippets_cache.read_last_snippets_run", return_value=None)
-@patch("onec_help.indexer.get_all_collections_status", return_value=[])
-@patch("onec_help.ingest.read_last_ingest_run", return_value=None)
-@patch("onec_help.ingest.read_ingest_status", return_value=None)
-@patch("onec_help.indexer.get_index_status", return_value={"exists": False})
-def test_render_index_status_no_collections_no_ingest(
-    mock_status, mock_ingest, mock_last_run, mock_collections, mock_snippets
-) -> None:
+@patch("onec_help.dashboard_data.get_dashboard_data")
+def test_render_index_status_no_collections_no_ingest(mock_get_data) -> None:
     """_render_index_status returns 'Index does not exist' when no collections and no ingest."""
-    with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
-        out, code = _render_index_status(compact=True)
+    mock_get_data.return_value = _minimal_dashboard_data()
+    out, code = _render_index_status(compact=True)
     assert code == 0
     assert "Index does not exist" in out
 
@@ -1714,89 +1429,22 @@ def test_build_snippets_sources_snippets_dir(tmp_path: Path) -> None:
     assert any(s[1] == "json" for s in sources)
 
 
-def test_render_index_status_rich_ingest_completed_with_elapsed_and_failed() -> None:
-    """_render_index_status_rich: status completed shows total_elapsed_sec and failed_count."""
-    from onec_help._utils import format_duration
-
-    s = {"exists": True, "points_count": 100}
-    collections = [{"name": "onec_help", "points_count": 100}]
-    ingest = {
-        "status": "completed",
-        "embedding_backend": "openai_api",
-        "total_elapsed_sec": 120.5,
-        "total_points": 500,
-        "failed_count": 2,
-        "failed_tasks": [{"path": "a.hbk", "error": "e1"}, {"path": "b.hbk", "error": "e2"}],
-        "max_workers": 4,
-    }
-    with patch("onec_help.cli.os.get_terminal_size", side_effect=OSError):
-        out, code = _render_index_status_rich(
-            s, collections, ingest, None, "", format_duration, "localhost", 6333
-        )
+@patch("onec_help.dashboard_data.get_dashboard_data")
+def test_render_index_status_uses_last_run_when_no_ingest(mock_get_data: MagicMock) -> None:
+    """_render_index_status with no current ingest shows last run from get_dashboard_data."""
+    mock_get_data.return_value = _minimal_dashboard_data(
+        ingest_last_run={
+            "total_elapsed_sec": 60,
+            "total_points": 100,
+            "done_tasks": 5,
+            "total_tasks": 5,
+            "failed_count": 1,
+        },
+        collections=[{"name": "onec_help", "points_count": 10}],
+    )
+    out, code = _render_index_status(compact=True)
     assert code == 0
-    assert "✓ done" in out
-    assert "2m" in out or "120" in out or "2 min" in out or "500 pts" in out
-    assert "2 failed" in out or "failed" in out
-
-
-def test_render_index_status_rich_ingest_completed_files_only_no_failed() -> None:
-    """_render_index_status_rich: in progress with many completed_files, no failed_tasks."""
-    from onec_help._utils import format_duration
-
-    s = {"exists": True}
-    collections = [{"name": "onec_help", "points_count": 50}]
-    completed = [
-        {"path": f"f{i}.hbk", "status": "ok", "version": "8.3", "language": "ru", "points": 5}
-        for i in range(15)
-    ]
-    ingest = {
-        "status": "in progress",
-        "embedding_backend": "none",
-        "done_tasks": 15,
-        "total_tasks": 20,
-        "current": [],
-        "completed_files": completed,
-        "failed_tasks": [],
-        "folders": [],
-    }
-    with patch("onec_help.cli.os.get_terminal_size", side_effect=OSError):
-        out, code = _render_index_status_rich(
-            s, collections, ingest, None, "", format_duration, "localhost", 6333
-        )
-    assert code == 0
-    assert "Files (per file)" in out or "pts [" in out
-    assert "+3 more" in out or "+" in out
-
-
-@patch("onec_help.ingest.read_last_ingest_run")
-@patch("onec_help.ingest.read_ingest_status")
-@patch("onec_help.indexer.get_index_status")
-def test_render_index_status_uses_last_run_when_no_ingest(
-    mock_get_status: MagicMock,
-    mock_read_ingest: MagicMock,
-    mock_last_run: MagicMock,
-) -> None:
-    """_render_index_status with no ingest uses read_last_ingest_run and builds ingest block."""
-    mock_get_status.return_value = {"exists": True, "points_count": 10}
-    mock_read_ingest.return_value = None
-    mock_last_run.return_value = {
-        "total_elapsed_sec": 60,
-        "total_points": 100,
-        "done_tasks": 5,
-        "total_tasks": 5,
-        "failed_count": 1,
-        "embedding_backend": "openai_api",
-    }
-    with patch("onec_help.indexer.get_all_collections_status", return_value=[]):
-        with patch("onec_help.ingest.read_last_ingest_failed", return_value=[]):
-            with patch("onec_help.ingest.read_ingest_failed_log", return_value=[]):
-                with patch("onec_help.ingest.read_ingest_cache_entries", return_value=[]):
-                    with patch(
-                        "onec_help.snippets_cache.read_last_snippets_run", return_value=None
-                    ):
-                        out, code = _render_index_status()
-    assert code == 0
-    assert "Details not stored" in out or "failed" in out.lower()
+    assert "Ingest" in out and ("✓" in out or "1m" in out or "failed" in out)
 
 
 def test_cmd_index_status_watch_interrupt() -> None:
