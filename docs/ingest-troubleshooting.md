@@ -4,6 +4,38 @@
 
 ---
 
+## 0. Где узкое место (медленность): логи Docker и LM Studio
+
+Чтобы понять, тормозит ли **запись в Qdrant**, **API эмбеддингов (LM Studio)** или что-то ещё:
+
+1. **Лог ingest (основной источник):**
+   ```bash
+   docker exec <ingest-worker-container> tail -300 /app/var/log/ingest.log
+   ```
+   - **`[embedding] embedding API batch error (...), retrying with smaller batches: TimeoutError`** — узкое место **LM Studio** (не успевает ответить за таймаут). Запись в Qdrant идёт только после получения векторов, поэтому до Qdrant запросы даже не доходят. Действия: увеличить `EMBEDDING_TIMEOUT` (например 90–120), уменьшить `EMBEDDING_BATCH_SIZE` (32 или 16), уменьшить `EMBEDDING_WORKERS` (1–2).
+   - **`429`** — rate limit LM Studio; уменьшить батч и воркеры.
+   - **`Qdrant 500`** / **`upsert`** / **`connection refused`** к Qdrant — проблема **Qdrant** (нагрузка, память, сеть). Смотреть логи: `docker logs <qdrant-container> --tail 200`.
+   - **`Redis`** / **`connection refused`** к Redis — проблема Redis; проверить контейнер redis и REDIS_URL.
+
+2. **Лог watchdog (если ingest запускается из watchdog):**
+   ```bash
+   docker exec <ingest-worker-container> tail -100 /app/var/log/watchdog.log
+   ```
+
+3. **LM Studio:** в интерфейсе LM Studio смотреть вкладку с логами/запросами. Если запросы висят долго или идут пачками и не успевают — это подтверждает, что узкое место на стороне эмбеддингов, а не Qdrant.
+
+Итог: если в `ingest.log` есть **TimeoutError** или **retrying with smaller batches** — медленность со стороны **API эмбеддингов (LM Studio)**. Запись в Qdrant в таком случае не является узким местом.
+
+### Результат самостоятельной проверки (по логам и конфигу)
+
+- **ingest.log:** последняя строка — `[embedding] embedding API batch error (64 texts), retrying with smaller batches: TimeoutError`. Узкое место — запрос к LM Studio (батч 64 не укладывается в таймаут).
+- **Qdrant логи:** только GET /collections, GET /collections/…, POST …/scroll, все ответы 200 за 0.0001–0.07 с. Записей (PUT/upsert) в последних строках нет — дашборд только опрашивает коллекции; ingest не доходит до записи, т.к. ждёт векторы от API.
+- **Контейнер ingest-worker:** `EMBEDDING_TIMEOUT=60`, `EMBEDDING_BATCH_SIZE=64`, `EMBEDDING_WORKERS=4`. При 60 с и батче 64 LM Studio на хосте (host.docker.internal:1234) не успевает ответить.
+
+**Вывод:** проблема не в Qdrant и не в Redis; задержка из‑за **API эмбеддингов (LM Studio)**. По умолчанию в коде и compose уже заданы `EMBEDDING_TIMEOUT=90`, `EMBEDDING_BATCH_SIZE=32`, `EMBEDDING_WORKERS=2`; при необходимости можно увеличить таймаут до 120 в `.env`.
+
+---
+
 ## 1. Почему «0 done» при 4500 pts
 
 - **done** — это число **завершённых задач** (файлов .hbk), а не точек.

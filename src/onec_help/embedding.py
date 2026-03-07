@@ -29,12 +29,13 @@ def sanitize_text_for_embedding(text: str) -> str:
 # 768 matches default model nomic-embed-text-v2-moe.
 _DIMENSION_LAST_RESORT = 768
 MAX_EMBEDDING_INPUT_CHARS = 2000
-DEFAULT_EMBEDDING_BATCH_SIZE = 64
-DEFAULT_EMBEDDING_WORKERS = 4
+# Defaults tuned for LM Studio / external API (avoid TimeoutError; override for local/fast backends)
+DEFAULT_EMBEDDING_BATCH_SIZE = 32
+DEFAULT_EMBEDDING_WORKERS = 2
 # When EMBEDDING_FORCE_BATCH=1: use max batch and workers for maximum throughput (any backend)
 MAX_EMBEDDING_BATCH_SIZE = 256
 MAX_EMBEDDING_WORKERS = 16
-DEFAULT_EMBEDDING_TIMEOUT = 60
+DEFAULT_EMBEDDING_TIMEOUT = 90
 RETRY_ATTEMPTS = 3
 RETRY_BASE_DELAY = 1.0
 
