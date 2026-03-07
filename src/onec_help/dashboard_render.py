@@ -54,9 +54,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                     )
                     tasks_parts.append(Text("\n"))
                 else:
-                    tasks_parts.append(
-                        Text(f"  [{i + 1}] {version} / {lang} — {path} — {stage}")
-                    )
+                    tasks_parts.append(Text(f"  [{i + 1}] {version} / {lang} — {path} — {stage}"))
             if len(current_tasks) > 10:
                 tasks_parts.append(Text(f"  … and {len(current_tasks) - 10} more"))
         else:
@@ -64,9 +62,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
             est = ingest.get("current_task_estimated_total")
             if pts is not None and est is not None and est > 0:
                 tasks_parts.append(Text("  Ingest current task (embedding pts)"))
-                tasks_parts.append(
-                    ProgressBar(total=float(est), completed=float(pts), width=50)
-                )
+                tasks_parts.append(ProgressBar(total=float(est), completed=float(pts), width=50))
                 tasks_parts.append(Text("\n"))
     elif ingest_last:
         total = ingest_last.get("total_tasks") or 0
@@ -92,9 +88,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
         tasks_parts.append(
             Text(f"Standards: загрузка в память (embedding + Qdrant) — {loaded}/{tot_s} pts")
         )
-        tasks_parts.append(
-            ProgressBar(total=float(tot_s), completed=float(loaded), width=50)
-        )
+        tasks_parts.append(ProgressBar(total=float(tot_s), completed=float(loaded), width=50))
         tasks_parts.append(Text("\n"))
     elif standards_loading:
         tasks_parts.append(Text("Standards: loading…"))
@@ -111,9 +105,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
         tasks_parts.append(
             Text(f"Snippets: загрузка в память (embedding + Qdrant) — {loaded}/{tot_sn} pts")
         )
-        tasks_parts.append(
-            ProgressBar(total=float(tot_sn), completed=float(loaded), width=50)
-        )
+        tasks_parts.append(ProgressBar(total=float(tot_sn), completed=float(loaded), width=50))
         tasks_parts.append(Text("\n"))
     elif snippets_loading:
         tasks_parts.append(Text("Snippets: loading…"))
