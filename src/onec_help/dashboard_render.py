@@ -1,13 +1,19 @@
 """Render dashboard data as Rich panels (Tasks, Errors, Database)."""
 
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 from ._utils import format_duration
 
+if TYPE_CHECKING:
+    from rich.text import Text
 
-def _dim(text: str) -> "Text":
+
+def _dim(text: str) -> Text:
     """Dimmed text via style (avoids raw [dim] tags when Console markup is disabled, e.g. non-TTY)."""
     from rich.text import Text
+
     return Text(text, style="dim")
 
 
@@ -61,6 +67,15 @@ def render_dashboard(data: dict[str, Any]) -> Any:
         if last_batch is not None and isinstance(last_batch, (int, float)) and last_batch > 0:
             ingest_line += f"  │  Last batch: {last_batch}s"
         tasks_parts.append(Text(ingest_line + "\n"))
+        mw = ingest.get("max_workers")
+        ew = ingest.get("embedding_workers")
+        if mw is not None or ew is not None:
+            parts = []
+            if mw is not None:
+                parts.append(f"Ingest slots: {mw}")
+            if ew is not None:
+                parts.append(f"Embedding workers: {ew}")
+            tasks_parts.append(Text("  " + "  │  ".join(parts) + "\n"))
         workers: list[dict[str, Any]] = []
         for cur in (current_tasks or [])[:10]:
             version = (cur.get("version") or "—")[:12]
@@ -88,7 +103,14 @@ def render_dashboard(data: dict[str, Any]) -> Any:
             pts = ingest.get("current_task_points")
             est = ingest.get("current_task_estimated_total")
             if pts is not None and est is not None and est > 0:
-                workers.append({"label": "Ingest (current)", "short": "Ingest (current)", "pts": pts, "total": est})
+                workers.append(
+                    {
+                        "label": "Ingest (current)",
+                        "short": "Ingest (current)",
+                        "pts": pts,
+                        "total": est,
+                    }
+                )
         standards_loading = data.get("standards_loading")
         standards_pts = data.get("standards_loading_pts")
         if standards_loading and standards_pts and standards_pts.get("phase") != "parsing":
@@ -137,7 +159,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                     )
                 else:
                     workers_table.add_row(Text(f"[{i}]"), Text(short), Text("—"))
-            tasks_parts.append(Text(f"  Workers: {len(workers)}\n"))
+            tasks_parts.append(Text(f"  Tasks: {len(workers)}\n"))
             tasks_parts.append(workers_table)
             if current_tasks and len(current_tasks) > 10:
                 tasks_parts.append(Text(f"  … +{len(current_tasks) - 10} more\n"))
@@ -180,7 +202,14 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                     }
                 )
         elif standards_loading:
-            workers_extra.append({"label": "Standards — parsing", "short": "Standards parsing", "pts": None, "total": None})
+            workers_extra.append(
+                {
+                    "label": "Standards — parsing",
+                    "short": "Standards parsing",
+                    "pts": None,
+                    "total": None,
+                }
+            )
         if snippets_loading and snippets_pts and snippets_pts.get("phase") != "parsing":
             tot_sn = snippets_pts.get("total") or 0
             if tot_sn > 0:
@@ -193,7 +222,14 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                     }
                 )
         elif snippets_loading:
-            workers_extra.append({"label": "Snippets — parsing", "short": "Snippets parsing", "pts": None, "total": None})
+            workers_extra.append(
+                {
+                    "label": "Snippets — parsing",
+                    "short": "Snippets parsing",
+                    "pts": None,
+                    "total": None,
+                }
+            )
         if workers_extra:
             workers_extra_table = Table(show_header=False, box=None, padding=(0, 1))
             workers_extra_table.add_column(style="dim", width=4)
@@ -215,7 +251,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                     )
                 else:
                     workers_extra_table.add_row(Text(f"[{i}]"), Text(short), Text("—"))
-            tasks_parts.append(Text(f"  Workers: {len(workers_extra)}\n"))
+            tasks_parts.append(Text(f"  Tasks: {len(workers_extra)}\n"))
             tasks_parts.append(workers_extra_table)
     if not (ingest and ingest.get("status") == "in_progress"):
         if not standards_loading:
@@ -279,7 +315,12 @@ def render_dashboard(data: dict[str, Any]) -> Any:
         else:
             panels.append(
                 Panel(
-                    Group(Text("—\n"), _dim("Ingest only. MCP errors → «MCP requests» or docker compose logs mcp.")),
+                    Group(
+                        Text("—\n"),
+                        _dim(
+                            "Ingest only. MCP errors → «MCP requests» or docker compose logs mcp."
+                        ),
+                    ),
                     title="[bold]Errors[/bold]",
                     border_style="dim",
                 )
@@ -344,16 +385,12 @@ def render_dashboard(data: dict[str, Any]) -> Any:
             db_parts.append(Text("\n".join(vocab_lines)))
         if standards_loading_db or snippets_loading_db:
             db_parts.append(
-                _dim(
-                    "Updating: standards/snippets → onec_help_memory (progress in Tasks)"
-                )
+                _dim("Updating: standards/snippets → onec_help_memory (progress in Tasks)")
             )
         # onec_help_memory = standards + snippets + save_1c_snippet; pts may be less than sum of sources until load completes
         for c in collections or []:
             if (c.get("name") or "").strip() == "onec_help_memory":
-                db_parts.append(
-                    _dim("onec_help_memory: standards + snippets + save_1c_snippet")
-                )
+                db_parts.append(_dim("onec_help_memory: standards + snippets + save_1c_snippet"))
                 break
         versions = index_status.get("versions") or []
         languages = index_status.get("languages") or []
@@ -408,9 +445,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
             _dim(
                 "0 requests — call an MCP tool from Cursor (e.g. get_1c_help_index_status). Same REDIS_URL for MCP and dashboard (Docker: redis://redis:6379/0)."
             ),
-            _dim(
-                "MCP errors (tools + protocol) appear here; full logs: docker compose logs mcp."
-            ),
+            _dim("MCP errors (tools + protocol) appear here; full logs: docker compose logs mcp."),
         )
     elif errors_total == 0 and (total > 0 or last_hour > 0):
         mcp_content = Group(

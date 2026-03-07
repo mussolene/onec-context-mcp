@@ -40,3 +40,15 @@ def test_get_qdrant_collection_empty_strip_returns_default() -> None:
     with patch.dict(os.environ, {"QDRANT_COLLECTION": "  "}, clear=False):
         out = env_config.get_qdrant_collection()
     assert out == "onec_help"
+
+
+def test_get_help_path_default() -> None:
+    """get_help_path returns DATA_DIR when HELP_PATH unset or empty."""
+    with patch.dict(os.environ, {"HELP_PATH": "", "DATA_DIR": "data"}, clear=False):
+        assert env_config.get_help_path() == "data"
+
+
+def test_get_help_path_from_env() -> None:
+    """get_help_path returns HELP_PATH when set."""
+    with patch.dict(os.environ, {"HELP_PATH": "/custom/help"}, clear=False):
+        assert env_config.get_help_path() == "/custom/help"

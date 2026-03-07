@@ -766,7 +766,11 @@ def run_ingest(
     if verbose:
         _log(f"[ingest] Found {len(tasks)} .hbk task(s); workers={max_workers}")
 
-    embedding_backend = (os.environ.get("EMBEDDING_BACKEND") or "local").strip().lower()
+    embedding_backend = (
+        (os.environ.get("EMBEDDING_BACKEND") or env_config.EMBEDDING_BACKEND_DEFAULT)
+        .strip()
+        .lower()
+    )
     if embedding_backend not in ("local", "openai_api", "deterministic"):
         embedding_backend = "none"
     started_at = time.time()
@@ -1460,7 +1464,11 @@ def run_ingest_from_unpacked(
     else:
         max_workers = max(1, max_workers)
 
-    embedding_backend = (os.environ.get("EMBEDDING_BACKEND") or "local").strip().lower()
+    embedding_backend = (
+        (os.environ.get("EMBEDDING_BACKEND") or env_config.EMBEDDING_BACKEND_DEFAULT)
+        .strip()
+        .lower()
+    )
     if embedding_backend not in ("local", "openai_api", "deterministic"):
         embedding_backend = "none"
     started_at = time.time()

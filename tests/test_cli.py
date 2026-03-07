@@ -388,7 +388,7 @@ def test_cmd_load_snippets_no_source_returns_zero(
 def test_cmd_load_standards_path_not_found(capsys: pytest.CaptureFixture[str]) -> None:
     """cmd_load_standards returns 1 when standards_path does not exist."""
     args = make_args(standards_path="/nonexistent/standards")
-    with patch.dict("os.environ", {"STANDARDS_REPOS": "", "STANDARDS_REPO": ""}, clear=False):
+    with patch.dict("os.environ", {"STANDARDS_REPOS": ""}, clear=False):
         assert cmd_load_standards(args) == 1
     err = capsys.readouterr().err
     assert "not found" in err or "path" in err.lower() or "Error:" in err
@@ -967,7 +967,7 @@ def test_cmd_load_standards_no_source(capsys) -> None:
     with (
         patch.dict(
             "os.environ",
-            {"STANDARDS_DIR": "", "STANDARDS_REPO": "", "STANDARDS_REPOS": ""},
+            {"STANDARDS_DIR": "", "STANDARDS_REPOS": ""},
             clear=False,
         ),
         patch.object(cli_mod, "_DEFAULT_STANDARDS_REPOS", ""),
@@ -975,7 +975,7 @@ def test_cmd_load_standards_no_source(capsys) -> None:
         assert cmd_load_standards(args) == 0
     err = capsys.readouterr().err
     assert "No source" in err and (
-        "STANDARDS_REPO" in err or "STANDARDS_REPOS" in err or "STANDARDS_DIR" in err
+        "STANDARDS_REPOS" in err or "STANDARDS_DIR" in err
     )
 
 
@@ -996,7 +996,7 @@ def test_cmd_load_standards_success(mock_get_store, tmp_path: Path) -> None:
 @patch("onec_help.memory.get_memory_store")
 @patch("onec_help.standards_loader.fetch_repo_archive")
 def test_cmd_load_standards_from_repo(mock_fetch, mock_get_store, tmp_path: Path) -> None:
-    """cmd_load_standards fetches from STANDARDS_REPO when no path given.
+    """cmd_load_standards fetches from STANDARDS_REPOS (single repo) when no path given.
     Redirect copy destination to tmp_path to avoid writing to data/standards (pytest-* pollution)."""
     fetch_dir = tmp_path / "fetched"
     fetch_dir.mkdir()
@@ -1021,8 +1021,7 @@ def test_cmd_load_standards_from_repo(mock_fetch, mock_get_store, tmp_path: Path
             "os.environ",
             {
                 "STANDARDS_DIR": "",
-                "STANDARDS_REPOS": "",
-                "STANDARDS_REPO": "https://github.com/1C-Company/v8-code-style",
+                "STANDARDS_REPOS": "1C-Company/v8-code-style",
             },
         ),
         patch.object(Path, "resolve", resolve_redirect),
@@ -1066,7 +1065,6 @@ def test_cmd_load_standards_from_repos(mock_fetch, mock_get_store, tmp_path: Pat
             {
                 "STANDARDS_DIR": "",
                 "STANDARDS_REPOS": "1C-Company/v8-code-style:master,zeegin/v8std:main",
-                "STANDARDS_REPO": "",
             },
         ),
         patch.object(Path, "resolve", resolve_redirect),

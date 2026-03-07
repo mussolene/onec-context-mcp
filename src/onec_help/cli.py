@@ -463,7 +463,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
             n = run_ingest(
                 source_dirs_with_versions=sources,
                 languages=languages,
-                temp_base=args.temp_base or os.environ.get("HELP_INGEST_TEMP") or _default_temp,
+                temp_base=args.temp_base or os.environ.get("INGEST_TEMP_DIR") or _default_temp,
                 qdrant_host=env_config.get_qdrant_host(),
                 qdrant_port=env_config.get_qdrant_port(),
                 collection=env_config.get_qdrant_collection(),
@@ -769,18 +769,16 @@ _DEFAULT_STANDARDS_REPOS = "1C-Company/v8-code-style:master,zeegin/v8std:main"
 
 def cmd_load_standards(args: argparse.Namespace) -> int:
     """Load standards (markdown) into onec_help_memory (domain=standards).
-    Sources: path arg, STANDARDS_DIR (only when no repos set), STANDARDS_REPOS (comma-separated),
-    or STANDARDS_REPO (single, legacy). By default loads both v8-code-style and v8std.
-    When STANDARDS_REPOS/STANDARDS_REPO are set, STANDARDS_DIR is used only as copy destination."""
+    Sources: path arg, STANDARDS_DIR (only when no repos set), STANDARDS_REPOS (comma-separated).
+    By default loads both v8-code-style and v8std. When STANDARDS_REPOS is set, STANDARDS_DIR is used only as copy destination."""
     path_arg = (getattr(args, "standards_path", None) or "").strip()
     standards_repos = (os.environ.get("STANDARDS_REPOS") or "").strip()
-    standards_repo = (os.environ.get("STANDARDS_REPO") or "").strip()
     standards_subpath = os.environ.get("STANDARDS_SUBPATH", "docs").strip() or "docs"
     default_branch = os.environ.get("STANDARDS_BRANCH", "master").strip() or "master"
     # Use STANDARDS_DIR as source only when no repo is configured (else it's the copy destination)
-    if not path_arg and not standards_repos and not standards_repo:
+    if not path_arg and not standards_repos:
         path_arg = (os.environ.get("STANDARDS_DIR") or "").strip()
-    if not path_arg and not standards_repos and not standards_repo:
+    if not path_arg and not standards_repos:
         standards_repos = _DEFAULT_STANDARDS_REPOS
     temp_dirs: list[Path] = []
     dirs_to_load: list[Path] = []
@@ -811,18 +809,6 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
 
                     shutil.rmtree(t, ignore_errors=True)
                 return 1
-    elif standards_repo:
-        try:
-            from .standards_loader import fetch_repo_archive
-
-            d, tmp = fetch_repo_archive(
-                standards_repo, subpath=standards_subpath, branch=default_branch
-            )
-            dirs_to_load.append(d)
-            temp_dirs.append(tmp)
-        except Exception as e:
-            print(f"Error fetching {standards_repo}: {e}", file=sys.stderr)
-            return 1
     else:
         its_only = getattr(args, "its_v8std", False) or os.environ.get(
             "STANDARDS_ITS_V8STD", ""
@@ -830,7 +816,7 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
         if not its_only:
             print(
                 "No source: set STANDARDS_REPOS (e.g. 1C-Company/v8-code-style:master,zeegin/v8std:main) "
-                "or STANDARDS_REPO or STANDARDS_DIR / pass path, or use --its-v8std.",
+                "or STANDARDS_DIR / pass path, or use --its-v8std.",
                 file=sys.stderr,
             )
             return 0
@@ -1128,7 +1114,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         sources=getattr(args, "sources", None),
         sources_file=getattr(args, "sources_file", None),
         languages=getattr(args, "languages", None) or os.environ.get("HELP_LANGUAGES"),
-        temp_base=os.environ.get("HELP_INGEST_TEMP") or None,
+        temp_base=os.environ.get("INGEST_TEMP_DIR") or None,
         workers=None,
         max_tasks=None,
         quiet=getattr(args, "quiet", False),
@@ -1172,7 +1158,7 @@ def cmd_reinit(args: argparse.Namespace) -> int:
         sources=getattr(args, "sources", None),
         sources_file=getattr(args, "sources_file", None),
         languages=getattr(args, "languages", None) or os.environ.get("HELP_LANGUAGES"),
-        temp_base=os.environ.get("HELP_INGEST_TEMP") or None,
+        temp_base=os.environ.get("INGEST_TEMP_DIR") or None,
         workers=None,
         max_tasks=None,
         quiet=getattr(args, "quiet", False),
@@ -1489,7 +1475,7 @@ def main() -> int:
         "--temp-base",
         type=str,
         default=None,
-        help="Temp dir in container (default HELP_INGEST_TEMP or /tmp/help_ingest)",
+        help="Temp dir in container (default INGEST_TEMP_DIR or /tmp/help_ingest)",
     )
     p_ingest.add_argument(
         "--workers",
@@ -1794,7 +1780,7 @@ def main() -> int:
         "directory",
         type=str,
         nargs="?",
-        default=os.environ.get("HELP_PATH", env_config.DATA_DIR_DEFAULT),
+        default=env_config.get_help_path(),
         help="Directory with help (.md or HTML); default: HELP_PATH or DATA_DIR",
     )
     p_mcp.add_argument(

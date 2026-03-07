@@ -84,16 +84,37 @@
 
 **В логах Docker:** `[watchdog] ingest failed: timeout, will retry on next poll` — значит подпроцесс **ingest** был убит по таймауту watchdog. По умолчанию **таймаут 10800 с (3 ч)**. Если справка большая (десятки тысяч pts), ingest не успевает завершиться за час, watchdog убивает процесс и при следующем опросе снова запускает ingest (он продолжит с кэша, но снова упрётся в 1 ч).
 
-**Что сделать:** при необходимости задать **`INGEST_WATCHDOG_TIMEOUT`** (секунды). По умолчанию 10800 (3 ч). Для отключения таймаута: `INGEST_WATCHDOG_TIMEOUT=0`. Перезапустить контейнер ingest-worker.
+**Что сделать:** при необходимости задать **`WATCHDOG_INGEST_TIMEOUT`** (секунды). По умолчанию 10800 (3 ч). Для отключения таймаута: `WATCHDOG_INGEST_TIMEOUT=0`. Перезапустить контейнер ingest-worker.
 
-**Логи Ollama** (на хосте): `~/.ollama/logs/server.log` (macOS/Linux).
+**Логи Ollama** (на хосте): `~/.ollama/logs/server.log` (macOS/Linux). Быстро посмотреть: **`make ollama-logs`**.
 
-- **«aborting embedding request due to client closing the connection»** — клиент (ingest из Docker) закрыл соединение. Причины: (1) **таймаут запроса** — ingest ждёт ответ не дольше `EMBEDDING_TIMEOUT` (по умолчанию 90 с); если Ollama долго обрабатывает батч (нагрузка, сон Mac), клиент разрывает соединение и Ollama логирует отмену; (2) **Mac ушёл в сон** — сеть/процессы приостанавливаются, соединения рвутся; после пробуждения ingest может упасть по таймауту или connection reset.
+- **«aborting embedding request due to client closing the connection»** — клиент (ingest из Docker) закрыл соединение. Причины: (1) **таймаут запроса** — ingest ждёт ответ не дольше `EMBEDDING_TIMEOUT` (по умолчанию 90 с); если Ollama долго обрабатывает батч (нагрузка, сон Mac), клиент разрывает соединение и Ollama логирует отмену; (2) **Mac ушёл в сон** — сеть/процессы приостанавливаются, соединения рвутся; после пробуждения ingest может упасть по таймауту или connection reset. **Что делать:** увеличьте `EMBEDDING_TIMEOUT` (120–180), уменьшите `EMBEDDING_WORKERS` (2–4) и `EMBEDDING_BATCH_SIZE` (16–24), чтобы Ollama успевал; не давайте Mac засыпать.
 - **Медленный батчинг** — в `server.log` видно время каждого `POST /v1/embeddings`: обычно **0.5–3 с на один батч** (зависит от размера батча и железа). Это нормально для локальной модели (nomic-embed). Ускорить: уменьшить `EMBEDDING_BATCH_SIZE` (меньше время на батч, но больше запросов) или оставить как есть; главное — не давать Mac засыпать во время индексации (Настройки → Энергосбережение → отключить сон при питании от сети или `caffeinate`).
 
-**Итог:** если обработка «заглохла» — проверьте (1) лог Docker на `ingest failed: timeout` и при необходимости увеличьте `INGEST_WATCHDOG_TIMEOUT`; (2) лог Ollama на «client closing the connection» и при необходимости увеличьте `EMBEDDING_TIMEOUT` или не давайте Mac засыпать.
+**Итог:** если обработка «заглохла» — проверьте (1) лог Docker на `ingest failed: timeout` и при необходимости увеличьте `WATCHDOG_INGEST_TIMEOUT`; (2) лог Ollama на «client closing the connection» и при необходимости увеличьте `EMBEDDING_TIMEOUT` или не давайте Mac засыпать.
+
+### 2.3.1. Индексация «слишком быстрая», нагрузки на Ollama нет
+
+Если ingest завершается за минуты, а в логах Ollama нет запросов (или только старые) — эмбеддинги **не доходят** до API, используется **fallback на deterministic** (векторы без модели). Семантический поиск будет слабее.
+
+**Проверить:**
+
+1. **`make ingest-logs`** — ищите строки **`[embedding] Внешний сервис эмбеддингов недоступен`** (API не доступен при старте) или **`[embedding] ... using deterministic`** / **`fallback`** (каждый батч падает по таймауту/ошибке и подставляется deterministic).
+2. **`make ollama-logs`** — есть ли свежие `POST /v1/embeddings`? Если нет — запросы из контейнера до Ollama не доходят.
+3. **Доступ из Docker к хосту:** по умолчанию `EMBEDDING_API_URL=http://host.docker.internal:11434/v1`. На macOS/Windows Docker Desktop это обычно работает. Если ingest-worker не видит Ollama: убедиться, что Ollama запущен на хосте (`curl -s http://localhost:11434/api/tags`), и что порт 11434 не закрыт файрволом.
+
+**Если в ingest-logs есть «Внешний сервис недоступен»:** контейнер не смог подключиться к Ollama (GET `/models` при старте). Запустите Ollama на хосте, проверьте с хоста `curl http://localhost:11434/v1/models`; перезапустите ingest-worker и снова запустите ingest.
+
+**Если в Ollama логи есть «client closing the connection» и 400 на POST /v1/embeddings:** запросы доходят, но клиент обрывает соединение до ответа (таймаут или перегрузка). См. выше: увеличить `EMBEDDING_TIMEOUT`, уменьшить `EMBEDDING_WORKERS` и `EMBEDDING_BATCH_SIZE`.
+
+### 2.3.2. В .env стоит EMBEDDING_BACKEND=local, образ без sentence-transformers
+
+Если в **.env** задано **`EMBEDDING_BACKEND=local`**, а образ собран **без** пакетов `.[embed]` (по умолчанию так и есть), приложение **автоматически** переключается на **API (Ollama)** — ничего править не нужно. В логах один раз появится: `[embedding] EMBEDDING_BACKEND=local but sentence-transformers not installed; using API (Ollama) instead.` Если Ollama недоступен, тогда будет использован deterministic (как и при openai_api при недоступном API).
 
 ### 2.4. Где смотреть логи (Docker)
+
+- **`make ingest-logs`** — последние 200 строк логов контейнера ingest-worker (удобно для поиска `[embedding]`, fallback, ошибок API).
+- **`make ollama-logs`** — последние 100 строк `~/.ollama/logs/server.log` на хосте.
 
 У контейнера **ingest-worker** основной вывод идёт **не** в `docker logs`, а в файлы внутри контейнера (entrypoint перенаправляет фоновые процессы):
 

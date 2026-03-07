@@ -235,7 +235,7 @@ def test_embedding_batch_size_clamp() -> None:
 
 
 def test_embedding_workers_clamp() -> None:
-    """_embedding_workers clamps to 1..16 and handles invalid env."""
+    """_embedding_workers clamps to 1..MAX_EMBEDDING_WORKERS and handles invalid env."""
     import importlib
 
     with patch.dict("os.environ", {"EMBEDDING_WORKERS": "8"}, clear=False):
@@ -246,7 +246,10 @@ def test_embedding_workers_clamp() -> None:
         assert embedding_mod._embedding_workers() == 1
     with patch.dict("os.environ", {"EMBEDDING_WORKERS": "99"}, clear=False):
         importlib.reload(embedding_mod)
-        assert embedding_mod._embedding_workers() == 16
+        assert embedding_mod._embedding_workers() == 99
+    with patch.dict("os.environ", {"EMBEDDING_WORKERS": "200"}, clear=False):
+        importlib.reload(embedding_mod)
+        assert embedding_mod._embedding_workers() == embedding_mod.MAX_EMBEDDING_WORKERS
     with patch.dict("os.environ", {"EMBEDDING_WORKERS": "nope"}, clear=False):
         importlib.reload(embedding_mod)
         assert embedding_mod._embedding_workers() == embedding_mod.DEFAULT_EMBEDDING_WORKERS

@@ -151,7 +151,7 @@ def test_render_dashboard_ingest_with_workers_eta_and_loading_pts() -> None:
     with console.capture() as cap:
         console.print(result)
     out = cap.get()
-    assert "Workers" in out or "pts" in out
+    assert "Tasks" in out or "pts" in out
     assert "ETA" in out or "batch" in out
 
 
@@ -179,7 +179,7 @@ def test_render_dashboard_standards_snippets_loading_workers_no_ingest() -> None
         console.print(result)
     out = cap.get()
     assert "Standards" in out and "Snippets" in out
-    assert "Workers" in out or "embed" in out or "Qdrant" in out
+    assert "Tasks" in out or "embed" in out or "Qdrant" in out
 
 
 def test_render_dashboard_ingest_in_progress_eta_zero_division_handled() -> None:

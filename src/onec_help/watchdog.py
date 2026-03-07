@@ -11,6 +11,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from . import env_config
 from . import redis_cache
 from ._utils import safe_error_message
 from .ingest import _ingest_cache_path, collect_hbk_tasks, discover_version_dirs
@@ -95,7 +96,7 @@ def _scan_snippets_dir_stable(snippets_dir: Path) -> dict[str, int]:
 def _scan_hbk_like_ingest(base: Path | None = None) -> dict[str, float]:
     """Scan .hbk files using same logic as ingest (version dirs + languages filter)."""
     if base is None:
-        base_str = os.environ.get("HELP_SOURCE_BASE", "").strip()
+        base_str = env_config.get_help_source_base()
         if not base_str:
             return {}
         base = Path(base_str).resolve()
@@ -130,7 +131,7 @@ def run_watchdog(
     if help_source_base is not None:
         base = Path(help_source_base).resolve()
     else:
-        base_str = os.environ.get("HELP_SOURCE_BASE", "").strip()
+        base_str = env_config.get_help_source_base()
         if not base_str:
             print("[watchdog] HELP_SOURCE_BASE not set", file=sys.stderr, flush=True)
             return
@@ -290,9 +291,9 @@ def _append_ingest_run_log(returncode: int, stdout: bytes, stderr: bytes) -> Non
 
 
 def _ingest_subprocess_timeout() -> int:
-    """Timeout in seconds for one ingest run. 0 = no timeout. Default 10800 (3h). Set INGEST_WATCHDOG_TIMEOUT for long runs."""
+    """Timeout in seconds for one ingest run. 0 = no timeout. Default 10800 (3h). Set WATCHDOG_INGEST_TIMEOUT for long runs."""
     try:
-        v = os.environ.get("INGEST_WATCHDOG_TIMEOUT", "10800").strip()
+        v = (os.environ.get("WATCHDOG_INGEST_TIMEOUT") or "10800").strip()
         return max(0, int(v))
     except (ValueError, TypeError):
         return 10800

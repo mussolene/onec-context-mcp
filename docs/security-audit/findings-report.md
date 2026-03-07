@@ -62,7 +62,7 @@
 |------|----------|
 | **Severity** | Medium |
 | **Область** | Secrets / Config |
-| **Описание** | Дефолт `HELP_INGEST_TEMP=/tmp/help_ingest` — возможна race при shared /tmp. |
+| **Описание** | Дефолт `INGEST_TEMP_DIR=/tmp/help_ingest` — возможна race при shared /tmp. |
 | **Воспроизведение** | bandit B108, `cli.py:291` |
 | **Remediation** | Использовать `tempfile.mkdtemp()` или `TMPDIR`; документировать override через env |
 | **Ссылки** | CWE-377 |
@@ -88,7 +88,7 @@
 |------|----------|
 | **Severity** | Medium |
 | **Область** | External Services |
-| **Описание** | `urlopen` к `github.com/{owner}/{repo}/archive/...`. owner/repo из STANDARDS_REPO — при контроле env возможен SSRF; urlopen допускает file:/ и custom schemes. |
+| **Описание** | `urlopen` к `github.com/{owner}/{repo}/archive/...`. owner/repo из STANDARDS_REPOS — при контроле env возможен SSRF; urlopen допускает file:/ и custom schemes. |
 | **Воспроизведение** | bandit B310, `standards_loader.py:70` |
 | **Remediation** | Валидировать owner/repo (только github.com); разрешить только https:// |
 | **Ссылки** | CWE-22 |

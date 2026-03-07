@@ -33,14 +33,14 @@ services:
       QDRANT_COLLECTION: ${QDRANT_COLLECTION:-onec_help}
       QDRANT_STORAGE_PATH: /qdrant_storage
       QDRANT_TIMEOUT: ${QDRANT_TIMEOUT:-300}
-      # По умолчанию SSE — лучше совместим с Cursor (streamable-http даёт ECONNRESET / tools не видны).
-      MCP_TRANSPORT: ${MCP_TRANSPORT:-sse}
+      # По умолчанию streamable-http (как в env.example). При проблемах с Cursor можно задать sse в .env.
+      MCP_TRANSPORT: ${MCP_TRANSPORT:-streamable-http}
       MCP_HOST: ${MCP_HOST:-0.0.0.0}
       MCP_PORT: "8050"
       MCP_PATH: ${MCP_PATH:-/mcp}
       HELP_SOURCE_BASE: ${HELP_SOURCE_BASE:-/opt/1cv8}
       HELP_LANGUAGES: ${HELP_LANGUAGES:-ru}
-      HELP_INGEST_TEMP: ${HELP_INGEST_TEMP:-/tmp/help_ingest}
+      INGEST_TEMP_DIR: ${INGEST_TEMP_DIR:-/tmp/help_ingest}
       INGEST_CACHE_FILE: ${INGEST_CACHE_FILE:-/app/var/ingest_cache/ingest_cache.db}
       INGEST_FAILED_LOG: ${INGEST_FAILED_LOG:-/var/log/ingest_failed.log}
       EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-openai_api}
@@ -51,7 +51,7 @@ services:
       EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-32}
       EMBEDDING_WORKERS: ${EMBEDDING_WORKERS:-6}
       EMBEDDING_FORCE_BATCH: ${EMBEDDING_FORCE_BATCH:-0}
-      EMBEDDING_TIMEOUT: ${EMBEDDING_TIMEOUT:-90}
+      EMBEDDING_TIMEOUT: ${EMBEDDING_TIMEOUT:-180}
       WATCHDOG_ENABLED: ${WATCHDOG_ENABLED:-1}
       WATCHDOG_POLL_INTERVAL: ${WATCHDOG_POLL_INTERVAL:-600}
       WATCHDOG_PENDING_INTERVAL: ${WATCHDOG_PENDING_INTERVAL:-600}

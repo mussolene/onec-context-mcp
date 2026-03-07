@@ -16,6 +16,8 @@ import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from . import env_config as _env_config
+
 
 def sanitize_text_for_embedding(text: str) -> str:
     """Replace control chars (0x00-0x1F except \\n, \\r, \\t) with space before embedding."""
@@ -42,7 +44,10 @@ RETRY_BASE_DELAY = 1.0
 
 _embedding_model = None
 
-_EMBEDDING_BACKEND = os.environ.get("EMBEDDING_BACKEND", "openai_api").strip().lower()
+# Default must match env_config.EMBEDDING_BACKEND_DEFAULT and docker-compose default
+_EMBEDDING_BACKEND = (
+    os.environ.get("EMBEDDING_BACKEND", _env_config.EMBEDDING_BACKEND_DEFAULT).strip().lower()
+)
 # Must match at ingest and at MCP search. Default: nomic-embed (Ollama); for local use HuggingFace id.
 _EMBEDDING_MODEL = (os.environ.get("EMBEDDING_MODEL") or "nomic-embed-text-v2-moe").strip()
 _LMSTUDIO_PREFERRED_EMBEDDING_MODELS = (
@@ -255,6 +260,22 @@ def _log_fallback(reason: str) -> None:
         print(msg, file=sys.stderr, flush=True)
 
 
+_local_fallback_warned = False
+
+
+def _warn_local_fallback_once() -> None:
+    """Warn once when EMBEDDING_BACKEND=local but sentence-transformers is not installed; we use API (Ollama) instead."""
+    global _local_fallback_warned
+    if _local_fallback_warned:
+        return
+    _local_fallback_warned = True
+    print(
+        "[embedding] EMBEDDING_BACKEND=local but sentence-transformers not installed; using API (Ollama) instead.",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
 def is_embedding_available() -> bool:
     """True if we can get meaningful embedding (not placeholder). Used for memory long-term storage."""
     if _EMBEDDING_BACKEND in ("none", "null", "off"):
@@ -317,7 +338,7 @@ def _get_dimension_from_qdrant(collection: str | None = None) -> int | None:
     """Get vector size from Qdrant collection. Tries given collection, then onec_help, then onec_help_memory.
     Cached for default collection to avoid repeated Qdrant calls."""
     global _cached_qdrant_dimension
-    main_coll = collection or os.environ.get("QDRANT_COLLECTION", "onec_help")
+    main_coll = collection or _env_config.get_qdrant_collection()
     if collection is None and _cached_qdrant_dimension is not None:
         return _cached_qdrant_dimension
     try:
@@ -511,7 +532,7 @@ def _get_embedding_deterministic(text: str, dimension: int | None = None) -> lis
 
 
 def _get_embedding_local(text: str) -> list[float]:
-    """Embedding via sentence-transformers (cached); fallback to deterministic with DB dimension if unavailable."""
+    """Embedding via sentence-transformers (cached); if not installed, use API (Ollama) so it works by default in Docker."""
     global _embedding_model
     try:
         from sentence_transformers import SentenceTransformer
@@ -520,11 +541,12 @@ def _get_embedding_local(text: str) -> list[float]:
             _embedding_model = SentenceTransformer(_EMBEDDING_MODEL)
         return _embedding_model.encode(text, convert_to_numpy=True).tolist()
     except ImportError:
-        return _get_embedding_deterministic(text, _embedding_fallback_dim())
+        _warn_local_fallback_once()
+        return _get_embedding_api_single(text)
 
 
 def _get_embedding_local_batch(texts: list[str]) -> list[list[float]]:
-    """Batch embedding via sentence-transformers."""
+    """Batch embedding via sentence-transformers; if not installed, use API (Ollama) so it works by default in Docker."""
     global _embedding_model
     if not texts:
         return []
@@ -537,8 +559,8 @@ def _get_embedding_local_batch(texts: list[str]) -> list[list[float]]:
         matrix = _embedding_model.encode(truncated, convert_to_numpy=True)
         return [row.tolist() for row in matrix]
     except ImportError:
-        dim = _embedding_fallback_dim()
-        return [_get_embedding_deterministic(t, dim) for t in texts]
+        _warn_local_fallback_once()
+        return _get_embedding_api_batch(texts)
 
 
 def _get_embedding_api_single(text: str) -> list[float]:

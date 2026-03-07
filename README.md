@@ -79,7 +79,7 @@ pip install -e ".[dev]"
 | **`qdrant-backup [-o dir]`** | Снапшот коллекций Qdrant в каталог (по умолчанию data/backup/) |
 | **`qdrant-restore [-f snapshot]`** | Восстановление из снапшота (по умолчанию последний в data/backup/) |
 
-Переменные окружения (подробнее — см. таблицу ниже и **env.example** для полного списка): `QDRANT_HOST`, `QDRANT_PORT`, `QDRANT_COLLECTION`, `HELP_PATH`, `HELP_SOURCE_BASE`, `HELP_SOURCES_DIR`, `HELP_SOURCE_DIRS`, `HELP_LANGUAGES`, `HELP_INGEST_TEMP`, `INGEST_FAILED_LOG`, `MCP_TRANSPORT`, `MCP_HOST`, `MCP_PORT`, `MCP_PATH`.
+Переменные окружения (подробнее — см. таблицу ниже и **env.example** для полного списка и таблицы префиксов). Три ключевых пути: **HELP_SOURCE_BASE** — где искать .hbk для ingest; **HELP_PATH** — откуда MCP читает топики с диска; **DATA_DIR** — корень данных (BM25, маркеры).
 
 | Переменная | Описание | Пример / по умолчанию |
 |------------|----------|------------------------|
@@ -87,15 +87,15 @@ pip install -e ".[dev]"
 | `QDRANT_PORT` | Порт Qdrant | `6333` |
 | `QDRANT_COLLECTION` | Имя коллекции в Qdrant | `onec_help` |
 | `QDRANT_STORAGE_PATH` | Путь к каталогу хранилища Qdrant (для dashboard: вывод размера БД на диске) | — |
-| `HELP_PATH` | Базовый каталог справки (для MCP) | `/data` |
-| `HELP_SOURCE_BASE` | Корень каталогов с версиями 1С (ingest) | — |
-| `HELP_SOURCES_DIR` | То же, альтернативное имя | — |
-| `HELP_SOURCE_DIRS` | Список путей через запятую (ingest) | — |
+| `DATA_DIR` | Корень данных проекта (BM25 vocab, маркеры ingest). От него по умолчанию DATA_UNPACKED_DIR, INGEST_CACHE_FILE. | `data` |
+| `HELP_PATH` | Базовый каталог справки для MCP (get_1c_help_topic с диска). В Docker: `/data`; локально: `data` или аргумент `mcp`. | Docker: `/data`; локально: `data` |
+| `HELP_SOURCE_BASE` | Корень каталогов с версиями 1С для ingest (подпапки = версии, внутри — .hbk) | — |
+| `HELP_SOURCE_DIRS` | Список путей через запятую (альтернатива HELP_SOURCE_BASE) | — |
 | `HELP_LANGUAGES` | Языки справки (ingest) | `ru` |
 | `DATA_UNPACKED_DIR` | Каталог распакованной справки (по умолчанию ingest пишет сюда) | `data/unpacked` |
 | `INGEST_USE_TEMP` | `1` — временная папка с удалением после индексации (старый режим) | 0 |
-| `HELP_INGEST_TEMP` | Временный каталог при INGEST_USE_TEMP=1 | — |
-| `INGEST_CACHE_FILE` | Путь к SQLite-кэшу: хэш .hbk, статус ingest. Ingest и dashboard читают/пишут в одну БД. В Docker — `/app/var/ingest_cache/ingest_cache.db` (volume `ingest_cache`) | `data/ingest_cache/ingest_cache.db` |
+| `INGEST_TEMP_DIR` | Временный каталог при INGEST_USE_TEMP=1 | — |
+| `INGEST_CACHE_FILE` | Путь к файлу, чья родительская папка — каталог маркеров (load_*.running, status). Данные кэша — в Redis. В Docker — `/app/var/ingest_cache/ingest_cache.db` | `data/ingest_cache/ingest_cache.db` |
 | `INGEST_SKIP_CACHE` | `1`/`true` — полная переиндексация без кэша (или `ingest --no-cache`) | — |
 | `HBK_LABELS` | Человекочитаемые метки: `1cv8:Справка 1С,shcntx:Синтаксис` | — |
 | `INGEST_FAILED_LOG` | Файл для списка неудачных .hbk | — |
@@ -121,8 +121,9 @@ pip install -e ".[dev]"
 | `WATCHDOG_ENABLED` | По умолчанию `1` — watchdog включён (split: ingest-worker; full: в фоне). `0` — отключить | `1` |
 | `WATCHDOG_POLL_INTERVAL` | Интервал проверки новых .hbk (секунды) | `600` |
 | `WATCHDOG_PENDING_INTERVAL` | Интервал обработки pending embeddings (секунды) | `600` |
+| `WATCHDOG_INGEST_TIMEOUT` | Таймаут одного запуска ingest при работе watchdog (сек). 0 = без таймаута. | 10800 |
 
-Полный список переменных с комментариями (SNIPPETS_DIR, MEMORY_*, STANDARDS_*, ITS_*, DATA_DIR, PRODUCTION, INDEX_STATUS_*, HELP_FILE_ENCODING и др.) — см. **env.example**.
+Полный список переменных с комментариями и таблицей префиксов (SNIPPETS_DIR, MEMORY_*, STANDARDS_REPOS, ITS_*, PRODUCTION, INDEX_STATUS_* — статус индексации, HELP_FILE_ENCODING и др.) — см. **env.example**.
 
 ## Запуск
 

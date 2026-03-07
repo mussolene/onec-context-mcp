@@ -30,11 +30,21 @@ def get_ingest_cache_file() -> str:
     return str(Path(get_data_dir()) / "ingest_cache" / "ingest_cache.db")
 
 
-# --- Help sources (single name: HELP_SOURCE_BASE; HELP_SOURCES_DIR is legacy alias) ---
-def get_help_source_base() -> str:
-    """Root dir for versioned .hbk (e.g. /opt/1cv8). HELP_SOURCES_DIR is deprecated alias."""
-    return (os.environ.get("HELP_SOURCE_BASE") or os.environ.get("HELP_SOURCES_DIR") or "").strip()
+# --- Help path (MCP: directory for get_1c_help_topic from disk) ---
+def get_help_path() -> str:
+    """Base directory for MCP to read help topics from disk. Default: data (or DATA_DIR)."""
+    v = (os.environ.get("HELP_PATH") or "").strip()
+    return v or get_data_dir()
 
+
+# --- Help sources ---
+def get_help_source_base() -> str:
+    """Root dir for versioned .hbk (e.g. /opt/1cv8)."""
+    return (os.environ.get("HELP_SOURCE_BASE") or "").strip()
+
+
+# --- Embedding (default backend: same as embedding.py and docker-compose) ---
+EMBEDDING_BACKEND_DEFAULT = "openai_api"
 
 # --- Qdrant ---
 QDRANT_HOST_DEFAULT = "localhost"

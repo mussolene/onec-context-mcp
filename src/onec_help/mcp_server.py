@@ -115,14 +115,9 @@ _HELP_PATH = None  # Path | None
 
 def _get_help_path() -> Path:
     if _HELP_PATH is None:
-        import os
-
         from . import env_config
 
-        p = (os.environ.get("HELP_PATH") or "").strip()
-        if p:
-            return Path(p)
-        return Path(env_config.DATA_DIR_DEFAULT).resolve()
+        return Path(env_config.get_help_path()).resolve()
     return _HELP_PATH
 
 

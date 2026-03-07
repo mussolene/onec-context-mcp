@@ -34,7 +34,7 @@ INGEST_SERVICE = ingest-worker
 INDEX_STATUS_SERVICE = mcp
 
 .PHONY: build build-full fetch-bsl-bridge parse-fastcode parse-helpf load-snippets load-snippets-from-project load-standards snippets
-.PHONY: up down ingest-up ingest-down ingest-worker up-full down-full bsl-start bsl-stop qdrant-logs qdrant-reset qdrant-backup qdrant-restore ensure-data
+.PHONY: up down ingest-up ingest-down ingest-worker up-full down-full bsl-start bsl-stop qdrant-logs ingest-logs ollama-logs qdrant-reset qdrant-backup qdrant-restore ensure-data
 
 # bsl-bridge: локальный клон (Git URL в context не работает на Docker Windows)
 deps/mcp-bsl-lsp-bridge/.git/HEAD:
@@ -175,6 +175,14 @@ ensure-data:
 qdrant-logs:
 	docker compose -f docker-compose.base.yml -f docker-compose.yml logs qdrant
 
+# Логи ingest-worker (эмбеддинги, fallback, ошибки API). Ищите [embedding] и «Внешний сервис недоступен»
+ingest-logs:
+	$(COMPOSE) logs ingest-worker --tail 200
+
+# Логи Ollama на хосте (macOS: ~/.ollama/logs/server.log). Ищите «aborting embedding request due to client closing»
+ollama-logs:
+	@tail -100 ~/.ollama/logs/server.log 2>/dev/null || echo "Ollama не установлен или логи не найдены (macOS: ~/.ollama/logs/)"
+
 # Удалить data/qdrant и перезапустить (если qdrant падает с 101 — повреждённые данные). Индекс будет потерян — затем make ingest
 qdrant-reset:
 	-$(COMPOSE) stop qdrant
@@ -218,6 +226,8 @@ help:
 	@echo "  make bsl-stop         Stop BSL bridge"
 	@echo "  make ensure-data      Создать data/qdrant и др. (после потери базы)"
 	@echo "  make qdrant-logs      Логи qdrant (при exit 101)"
+	@echo "  make ingest-logs     Логи ingest-worker (эмбеддинги, fallback)"
+	@echo "  make ollama-logs      Последние 100 строк лога Ollama (~/.ollama/logs/server.log)"
 	@echo "  make qdrant-reset     Удалить data/qdrant, перезапустить с пустым индексом"
 	@echo "  make qdrant-backup    Снапшот → data/backup/ (для миграции)"
 	@echo "  make qdrant-restore   Восстановить из data/backup/"

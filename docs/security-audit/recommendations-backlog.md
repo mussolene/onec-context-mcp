@@ -32,7 +32,7 @@
 |---|-------|----------|--------|
 | 7 | AUDIT-001 | pip>=26 в security.yml | done |
 | 8 | AUDIT-002 | HELP_SERVE_HOST (default 127.0.0.1) | done |
-| 9 | AUDIT-003 | tempfile.gettempdir() для HELP_INGEST_TEMP | done |
+| 9 | AUDIT-003 | tempfile.gettempdir() для INGEST_TEMP_DIR | done |
 | 10 | AUDIT-017 | Лимиты query/code_snippet (64 KB) в MCP | done |
 
 ---
