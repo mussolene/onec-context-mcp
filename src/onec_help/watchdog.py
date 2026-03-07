@@ -20,6 +20,8 @@ from .ingest import _ingest_cache_path, _sqlite_timeout, collect_hbk_tasks, disc
 _WATCHDOG_STATE_TABLE = "watchdog_state"
 _STANDARDS_EXT = frozenset({".md"})
 _SNIPPETS_EXT = frozenset({".json", ".bsl", ".1c", ".md"})
+_INGEST_STDERR_LOG = "ingest_stderr.log"
+_INGEST_STDERR_LOG_MAX_BYTES = 2 * 1024 * 1024  # 2 MiB; rotate to .old when exceeded
 
 
 def _parse_languages() -> list[str] | None:
@@ -279,6 +281,48 @@ def run_watchdog(
         time.sleep(poll)
 
 
+def _ingest_stderr_log_path() -> Path | None:
+    """Path to ingest stderr log file in cache dir, or None if cache path unavailable."""
+    try:
+        cache_file = _ingest_cache_path()
+        parent = Path(cache_file).parent
+        if parent and parent != Path("."):
+            return parent / _INGEST_STDERR_LOG
+    except Exception:
+        pass
+    return None
+
+
+def _append_ingest_run_log(returncode: int, stdout: bytes, stderr: bytes) -> None:
+    """Append ingest run output to ingest_stderr.log in cache dir; rotate by size."""
+    log_path = _ingest_stderr_log_path()
+    if not log_path:
+        return
+    try:
+        # Rotate if over size limit before appending
+        if log_path.exists():
+            try:
+                if log_path.stat().st_size >= _INGEST_STDERR_LOG_MAX_BYTES:
+                    old_path = log_path.with_suffix(log_path.suffix + ".old")
+                    log_path.rename(old_path)
+            except OSError:
+                pass
+        with open(log_path, "ab") as f:
+            header = f"\n--- ingest exit {returncode} @ {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())} ---\n"
+            f.write(header.encode("utf-8", errors="replace"))
+            if stderr:
+                f.write(stderr)
+                if not stderr.endswith(b"\n"):
+                    f.write(b"\n")
+            if stdout and stdout != stderr:
+                f.write(b"[stdout]\n")
+                f.write(stdout)
+                if not stdout.endswith(b"\n"):
+                    f.write(b"\n")
+    except OSError:
+        pass
+
+
 def _run_ingest() -> bool:
     """Run full ingest (python -m onec_help ingest). Returns True if exit code was 0, False otherwise."""
     try:
@@ -287,6 +331,12 @@ def _run_ingest() -> bool:
             capture_output=True,
             timeout=3600,
             env=os.environ.copy(),
+        )
+        # Persist full stderr (and stdout) to cache dir for diagnostics (e.g. exit -7, OOM)
+        _append_ingest_run_log(
+            result.returncode,
+            result.stdout or b"",
+            result.stderr or b"",
         )
         if result.returncode != 0:
             print(
@@ -305,7 +355,19 @@ def _run_ingest() -> bool:
                     pass
             return False
         return True
-    except (subprocess.TimeoutExpired, OSError) as e:
+    except subprocess.TimeoutExpired:
+        _append_ingest_run_log(
+            -1,
+            b"",
+            f"[watchdog] ingest timeout (3600s)\n".encode("utf-8"),
+        )
+        print(
+            "[watchdog] ingest failed: timeout, will retry on next poll",
+            file=sys.stderr,
+            flush=True,
+        )
+        return False
+    except OSError as e:
         print(
             f"[watchdog] ingest failed: {safe_error_message(e)}, will retry on next poll",
             file=sys.stderr,

@@ -140,7 +140,9 @@ def test_run_watchdog_triggers_ingest_on_hbk_change(
 def test_run_ingest_success() -> None:
     """_run_ingest runs subprocess without error when ingest succeeds."""
     with patch("onec_help.watchdog.subprocess.run") as mock_run:
-        mock_run.return_value = type("R", (), {"returncode": 0})()
+        mock_run.return_value = type(
+            "R", (), {"returncode": 0, "stdout": b"", "stderr": b""}
+        )()
         _run_ingest()
     mock_run.assert_called_once()
     call_args = mock_run.call_args[0][0]

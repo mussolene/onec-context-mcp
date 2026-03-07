@@ -34,10 +34,15 @@
 
 - **ingest:** `/app/var/log/ingest.log`
 - **watchdog:** `/app/var/log/watchdog.log`
+- **При запуске ingest из watchdog** полный stderr/stdout каждого запуска дописывается в каталог кэша: `ingest_stderr.log` (в том же каталоге, что и `ingest_cache.db`). Файл ротируется по размеру (при превышении 2 MiB создаётся `ingest_stderr.log.old`). В контейнере путь: `/app/var/ingest_cache/ingest_stderr.log` (volume `./data/ingest_cache`).
 
-Просмотр с хоста:
+При любом падении в первую очередь смотрите лог ingest:
 ```bash
-docker exec 1c_hbk_helper-ingest-worker-1 tail -200 /app/var/log/ingest.log
+docker exec <ingest-worker-container> tail -500 /app/var/log/ingest.log
+```
+Дополнительно при падении, запущенном из watchdog, проверьте:
+```bash
+docker exec <ingest-worker-container> tail -500 /app/var/ingest_cache/ingest_stderr.log
 ```
 
 ### 2.3. Ошибки в логах
@@ -96,6 +101,35 @@ docker exec 1c_hbk_helper-ingest-worker-1 tail -200 /app/var/log/ingest.log
 4. При повторяющихся 429/таймаутах — уменьшить `EMBEDDING_BATCH_SIZE` и `EMBEDDING_WORKERS`, при необходимости увеличить `EMBEDDING_TIMEOUT`.
 
 См. также: `docs/embedding.md`, раздел «Ingest: переиндексация при перезапуске» в AGENTS.md.
+
+---
+
+## 4a. Быстрый чеклист при падении
+
+1. **Контейнер жив?** `docker compose ps`
+2. **Лог ingest:**  
+   `docker exec <ingest-worker-container> tail -200 /app/var/log/ingest.log`  
+   Искать: Bus error, exit -7, 429, timeout, connection refused, slot not available.
+3. **При exit -7 (SIGBUS):** проверить место на диске (`df -h`), целостность кэша (`sqlite3 .../ingest_cache.db "PRAGMA integrity_check;"`), не использовать NFS для `data/`.
+4. **При 429/таймаутах:** снизить `EMBEDDING_BATCH_SIZE`, `EMBEDDING_WORKERS`, задать `EMBEDDING_MAX_CONCURRENT`, увеличить `EMBEDDING_TIMEOUT`.
+5. **При подозрении на OOM:** смотреть `docker stats` во время индексации; добавить лимит памяти контейнеру и/или уменьшить воркеры и батчи.
+6. **Доп. лог (ingest из watchdog):** `docker exec <ingest-worker-container> tail -500 /app/var/ingest_cache/ingest_stderr.log`
+
+---
+
+## 4b. Стабильность SQLite и диска
+
+- Каталог кэша (`./data/ingest_cache`) должен быть на **локальном диске**, не на нестабильном NFS.
+- Периодически проверять целостность:  
+  `sqlite3 ./data/ingest_cache/ingest_cache.db "PRAGMA integrity_check;"`
+- При повторяющихся SIGBUS можно перенести `INGEST_CACHE_FILE` на том с более предсказуемым I/O (например, отдельный локальный каталог на хосте).
+
+---
+
+## 4c. LM Studio и сеть
+
+- Убедиться, что **LM Studio запущен** и слушает порт (по умолчанию 1234). В контейнере используется `EMBEDDING_API_URL=http://host.docker.internal:1234/v1`.
+- При нестабильном ответе или 429: уменьшить батч/воркеры и задать `EMBEDDING_MAX_CONCURRENT`; проверить логи LM Studio на хосте на предмет перегрузки и ограничений.
 
 ---
 
@@ -172,6 +206,9 @@ docker exec 1c_hbk_helper-ingest-worker-1 tail -200 /app/var/log/ingest.log
    - Нет ли параллельной записи в тот же файл (два процесса ingest, скрипты бэкапа и т.д.).
 4. **Снижение нагрузки (если подозреваете OOM)**
    - Уменьшить `EMBEDDING_BATCH_SIZE`, `EMBEDDING_WORKERS`, `INGEST_MAX_WORKERS`; при необходимости увеличить лимит памяти контейнера.
+5. **Docker Mac: отключить WAL и VACUUM**
+   - Задать `INGEST_SQLITE_WAL=0` (режим журнала DELETE вместо WAL — меньше mmap/ I/O на виртуализированном томе).
+   - В Docker для ingest-worker уже по умолчанию `INGEST_VACUUM_CACHE=0` и `INGEST_SQLITE_WAL=0`. Если падения после «Cache hit» продолжаются — см. п. 3 (целостность, NFS).
 
 Итог: при стабильной машине без нехватки памяти SIGBUS чаще связан с **mmap/файлами** (размер файла, усечение, конкурентная запись) или с **I/O тома** (NFS, сбой диска), а не с «перегрузкой» в смысле CPU/RAM.
 

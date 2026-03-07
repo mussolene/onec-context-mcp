@@ -32,6 +32,8 @@ services:
       DATA_UNPACKED_DIR: ${DATA_UNPACKED_DIR:-/app/data/unpacked}
       INGEST_USE_TEMP: ${INGEST_USE_TEMP:-0}
       INGEST_CACHE_FILE: ${INGEST_CACHE_FILE:-/app/var/ingest_cache/ingest_cache.db}
+      INGEST_VACUUM_CACHE: ${INGEST_VACUUM_CACHE:-0}
+      INGEST_SQLITE_WAL: ${INGEST_SQLITE_WAL:-0}
       INGEST_FAILED_LOG: ${INGEST_FAILED_LOG:-/var/log/ingest_failed.log}
       INGEST_MAX_WORKERS: ${INGEST_MAX_WORKERS:-4}
       EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-openai_api}
@@ -69,3 +71,5 @@ services:
       qdrant:
         condition: service_healthy
     restart: unless-stopped
+    # Опционально: лимит памяти при OOM (M1 16 GB). При превышении падает контейнер, а не хост. Раскомментируйте при повторяющихся падениях.
+    # mem_limit: 4g

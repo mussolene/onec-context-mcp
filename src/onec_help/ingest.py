@@ -220,8 +220,9 @@ def _log_status_error(op: str, err: Exception) -> None:
 
 
 def _init_ingest_status_tables(conn: sqlite3.Connection) -> None:
-    """Create ingest status tables if not exist. Enables WAL for read concurrency."""
-    conn.execute("PRAGMA journal_mode=WAL")
+    """Create ingest status tables if not exist. WAL optional (INGEST_SQLITE_WAL=0 avoids SIGBUS on Docker Mac)."""
+    use_wal = (os.environ.get("INGEST_SQLITE_WAL") or "1").strip().lower() not in ("0", "false", "no", "off")
+    conn.execute("PRAGMA journal_mode=WAL" if use_wal else "PRAGMA journal_mode=DELETE")
     conn.execute(
         f"""CREATE TABLE IF NOT EXISTS {_STATUS_TABLE_CURRENT} (
             id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -492,7 +493,10 @@ def _persist_ingest_status_sqlite(
 
 
 def _vacuum_cache_db() -> None:
-    """VACUUM the ingest cache SQLite DB to reclaim space. Non-blocking; logs on error."""
+    """VACUUM the ingest cache SQLite DB to reclaim space. Skip if INGEST_VACUUM_CACHE=0 (avoids SIGBUS on Docker Mac)."""
+    v = (os.environ.get("INGEST_VACUUM_CACHE") or "1").strip().lower()
+    if v in ("0", "false", "no", "off"):
+        return
     path = _ingest_cache_path()
     try:
         conn = sqlite3.connect(path, timeout=_sqlite_timeout())
