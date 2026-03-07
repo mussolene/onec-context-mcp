@@ -1450,7 +1450,7 @@ def main() -> int:
         type=int,
         default=None,
         metavar="N",
-        help="Parallel API requests for openai_api (default: env EMBEDDING_WORKERS or 4)",
+        help="Parallel API requests for openai_api (default: env EMBEDDING_WORKERS or 6)",
     )
     p_idx.add_argument(
         "--no-bm25",
@@ -1546,7 +1546,7 @@ def main() -> int:
         type=int,
         default=None,
         metavar="N",
-        help="Parallel API requests for openai_api (default: env EMBEDDING_WORKERS or 4)",
+        help="Parallel API requests for openai_api (default: env EMBEDDING_WORKERS or 6)",
     )
     p_ingest.set_defaults(func=cmd_ingest)
 

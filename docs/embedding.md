@@ -67,12 +67,37 @@
 | EMBEDDING_API_URL | URL Ollama / LM Studio / OpenAI-совместимого API | http://localhost:11434/v1 |
 | EMBEDDING_DIMENSION | Размерность при openai_api | авто |
 | EMBEDDING_BATCH_SIZE | Размер батча | 32 |
-| EMBEDDING_WORKERS | Параллельных воркеров (только openai_api) | 2 |
+| EMBEDDING_WORKERS | Одновременных HTTP-запросов (очередь на сервере); макс. 150 (только openai_api) | 6 |
 | EMBEDDING_MAX_CONCURRENT | Глобальный семафор для API; ожидание слота — таймаут 300 с (избежание deadlock) | нет |
 | EMBEDDING_TIMEOUT | Таймаут одиночного запроса (с) | 90 |
 | EMBEDDING_BATCH_TIMEOUT | Таймаут batch-запроса (с) | max(timeout, 30 + batch/10) |
-| EMBEDDING_FORCE_BATCH | 1/true — макс. батч (256) и воркеры (16) | 0 |
+| EMBEDDING_FORCE_BATCH | 1/true — макс. батч (256) и воркеры (150) | 0 |
 | EMBEDDING_CACHE_SIZE | Макс. записей кэша по хэшу текста (local/openai_api). 0 — кэш отключён. Снижает повторные отправки при повторных запусках. | 10000 |
+
+**Очередь 100–150 одновременных запросов (LM Studio / Ollama).** В интерфейсе показывается число **одновременных HTTP-запросов**, а не текстов в одном запросе. В коде один запрос = один батч (до `EMBEDDING_BATCH_SIZE` текстов); параллельных запросов = `EMBEDDING_WORKERS` (макс. 150). Чтобы в очереди было 100–150 запросов: задайте `EMBEDDING_WORKERS=100` (или 150) и `EMBEDDING_BATCH_SIZE=5` или `10`, чтобы батчей было не меньше числа воркеров (например 500 текстов ÷ 5 = 100 батчей → 100 запросов в полёте). Пример для `.env`: `EMBEDDING_WORKERS=100` и `EMBEDDING_BATCH_SIZE=5`.
+
+## Рекомендуемая комбинация (по тестам)
+
+По результатам `--compare-variants` (прогрев + несколько комбинаций batch×workers): **Ollama** даёт лучшую скорость при **batch=32, workers=6** (~114 pts/s). Рекомендуемые переменные для Ollama: `EMBEDDING_BATCH_SIZE=32`, `EMBEDDING_WORKERS=6`. Для LM Studio лучшая из проверенных комбинаций: `batch=5`, `workers=50` (~70 pts/s).
+
+## Сравнение Ollama и LM Studio (прогрев, два прохода)
+
+Скрипт `scripts/embedding_benchmark.py` поддерживает режим **--compare-full**: один и тот же модель/размерность, прогрев большим батчем, затем тестовый батч; порядок бэкендов Ollama → LM Studio → LM Studio → Ollama (два прохода с переменой порядка). В отчёте: время, pts/s, CPU (клиентский процесс), dim и cosine для одной пары текстов (качество воспроизводимости).
+
+Запуск с прогреванием в несколько сотен/тысяч запросов и тестовым батчем:
+
+```bash
+PYTHONPATH=src python scripts/embedding_benchmark.py --compare-full
+PYTHONPATH=src python scripts/embedding_benchmark.py --compare-full --warmup 1000 --test 300
+```
+
+Сравнение нескольких комбинаций batch×workers и выбор победителя (одна серия на бэкенд):
+
+```bash
+PYTHONPATH=src python scripts/embedding_benchmark.py --compare-variants --warmup 300 --test 300
+```
+
+CPU в таблице — время процесса клиента (resource.getrusage). Нагрузку на процессор сервера (Ollama / LM Studio) смотрите отдельно (например, `top`, `docker stats`).
 
 ## Stemming и BM25
 

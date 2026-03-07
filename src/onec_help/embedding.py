@@ -29,12 +29,13 @@ def sanitize_text_for_embedding(text: str) -> str:
 # 768 matches default model nomic-embed-text-v2-moe.
 _DIMENSION_LAST_RESORT = 768
 MAX_EMBEDDING_INPUT_CHARS = 2000
-# Defaults tuned for LM Studio / external API (avoid TimeoutError; override for local/fast backends)
+# Defaults: Ollama-friendly; batch 32 + 6 workers = best pts/s in benchmarks
 DEFAULT_EMBEDDING_BATCH_SIZE = 32
-DEFAULT_EMBEDDING_WORKERS = 2
+DEFAULT_EMBEDDING_WORKERS = 6
 # When EMBEDDING_FORCE_BATCH=1: use max batch and workers for maximum throughput (any backend)
 MAX_EMBEDDING_BATCH_SIZE = 256
-MAX_EMBEDDING_WORKERS = 16
+# Max concurrent HTTP requests (each = one batch). LM Studio/Ollama "queue" = this many requests in flight.
+MAX_EMBEDDING_WORKERS = 150
 DEFAULT_EMBEDDING_TIMEOUT = 90
 RETRY_ATTEMPTS = 3
 RETRY_BASE_DELAY = 1.0
