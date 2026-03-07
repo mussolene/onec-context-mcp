@@ -101,18 +101,18 @@ def cmd_build_index(args: argparse.Namespace) -> int:
 
 
 def cmd_add_bm25(args: argparse.Namespace) -> int:
-    """Add BM25 sparse vectors to existing collection without re-ingest."""
-    from .indexer import add_bm25_to_collection
+    """Add BM25 sparse vectors to all collections that lack it (no re-ingest, no re-embedding)."""
+    from .indexer import add_bm25_to_all_collections
 
     try:
-        count = add_bm25_to_collection(
+        result = add_bm25_to_all_collections(
             qdrant_host=env_config.get_qdrant_host(),
             qdrant_port=env_config.get_qdrant_port(),
-            collection=args.collection or env_config.get_qdrant_collection(),
-            batch_size=getattr(args, "batch_size", 200),
-            verbose=not getattr(args, "quiet", False),
+            batch_size=200,
+            verbose=True,
         )
-        print(f"Migrated {count} points with BM25")
+        for coll, count in result.items():
+            print(f"{coll}: migrated {count} points with BM25")
         return 0
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -1435,21 +1435,8 @@ def main() -> int:
     # add-bm25
     p_add_bm25 = sub.add_parser(
         "add-bm25",
-        help="Add BM25 sparse vectors to existing collection (no re-ingest, no re-embedding)",
+        help="Add BM25 sparse vectors to all collections that lack it (no re-ingest, no re-embedding)",
     )
-    p_add_bm25.add_argument(
-        "--collection",
-        type=str,
-        default=None,
-        help="Collection name (default: QDRANT_COLLECTION or onec_help)",
-    )
-    p_add_bm25.add_argument(
-        "--batch-size",
-        type=int,
-        default=200,
-        help="Points per upsert batch (default 200)",
-    )
-    p_add_bm25.add_argument("--quiet", "-q", action="store_true", help="Less output")
     p_add_bm25.set_defaults(func=cmd_add_bm25)
 
     # ingest

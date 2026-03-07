@@ -695,6 +695,21 @@ def get_all_collections_status(
 SPARSE_VECTOR_NAME = "text-bm25"
 
 
+def _bm25_text_from_payload(collection: str, payload: dict[str, Any]) -> str:
+    """Extract text for BM25 from point payload. onec_help: title+text; onec_help_memory: title, summary, description, code_snippet, instruction."""
+    if collection == "onec_help_memory":
+        parts = [
+            payload.get("title") or "",
+            payload.get("summary") or "",
+            payload.get("description") or "",
+            payload.get("code_snippet") or "",
+            payload.get("instruction") or "",
+        ]
+        return "\n".join(p for p in parts if p)
+    # onec_help and any other: title + text
+    return ((payload.get("title") or "") + "\n" + (payload.get("text") or "")).strip() or ""
+
+
 def _collection_has_sparse(
     client: Any,
     collection: str,
@@ -756,9 +771,7 @@ def add_bm25_to_collection(
             offset = next_offset
         if points:
             texts = [
-                (getattr(p, "payload", None) or {}).get("title", "")
-                + "\n"
-                + (getattr(p, "payload", None) or {}).get("text", "")
+                _bm25_text_from_payload(collection, getattr(p, "payload", None) or {})
                 for p in points
             ]
             _, vocab, doc_freq = build_bm25_vectors(texts)
@@ -801,8 +814,7 @@ def add_bm25_to_collection(
     ids = []
     for p in points:
         pl = getattr(p, "payload", None) or {}
-        text = (pl.get("title") or "") + "\n" + (pl.get("text") or "")
-        texts.append(text)
+        texts.append(_bm25_text_from_payload(collection, pl))
         vec = getattr(p, "vector", None)
         if isinstance(vec, dict):
             vec = vec.get("") or vec.get(None)
@@ -818,6 +830,10 @@ def add_bm25_to_collection(
     save_vocab(vocab_path, vocab, doc_freq, N)
 
     dim = embedding.get_embedding_dimension()
+    for d in dense_vectors:
+        if isinstance(d, list) and len(d) > 0:
+            dim = len(d)
+            break
     sparse_config = {SPARSE_VECTOR_NAME: SparseVectorParams(modifier=Modifier.IDF)}
 
     # Recreate collection with dense + sparse
@@ -854,6 +870,46 @@ def add_bm25_to_collection(
     if verbose:
         print(f"[add-bm25] Done. BM25 vocab saved to {vocab_path}", file=sys.stderr)
     return len(points)
+
+
+def add_bm25_to_all_collections(
+    qdrant_host: str | None = None,
+    qdrant_port: int | None = None,
+    batch_size: int = 200,
+    verbose: bool = True,
+) -> dict[str, int]:
+    """Add BM25 to every collection that has dense vectors but no sparse. Returns {collection: points_migrated}."""
+    if QdrantClient is None:
+        raise RuntimeError("qdrant-client required for add-bm25")
+    host = qdrant_host or env_config.get_qdrant_host()
+    port = qdrant_port or env_config.get_qdrant_port()
+    client = QdrantClient(host=host, port=port, check_compatibility=False)
+    resp = client.get_collections()
+    raw_list = getattr(resp, "collections", None) or []
+    names = []
+    for c in raw_list:
+        name = getattr(c, "name", None) or (c.get("name") if isinstance(c, dict) else None) or ""
+        if name:
+            names.append(name)
+    result: dict[str, int] = {}
+    for name in names:
+        if _collection_has_sparse(client, name):
+            if verbose:
+                print(f"[add-bm25] {name}: already has BM25, skip", file=sys.stderr)
+            continue
+        try:
+            n = add_bm25_to_collection(
+                qdrant_host=host,
+                qdrant_port=port,
+                collection=name,
+                batch_size=batch_size,
+                verbose=verbose,
+            )
+            result[name] = n
+        except Exception as e:
+            if verbose:
+                print(f"[add-bm25] {name}: failed — {e}", file=sys.stderr)
+    return result
 
 
 def search_index(

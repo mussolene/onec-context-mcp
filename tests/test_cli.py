@@ -91,18 +91,18 @@ def test_cmd_unpack_diag_error(tmp_path: Path) -> None:
 
 
 def test_cmd_add_bm25_success() -> None:
-    with patch("onec_help.indexer.add_bm25_to_collection", return_value=100):
-        args = make_args(collection="onec_help", batch_size=200, quiet=False)
+    with patch("onec_help.indexer.add_bm25_to_all_collections", return_value={"onec_help": 100}):
+        args = make_args()
         with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
             assert cmd_add_bm25(args) == 0
 
 
 def test_cmd_add_bm25_error() -> None:
     with patch(
-        "onec_help.indexer.add_bm25_to_collection",
+        "onec_help.indexer.add_bm25_to_all_collections",
         side_effect=RuntimeError("Qdrant unavailable"),
     ):
-        args = make_args(collection="onec_help")
+        args = make_args()
         with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
             assert cmd_add_bm25(args) == 1
 
