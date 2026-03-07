@@ -79,7 +79,10 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 else (stage or "indexing")[:8]
             )
             label = f"{version}/{lang} — {path} — {stage_label}"
-            short = f"{version[:10]}/{path[:14]} {stage_label}"
+            # Avoid "8.2.19.130/8.2.19.130/1cv": use stem (part after last /) when path looks like version/stem
+            path_str = cur.get("path") or "—"
+            stem = path_str.split("/")[-1][:14] if "/" in path_str else path_str[:14]
+            short = f"{version[:10]}/{stem} {stage_label}"
             workers.append({"label": label, "short": short, "pts": pts, "total": est})
         if not workers:
             pts = ingest.get("current_task_points")
