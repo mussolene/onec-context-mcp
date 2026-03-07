@@ -23,7 +23,7 @@ def test_render_dashboard_returns_rich_group() -> None:
 
 
 def test_render_dashboard_output_contains_tasks_and_errors() -> None:
-    """Rendered output contains Tasks and Errors sections."""
+    """Rendered output contains Tasks, Errors, Database and MCP sections."""
     from rich.console import Console
 
     data = {
@@ -35,6 +35,8 @@ def test_render_dashboard_output_contains_tasks_and_errors() -> None:
         "snippets": None,
         "standards_loading": False,
         "snippets_loading": False,
+        "storage_path_mb": None,
+        "mcp_metrics": {"total": 5, "last_hour": 2},
     }
     result = render_dashboard(data)
     console = Console(force_terminal=True, no_color=True)
@@ -44,6 +46,7 @@ def test_render_dashboard_output_contains_tasks_and_errors() -> None:
     assert "Tasks" in out
     assert "Errors" in out
     assert "Database" in out
+    assert "MCP" in out
     assert "Ingest" in out or "ingest" in out.lower()
 
 

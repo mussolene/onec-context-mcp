@@ -122,6 +122,13 @@ def render_dashboard(data: dict[str, Any]) -> Any:
         db_content = "No collections"
     panels.append(Panel(db_content, title="[bold]Database[/bold] (Qdrant)", border_style="green"))
 
+    # --- Panel 4: MCP requests ---
+    mcp = data.get("mcp_metrics") or {}
+    total = mcp.get("total", 0) or 0
+    last_hour = mcp.get("last_hour", 0) or 0
+    mcp_text = f"Total: {total}  │  Last hour: {last_hour}"
+    panels.append(Panel(mcp_text, title="[bold]MCP requests[/bold]", border_style="cyan"))
+
     return Group(*panels)
 
 

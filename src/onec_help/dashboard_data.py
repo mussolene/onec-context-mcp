@@ -13,6 +13,7 @@ from .ingest import (
     read_last_ingest_run,
 )
 from .indexer import get_all_collections_status, get_index_status
+from .mcp_metrics import get_metrics as get_mcp_metrics
 from .snippets_cache import read_last_snippets_run
 
 
@@ -56,6 +57,7 @@ def get_dashboard_data(
     standards_loading = _load_marker_exists("standards")
     snippets_loading = _load_marker_exists("snippets")
     storage_path_mb = _storage_path_mb()
+    mcp_metrics = get_mcp_metrics()
 
     return {
         "ingest": ingest_current,
@@ -67,4 +69,5 @@ def get_dashboard_data(
         "standards_loading": standards_loading,
         "snippets_loading": snippets_loading,
         "storage_path_mb": storage_path_mb,
+        "mcp_metrics": mcp_metrics,
     }

@@ -9,6 +9,22 @@ from pathlib import Path
 from typing import Any
 
 from ._utils import format_duration, safe_error_message
+from .mcp_metrics import record_request as _record_mcp_request
+
+
+def _record_mcp_tool(f):
+    """Decorator: record MCP tool call (success/fail) for dashboard metrics."""
+    def wrapper(*args, **kwargs):
+        name = f.__name__
+        try:
+            out = f(*args, **kwargs)
+            _record_mcp_request(name, True)
+            return out
+        except Exception:
+            _record_mcp_request(name, False)
+            raise
+    wrapper.__name__ = f.__name__
+    return wrapper
 
 
 def _snippet_max_chars() -> int:
@@ -313,6 +329,7 @@ def _build_mcp_app(help_path: Path) -> Any:
 
     mcp = FastMCP("1C Help")
 
+    @_record_mcp_tool
     @mcp.tool()
     def search_1c_help(
         query: str,
@@ -370,6 +387,7 @@ def _build_mcp_app(help_path: Path) -> Any:
             idx += 1
         return "\n".join(lines)
 
+    @_record_mcp_tool
     @mcp.tool()
     def search_1c_help_keyword(
         query: str,
@@ -403,6 +421,7 @@ def _build_mcp_app(help_path: Path) -> Any:
             lines.append(f"   {text}...")
         return "\n".join(lines)
 
+    @_record_mcp_tool
     @mcp.tool()
     def search_1c_help_with_content(
         query: str,
@@ -437,6 +456,7 @@ def _build_mcp_app(help_path: Path) -> Any:
                 parts.append(f"---\n## {path}\n\n{content}")
         return "\n\n".join(parts) if parts else "No content could be retrieved."
 
+    @_record_mcp_tool
     @mcp.tool()
     def get_1c_code_answer(
         query: str,
@@ -540,6 +560,7 @@ def _build_mcp_app(help_path: Path) -> Any:
                 parts.append("\n### Из справки\n\n" + "\n\n".join(help_blocks))
         return "\n".join(parts)
 
+    @_record_mcp_tool
     @mcp.tool()
     def get_1c_help_topic(
         topic_path: str,
@@ -575,6 +596,7 @@ def _build_mcp_app(help_path: Path) -> Any:
             return content
         return "Topic not found."
 
+    @_record_mcp_tool
     @mcp.tool()
     def save_1c_snippet(
         code_snippet: str,
@@ -632,6 +654,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         except Exception as e:
             return f"Failed to save: {safe_error_message(e)}"
 
+    @_record_mcp_tool
     @mcp.tool()
     def get_form_metadata(xml_content: str) -> str:
         """Parse Form.xml content and return attributes and commands.
@@ -657,6 +680,7 @@ def _build_mcp_app(help_path: Path) -> Any:
             lines.append(f"- {c.get('name', '')} → {c.get('action', '')}")
         return "\n".join(lines) if lines else "No attributes or commands found."
 
+    @_record_mcp_tool
     @mcp.tool()
     def get_module_info(uri_or_path: str) -> str:
         """Infer module type and context from file path.
@@ -694,6 +718,7 @@ def _build_mcp_app(help_path: Path) -> Any:
             lines.append(f"**Object:** {object_name}")
         return "\n".join(lines)
 
+    @_record_mcp_tool
     @mcp.tool()
     def get_1c_help_related(
         topic_path: str,
@@ -716,6 +741,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         lines = [f"- **{r.get('title', '')}** — `{r.get('path', '')}`" for r in items]
         return "\n".join(lines)
 
+    @_record_mcp_tool
     @mcp.tool()
     def list_1c_help_titles(limit: int = 100, path_prefix: str = "") -> str:
         """List topic titles and paths for browsing. path_prefix: filter by path start (e.g. 'zif' for command-line params)."""
@@ -727,6 +753,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         ]
         return "\n".join(lines)
 
+    @_record_mcp_tool
     @mcp.tool()
     def compare_1c_help(
         topic_path_or_query: str,
@@ -750,6 +777,7 @@ def _build_mcp_app(help_path: Path) -> Any:
             include_diff=include_diff,
         )
 
+    @_record_mcp_tool
     @mcp.tool()
     def get_1c_help_index_status() -> str:
         """Returns index status (topics count, collection, versions, languages) and ingest progress.
@@ -881,6 +909,7 @@ def _build_mcp_app(help_path: Path) -> Any:
             return 2
         return 3
 
+    @_record_mcp_tool
     @mcp.tool()
     def get_1c_function_info(
         name: str,
