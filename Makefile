@@ -46,7 +46,7 @@ fetch-bsl-bridge: deps/mcp-bsl-lsp-bridge/.git/HEAD
 
 WATCH_INTERVAL ?= 2
 
-# Сборка образов (split). SERVICE=mcp|ingest-worker — только один сервис
+# Сборка образов (split). SERVICE=mcp|ingest-worker — только один сервис. По умолчанию образ без local-эмбеддингов.
 build:
 	$(COMPOSE) build $(if $(SERVICE),$(SERVICE),mcp ingest-worker)
 

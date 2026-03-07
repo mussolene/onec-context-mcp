@@ -1,7 +1,7 @@
 # 1C Help: app container (Python + p7zip-full + cron для индексации по расписанию).
 # Сборка в два этапа: builder ставит зависимости и пакет, runtime — только runtime-зависимости и артефакты.
-# Без local-эмбеддингов: docker build --build-arg EMBEDDING_BACKEND=openai_api -t onec-help .
-# Кэш зависимостей: BuildKit cache mount для uv (повторные сборки не качают пакеты заново). Требует DOCKER_BUILDKIT=1 (по умолчанию в Docker 23+).
+# По умолчанию образ без local-эмбеддингов (только openai_api/deterministic). С sentence-transformers: --build-arg EMBEDDING_BACKEND=local
+# Кэш зависимостей: BuildKit cache mount для uv. Требует DOCKER_BUILDKIT=1 (по умолчанию в Docker 23+).
 FROM python:3.14-slim AS builder
 
 ARG EMBEDDING_BACKEND=openai_api

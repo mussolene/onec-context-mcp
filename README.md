@@ -246,9 +246,9 @@ Ingest берёт .hbk из `HELP_SOURCE_BASE` (подпапки = версии 
 | `none` | Плейсхолдеры; только search_1c_help_keyword |
 | `deterministic` | 768 dim без модели; воспроизводимый поиск |
 | `openai_api` | Ollama по умолчанию (11434); LM Studio — задать `EMBEDDING_API_URL` в .env |
-| `local` | sentence-transformers в контейнере; build-arg при сборке |
+| `local` | sentence-transformers в контейнере; образ по умолчанию без них, с local: `docker compose build --build-arg EMBEDDING_BACKEND=local` |
 
-При `openai_api`/`none`/`deterministic` sentence-transformers не ставится. Сборка без них: `EMBEDDING_BACKEND=none docker compose build`.
+Образ Docker по умолчанию собирается без sentence-transformers (только openai_api/deterministic). Для образа с local-эмбеддингами: `docker compose build --build-arg EMBEDDING_BACKEND=local`.
 
 ---
 

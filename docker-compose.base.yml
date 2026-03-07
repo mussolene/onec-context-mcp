@@ -22,8 +22,6 @@ services:
   mcp:
     build:
       context: .
-      args:
-        EMBEDDING_BACKEND: "${EMBEDDING_BACKEND:-openai_api}"
     restart: unless-stopped
     ports:
       - "${MCP_PORT:-8050}:8050"
