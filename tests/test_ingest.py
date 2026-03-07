@@ -16,10 +16,8 @@ from onec_help.ingest import (
     _language_from_filename,
     _load_ingest_cache,
     _load_ingest_cache_indexed_set,
-    _persist_ingest_status_sqlite,
     _read_unpacked_hash,
     _safe_stem,
-    _sqlite_timeout,
     _update_ingest_cache_entry,
     _vacuum_cache_db,
     _write_hbk_info,
@@ -129,14 +127,6 @@ def test_file_sha256_missing() -> None:
     assert _file_sha256(Path("/nonexistent/file.hbk")) is None
 
 
-def test_sqlite_timeout() -> None:
-    """_sqlite_timeout reads env and clamps; invalid value falls back to 15."""
-    with patch.dict("os.environ", {"SQLITE_BUSY_TIMEOUT": "30"}, clear=False):
-        assert _sqlite_timeout() == 30.0
-    with patch.dict("os.environ", {"SQLITE_BUSY_TIMEOUT": "invalid"}, clear=False):
-        assert _sqlite_timeout() == 15.0
-
-
 def test_default_workers() -> None:
     """_default_workers returns at least 1 (half of cpu_count or 4)."""
     w = _default_workers()
@@ -149,96 +139,67 @@ def test_safe_stem() -> None:
     assert _safe_stem(Path("path with spaces.txt")) == "path_with_spaces"
 
 
-def test_clear_ingest_cache_remove_raises(tmp_path: Path) -> None:
-    """clear_ingest_cache returns False when os.remove raises OSError."""
-    cache_file = tmp_path / "cache.db"
-    cache_file.write_bytes(b"x")
-    with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_file)}, clear=False):
-        with patch("os.remove", side_effect=OSError("Permission denied")):
-            assert clear_ingest_cache() is False
-    assert cache_file.exists()
+def test_clear_ingest_cache_remove_raises() -> None:
+    """clear_ingest_cache returns False when Redis clear_all raises."""
+    with patch("onec_help.ingest.redis_cache.clear_all", side_effect=RuntimeError("redis down")):
+        assert clear_ingest_cache() is False
 
 
-def test_clear_ingest_cache(tmp_path: Path) -> None:
-    """clear_ingest_cache removes cache file when present; returns True when absent."""
-    cache_file = tmp_path / "cache.db"
-    cache_file.write_bytes(b"x")
-    with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_file)}, clear=False):
+def test_clear_ingest_cache() -> None:
+    """clear_ingest_cache calls Redis clear_all and returns True."""
+    with patch("onec_help.ingest.redis_cache.clear_all", return_value=True) as m:
         assert clear_ingest_cache() is True
-        assert not cache_file.exists()
+        assert m.called
         assert clear_ingest_cache() is True
 
 
-def test_load_ingest_cache_error_returns_empty(tmp_path: Path) -> None:
-    """When cache read raises, _load_ingest_cache returns empty dict."""
-    cache_file = tmp_path / "cache.db"
-    with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_file)}, clear=False):
-        with patch("onec_help.ingest.sqlite3.connect", side_effect=OSError("read-only")):
-            c = _load_ingest_cache()
+def test_load_ingest_cache_error_returns_empty() -> None:
+    """When Redis get_all raises, _load_ingest_cache returns empty dict."""
+    with patch("onec_help.ingest.redis_cache.ingest_cache_get_all", side_effect=RuntimeError()):
+        c = _load_ingest_cache()
     assert c == {}
 
 
-def test_update_ingest_cache_entry_write_error(tmp_path: Path) -> None:
-    """When cache write raises, _update_ingest_cache_entry calls _log_cache_error and does not raise."""
-    cache_file = tmp_path / "cache.db"
-    with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_file)}, clear=False):
-        with patch("onec_help.ingest.sqlite3.connect", side_effect=OSError("read-only")):
-            _update_ingest_cache_entry("v/ru/file.hbk", "hash123", 1)
+def test_update_ingest_cache_entry_write_error() -> None:
+    """When Redis set_entry raises, _update_ingest_cache_entry does not raise."""
+    with patch("onec_help.ingest.redis_cache.ingest_cache_set_entry", side_effect=RuntimeError()):
+        _update_ingest_cache_entry("v/ru/file.hbk", "hash123", 1)
 
 
-def test_read_ingest_cache_entries_key_fewer_than_three_parts(tmp_path: Path) -> None:
+def test_read_ingest_cache_entries_key_fewer_than_three_parts() -> None:
     """read_ingest_cache_entries handles cache keys with fewer than 3 parts (version/lang/path)."""
-    import sqlite3
-
-    cache_file = tmp_path / "cache.db"
-    with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_file)}, clear=False):
-        conn = sqlite3.connect(str(cache_file))
-        conn.execute(
-            "CREATE TABLE ingest_cache (key TEXT PRIMARY KEY, hash TEXT NOT NULL, indexed INTEGER NOT NULL, points INTEGER)"
-        )
-        conn.execute(
-            "INSERT INTO ingest_cache (key, hash, indexed, points) VALUES (?, ?, 1, 5)",
-            ("8.3/ru", "abc"),
-        )
-        conn.execute(
-            "INSERT INTO ingest_cache (key, hash, indexed, points) VALUES (?, ?, 1, 10)",
-            ("only", "def"),
-        )
-        conn.commit()
-        conn.close()
+    with patch(
+        "onec_help.ingest.redis_cache.ingest_cache_entries",
+        return_value=[
+            {"path": "8.3/ru", "version": "8.3", "language": "ru", "points": 5, "status": "cached"},
+            {"path": "only", "version": "", "language": "", "points": 10, "status": "cached"},
+        ],
+    ):
         entries = read_ingest_cache_entries(limit=10)
     assert len(entries) == 2
-    paths = [e.get("path") or e.get("language") or e.get("version") for e in entries]
-    assert "8.3/ru" in paths or "only" in paths
 
 
-def test_load_ingest_cache_connect_raises_returns_empty(tmp_path: Path) -> None:
-    """_load_ingest_cache returns {} and logs when sqlite3.connect raises."""
-    with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(tmp_path / "cache.db")}, clear=False):
-        with patch("onec_help.ingest.sqlite3.connect", side_effect=OSError("read only")):
-            entries = _load_ingest_cache()
+def test_load_ingest_cache_connect_raises_returns_empty() -> None:
+    """_load_ingest_cache returns {} when Redis get_all raises."""
+    with patch("onec_help.ingest.redis_cache.ingest_cache_get_all", side_effect=RuntimeError()):
+        entries = _load_ingest_cache()
     assert entries == {}
 
 
-def test_load_save_ingest_cache(tmp_path: Path) -> None:
-    """_load_ingest_cache returns entries from SQLite; _update_ingest_cache_entry persists one row."""
-    cache_file = tmp_path / "cache.db"
-    with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_file)}, clear=False):
-        c = _load_ingest_cache()
-        assert c == {}
-        _update_ingest_cache_entry("v/ru/1cv8.hbk", "abc", 10)
-        c2 = _load_ingest_cache()
-        assert c2["v/ru/1cv8.hbk"] == {"hash": "abc", "indexed": True, "points": 10}
+def test_load_save_ingest_cache() -> None:
+    """_load_ingest_cache returns entries from Redis; _update_ingest_cache_entry persists one row (fakeredis)."""
+    c = _load_ingest_cache()
+    assert c == {}
+    _update_ingest_cache_entry("v/ru/1cv8.hbk", "abc", 10)
+    c2 = _load_ingest_cache()
+    assert c2["v/ru/1cv8.hbk"] == {"hash": "abc", "indexed": True, "points": 10}
 
 
-def test_load_ingest_cache_indexed_set(tmp_path: Path) -> None:
-    """_load_ingest_cache_indexed_set returns (version, lang, hash) for indexed entries; parses key with or without |path_id."""
-    cache_db = tmp_path / "cache.db"
-    with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_db)}, clear=False):
-        _load_ingest_cache()  # create table
-        _update_ingest_cache_entry("8.3/ru/1cv8_ru.hbk|abc123", "h1", 10)
-        _update_ingest_cache_entry("8.5/en/1cv8_en", "h2", 5)
-        idx = _load_ingest_cache_indexed_set()
+def test_load_ingest_cache_indexed_set() -> None:
+    """_load_ingest_cache_indexed_set returns (version, lang, hash) for indexed entries (fakeredis)."""
+    _update_ingest_cache_entry("8.3/ru/1cv8_ru.hbk|abc123", "h1", 10)
+    _update_ingest_cache_entry("8.5/en/1cv8_en", "h2", 5)
+    idx = _load_ingest_cache_indexed_set()
     assert idx == {("8.3", "ru", "h1"), ("8.5", "en", "h2")}
 
 
@@ -280,68 +241,60 @@ def test_run_ingest_skips_cached(tmp_path: Path) -> None:
     mock_idx.assert_not_called()
 
 
-def test_write_ingest_status_completed_clears_current(tmp_path: Path) -> None:
-    """When status is completed, ingest_current is cleared and run is in ingest_runs."""
-    cache_db = tmp_path / "cache.db"
-    with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_db)}, clear=False):
-        _write_ingest_status(
-            started_at=0.0,
-            embedding_backend="local",
-            total_tasks=2,
-            done_tasks=2,
-            total_points=100,
-            folders=[],
-            status="completed",
-            finished_at=1.0,
-        )
-        last = read_last_ingest_run()
-        assert last is not None
-        assert last["status"] == "completed"
-        assert last["total_points"] == 100
-        assert read_ingest_status() is None  # ingest_current cleared
+def test_write_ingest_status_completed(tmp_path: Path) -> None:
+    """When status is completed, current holds completed payload; run updated when run_id set."""
+    _write_ingest_status(
+        started_at=0.0,
+        embedding_backend="local",
+        total_tasks=2,
+        done_tasks=2,
+        total_points=100,
+        folders=[],
+        status="completed",
+        finished_at=1.0,
+    )
+    current = read_ingest_status()
+    assert current is not None
+    assert current["status"] == "completed"
+    assert current["total_points"] == 100
 
 
-def test_read_ingest_status_missing(tmp_path: Path) -> None:
-    """read_ingest_status returns None when SQLite ingest_current has no row."""
-    cache_db = tmp_path / "cache.db"
-    with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_db)}, clear=False):
-        assert read_ingest_status() is None
+def test_read_ingest_status_missing() -> None:
+    """read_ingest_status returns None when Redis has no current key."""
+    clear_ingest_cache()
+    assert read_ingest_status() is None
 
 
-def test_read_ingest_status_exists(tmp_path: Path) -> None:
-    """read_ingest_status returns data from SQLite ingest_current when present."""
-    cache_db = tmp_path / "cache.db"
-    with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_db)}, clear=False):
-        _persist_ingest_status_sqlite(
-            started_at=1000.0,
-            embedding_backend="local",
-            total_tasks=1,
-            done_tasks=1,
-            total_points=10,
-            folders=[],
-            status="in_progress",
-        )
-        out = read_ingest_status()
+def test_read_ingest_status_exists() -> None:
+    """read_ingest_status returns data from Redis when present (fakeredis)."""
+    _write_ingest_status(
+        started_at=1000.0,
+        embedding_backend="local",
+        total_tasks=1,
+        done_tasks=1,
+        total_points=10,
+        folders=[],
+        status="in_progress",
+    )
+    out = read_ingest_status()
     assert out is not None
     assert out["status"] == "in_progress"
     assert out["embedding_backend"] == "local"
     assert out["total_points"] == 10
 
 
-def test_read_ingest_status_from_sqlite(tmp_path: Path) -> None:
-    """read_ingest_status returns data from SQLite ingest_current when present."""
-    cache_db = tmp_path / "cache.db"
-    with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_db)}, clear=False):
-        _persist_ingest_status_sqlite(
-            started_at=1000.0,
-            embedding_backend="local",
-            total_tasks=5,
-            done_tasks=2,
-            total_points=100,
-            folders=[],
-            status="in_progress",
-        )
-        out = read_ingest_status()
+def test_read_ingest_status_from_redis() -> None:
+    """read_ingest_status returns data from Redis when present (fakeredis)."""
+    _write_ingest_status(
+        started_at=1000.0,
+        embedding_backend="local",
+        total_tasks=5,
+        done_tasks=2,
+        total_points=100,
+        folders=[],
+        status="in_progress",
+    )
+    out = read_ingest_status()
     assert out is not None
     assert out["status"] == "in_progress"
     assert out["embedding_backend"] == "local"
@@ -350,97 +303,99 @@ def test_read_ingest_status_from_sqlite(tmp_path: Path) -> None:
     assert out["total_tasks"] == 5
 
 
-def test_read_last_ingest_run(tmp_path: Path) -> None:
-    """read_last_ingest_run returns last row from ingest_runs when present."""
-    cache_db = tmp_path / "cache.db"
-    with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_db)}, clear=False):
-        _persist_ingest_status_sqlite(
-            started_at=1000.0,
-            embedding_backend="openai_api",
-            total_tasks=10,
-            done_tasks=10,
-            total_points=5000,
-            folders=[],
-            status="completed",
-            finished_at=1100.0,
-            failed_tasks=[{"path": "a.hbk", "version": "8.3", "language": "ru", "error": "err"}],
-        )
-        out = read_last_ingest_run()
+def test_read_last_ingest_run() -> None:
+    """read_last_ingest_run returns last run from Redis when present (fakeredis)."""
+    run_id = _create_ingest_run(
+        started_at=1000.0, embedding_backend="openai_api", total_tasks=10
+    )
+    assert run_id is not None
+    _write_ingest_status(
+        started_at=1000.0,
+        embedding_backend="openai_api",
+        total_tasks=10,
+        done_tasks=10,
+        total_points=5000,
+        folders=[],
+        status="completed",
+        finished_at=1100.0,
+        run_id=run_id,
+    )
+    out = read_last_ingest_run()
     assert out is not None
     assert out["status"] == "completed"
     assert out["total_points"] == 5000
     assert out["total_elapsed_sec"] == 100.0
-    assert out["failed_count"] == 1
+    assert out["failed_count"] == 0
 
 
-def test_read_last_ingest_failed(tmp_path: Path) -> None:
-    """read_last_ingest_failed returns failed tasks from ingest_failed for latest run."""
-    cache_db = tmp_path / "cache.db"
-    with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_db)}, clear=False):
-        _persist_ingest_status_sqlite(
-            started_at=1000.0,
-            embedding_backend="local",
-            total_tasks=2,
-            done_tasks=2,
-            total_points=100,
-            folders=[],
-            status="completed",
-            finished_at=1100.0,
-            failed_tasks=[
-                {"path": "a.hbk", "version": "8.3", "language": "ru", "error": "unpack failed"},
-            ],
-        )
-        out = read_last_ingest_failed(limit=10)
+def test_read_last_ingest_failed() -> None:
+    """read_last_ingest_failed returns failed tasks from Redis for latest run (fakeredis)."""
+    run_id = _create_ingest_run(
+        started_at=1000.0, embedding_backend="openai_api", total_tasks=5
+    )
+    assert run_id is not None
+    _append_failed_to_cache(
+        run_id,
+        {"path": "a.hbk", "version": "8.3", "language": "ru", "error": "unpack failed"},
+    )
+    _write_ingest_status(
+        started_at=1000.0,
+        embedding_backend="openai_api",
+        total_tasks=5,
+        done_tasks=4,
+        total_points=100,
+        folders=[],
+        status="completed",
+        finished_at=1100.0,
+        failed_tasks=[
+            {"path": "a.hbk", "version": "8.3", "language": "ru", "error": "unpack failed"},
+        ],
+        run_id=run_id,
+    )
+    out = read_last_ingest_failed(limit=10)
     assert len(out) == 1
     assert out[0]["path"] == "a.hbk"
     assert out[0]["error"] == "unpack failed"
     assert out[0]["version"] == "8.3"
 
 
-def test_failed_tasks_written_to_cache_before_run_completes(tmp_path: Path) -> None:
-    """Errors are written to ingest_failed as they occur; read_last_ingest_failed returns them even for in_progress run."""
-    cache_db = tmp_path / "cache.db"
-    with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_db)}, clear=False):
-        run_id = _create_ingest_run(
-            started_at=1000.0, embedding_backend="openai_api", total_tasks=5
-        )
-        assert run_id is not None
-        _append_failed_to_cache(
-            run_id,
-            {
-                "path": "shcntx_ru.hbk",
-                "path_full": "/sources/8.2/shcntx_ru.hbk",
-                "version": "8.2.19.130",
-                "language": "ru",
-                "error": "TimeoutError: embedding API slot not available within 300s",
-            },
-        )
-        out = read_last_ingest_failed(limit=10)
+def test_failed_tasks_written_to_cache_before_run_completes() -> None:
+    """Errors are written to Redis as they occur; read_last_ingest_failed returns them (fakeredis)."""
+    run_id = _create_ingest_run(
+        started_at=1000.0, embedding_backend="openai_api", total_tasks=5
+    )
+    assert run_id is not None
+    _append_failed_to_cache(
+        run_id,
+        {
+            "path": "shcntx_ru.hbk",
+            "path_full": "/sources/8.2/shcntx_ru.hbk",
+            "version": "8.2.19.130",
+            "language": "ru",
+            "error": "TimeoutError: embedding API slot not available within 300s",
+        },
+    )
+    out = read_last_ingest_failed(limit=10)
     assert len(out) == 1
     assert "shcntx_ru" in out[0]["path"]
     assert "embedding" in out[0]["error"].lower() or "timeout" in out[0]["error"].lower()
 
 
-def test_read_last_ingest_failed_empty(tmp_path: Path) -> None:
+def test_read_last_ingest_failed_empty() -> None:
     """read_last_ingest_failed returns [] when no runs or no failures."""
-    cache_db = tmp_path / "cache.db"
-    with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_db)}, clear=False):
-        assert read_last_ingest_failed() == []
+    clear_ingest_cache()
+    assert read_last_ingest_failed() == []
 
 
-def test_read_last_ingest_run_empty(tmp_path: Path) -> None:
-    """read_last_ingest_run returns None when ingest_runs is empty."""
-    cache_db = tmp_path / "cache.db"
-    with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_db)}, clear=False):
-        assert read_last_ingest_run() is None
+def test_read_last_ingest_run_empty() -> None:
+    """read_last_ingest_run returns None when no runs in Redis."""
+    clear_ingest_cache()
+    assert read_last_ingest_run() is None
 
 
-def test_vacuum_cache_db_no_error(tmp_path: Path) -> None:
-    """_vacuum_cache_db runs without error on valid DB."""
-    cache_db = tmp_path / "cache.db"
-    with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_db)}, clear=False):
-        _load_ingest_cache()  # creates DB
-        _vacuum_cache_db()  # should not raise
+def test_vacuum_cache_db_no_error() -> None:
+    """_vacuum_cache_db is no-op (Redis); runs without error."""
+    _vacuum_cache_db()
 
 
 def test_read_ingest_failed_log(tmp_path: Path) -> None:

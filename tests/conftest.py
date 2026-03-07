@@ -106,11 +106,74 @@ def isolate_bm25_vocab_for_indexer_tests(request, tmp_path):
 
 @pytest.fixture(autouse=True)
 def isolate_ingest_cache(tmp_path_factory):
-    """Redirect ingest cache to a separate temp dir so tests never create data/ingest_cache/ingest_cache.db.
-    Uses tmp_path_factory (not tmp_path) so the test's tmp_path is not polluted (e.g. discover_version_dirs)."""
+    """Redirect ingest cache dir (markers) to temp. Cache data is in Redis (mocked in test_ingest)."""
     base = tmp_path_factory.mktemp("ingest_cache_isolate")
     cache_dir = base / "ingest_cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
     cache_file = cache_dir / "ingest_cache.db"
     with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_file)}, clear=False):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def redis_mock_for_ingest(request):
+    """Use fakeredis (or in-memory mock) so ingest/watchdog/snippets_cache tests run without real Redis."""
+    try:
+        path = str(request.node.fspath) if hasattr(request.node, "fspath") else ""
+    except Exception:
+        path = ""
+    if "test_ingest" not in path and "test_watchdog" not in path and "snippets_cache" not in path:
+        yield
+        return
+    try:
+        import fakeredis
+        client = fakeredis.FakeRedis(decode_responses=True)
+    except ImportError:
+        # Fallback: minimal in-memory Redis mock (dict-based) so tests don't require fakeredis
+        from unittest.mock import MagicMock
+        storage = {}
+        client = MagicMock()
+        def hgetall(key):
+            return storage.get(key, {})
+        def hset(key, key_or_map=None, value=None, mapping=None):
+            if key not in storage:
+                storage[key] = {}
+            if mapping is not None:
+                storage[key].update(mapping)
+            elif key_or_map is not None and value is not None:
+                storage[key][key_or_map] = value
+        def get(key):
+            return storage.get(key)
+        def set(key, value, ex=None):
+            storage[key] = value
+        def delete(*keys):
+            for k in keys:
+                storage.pop(k, None)
+        def lpush(key, *values):
+            storage.setdefault(key, []).insert(0, *reversed(values))
+        def ltrim(key, start, end):
+            storage[key] = (storage.get(key) or [])[start:end + 1]
+        def lrange(key, start, end):
+            L = storage.get(key) or []
+            if end == -1:
+                end = len(L)
+            return L[start:end + 1]
+        def rpush(key, *values):
+            storage.setdefault(key, []).extend(values)
+        def incr(key):
+            storage[key] = int(storage.get(key) or 0) + 1
+            return storage[key]
+        client.hgetall.side_effect = hgetall
+        client.hset.side_effect = hset
+        client.get.side_effect = get
+        client.set.side_effect = set
+        client.delete.side_effect = delete
+        client.lpush.side_effect = lpush
+        client.ltrim.side_effect = ltrim
+        client.lrange.side_effect = lrange
+        client.rpush.side_effect = rpush
+        client.incr.side_effect = incr
+        client.scan_iter.return_value = []
+        client.ping.return_value = True
+    with patch("onec_help.redis_cache.get_redis", return_value=client):
         yield

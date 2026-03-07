@@ -50,14 +50,14 @@ def test_get_dashboard_data_index_status_error(mock_get_index_status) -> None:
 
 @patch("onec_help.dashboard_data.get_all_collections_status", return_value=[])
 @patch("onec_help.dashboard_data.get_index_status", return_value={"exists": True})
-@patch("onec_help.dashboard_data.read_last_ingest_failed")
+@patch("onec_help.dashboard_data.read_ingest_errors_log")
 def test_get_dashboard_data_respects_failed_tasks_limit(
-    mock_failed: object, _mock_index: object, _mock_collections: object
+    mock_errors_log: object, _mock_index: object, _mock_collections: object
 ) -> None:
-    """failed_tasks_limit is passed to read_last_ingest_failed."""
-    mock_failed.return_value = []
+    """failed_tasks_limit is passed to read_ingest_errors_log (primary source for errors)."""
+    mock_errors_log.return_value = []
     get_dashboard_data(failed_tasks_limit=7)
-    mock_failed.assert_called_once_with(limit=7)
+    mock_errors_log.assert_called_once_with(limit=7)
 
 
 def test_load_marker_stat_oserror_returns_false(tmp_path: Path) -> None:

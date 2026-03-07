@@ -1,50 +1,14 @@
-"""Snippets load cache: track source files, skip unchanged (like ingest for .hbk)."""
+"""Snippets load cache: track source files, skip unchanged (like ingest for .hbk). Backend: Redis."""
 
 from __future__ import annotations
 
 import hashlib
 import json
-import os
-import sqlite3
 import time
 from pathlib import Path
 from typing import Any
 
-from .ingest import _ingest_cache_path, _sqlite_timeout
-
-_SNIPPETS_CACHE_TABLE = "snippets_cache"
-_SNIPPETS_RUNS_TABLE = "snippets_runs"
-
-
-def _conn() -> sqlite3.Connection:
-    path = _ingest_cache_path()
-    parent = os.path.dirname(path)
-    if parent:
-        os.makedirs(parent, exist_ok=True)
-    return sqlite3.connect(path, timeout=_sqlite_timeout())
-
-
-def _init_tables(conn: sqlite3.Connection) -> None:
-    conn.execute(
-        f"""CREATE TABLE IF NOT EXISTS {_SNIPPETS_CACHE_TABLE} (
-            source_key TEXT PRIMARY KEY,
-            signature TEXT NOT NULL,
-            loaded_at REAL NOT NULL,
-            items_count INTEGER NOT NULL
-        )"""
-    )
-    conn.execute(
-        f"""CREATE TABLE IF NOT EXISTS {_SNIPPETS_RUNS_TABLE} (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            started_at REAL NOT NULL,
-            finished_at REAL NOT NULL,
-            files_processed INTEGER NOT NULL,
-            files_skipped INTEGER NOT NULL,
-            items_loaded INTEGER NOT NULL,
-            status TEXT NOT NULL
-        )"""
-    )
-    conn.commit()
+from . import redis_cache
 
 
 def _file_signature(path: Path) -> str | None:
@@ -92,21 +56,10 @@ def get_snippets_sources_to_load(
     Returns (to_load, cache_entries) — to_load = sources that changed or are new.
     """
     to_load: list[tuple[Path, str]] = []
-    cache_entries: dict[str, dict[str, Any]] = {}
     try:
-        conn = _conn()
-        _init_tables(conn)
-        for row in conn.execute(
-            f"SELECT source_key, signature, loaded_at, items_count FROM {_SNIPPETS_CACHE_TABLE}"
-        ):
-            cache_entries[row[0]] = {
-                "signature": row[1],
-                "loaded_at": row[2],
-                "items_count": row[3],
-            }
-        conn.close()
-    except (OSError, sqlite3.Error):
-        pass
+        cache_entries = redis_cache.snippets_cache_get_all()
+    except Exception:
+        cache_entries = {}
 
     folder_extensions: frozenset[str] = frozenset({".bsl", ".1c", ".md"})
     for path, stype in sources:
@@ -133,17 +86,8 @@ def update_snippets_cache(
 ) -> None:
     """Record successful load of a source."""
     try:
-        conn = _conn()
-        _init_tables(conn)
-        now = time.time()
-        conn.execute(
-            f"""INSERT OR REPLACE INTO {_SNIPPETS_CACHE_TABLE}
-                (source_key, signature, loaded_at, items_count) VALUES (?, ?, ?, ?)""",
-            (source_key, signature, now, items_count),
-        )
-        conn.commit()
-        conn.close()
-    except (OSError, sqlite3.Error):
+        redis_cache.snippets_cache_set(source_key, signature, items_count)
+    except Exception:
         pass
 
 
@@ -155,79 +99,32 @@ def record_snippets_run(
 ) -> None:
     """Record snippets load run for dashboard."""
     try:
-        conn = _conn()
-        _init_tables(conn)
-        now = time.time()
-        conn.execute(
-            f"""INSERT INTO {_SNIPPETS_RUNS_TABLE}
-                (started_at, finished_at, files_processed, files_skipped, items_loaded, status)
-                VALUES (?, ?, ?, ?, ?, ?)""",
-            (started_at, now, files_processed, files_skipped, items_loaded, "completed"),
+        redis_cache.snippets_run_record(
+            files_processed, files_skipped, items_loaded, started_at
         )
-        conn.commit()
-        conn.close()
-    except (OSError, sqlite3.Error):
+    except Exception:
         pass
 
 
 def read_last_snippets_run() -> dict[str, Any] | None:
     """Last snippets load run for dashboard. Same shape as read_last_ingest_run."""
     try:
-        conn = _conn()
-        row = conn.execute(
-            f"""SELECT started_at, finished_at, files_processed, files_skipped, items_loaded
-                FROM {_SNIPPETS_RUNS_TABLE} ORDER BY id DESC LIMIT 1"""
-        ).fetchone()
-        conn.close()
-        if not row:
-            return None
-        return {
-            "started_at": row[0],
-            "finished_at": row[1],
-            "files_processed": row[2],
-            "files_skipped": row[3],
-            "items_loaded": row[4],
-            "total_elapsed_sec": row[1] - row[0] if row[1] and row[0] else None,
-        }
-    except (OSError, sqlite3.Error):
+        return redis_cache.snippets_last_run()
+    except Exception:
         return None
 
 
 def get_cached_items_total() -> int:
     """Sum of items_count from cache (items loaded in previous runs, now in index)."""
     try:
-        conn = _conn()
-        row = conn.execute(
-            f"SELECT COALESCE(SUM(items_count), 0) FROM {_SNIPPETS_CACHE_TABLE}"
-        ).fetchone()
-        conn.close()
-        return int(row[0]) if row else 0
-    except (OSError, sqlite3.Error):
+        return redis_cache.snippets_items_total()
+    except Exception:
         return 0
 
 
 def read_snippets_cache_entries(limit: int = 50) -> list[dict[str, Any]]:
     """Cached sources for display in dashboard."""
-    entries: list[dict[str, Any]] = []
     try:
-        conn = _conn()
-        for row in conn.execute(
-            f"""SELECT source_key, loaded_at, items_count
-                FROM {_SNIPPETS_CACHE_TABLE} ORDER BY loaded_at DESC LIMIT ?""",
-            (limit,),
-        ):
-            path = row[0]
-            name = Path(path).name if path else "?"
-            entries.append(
-                {
-                    "path": name,
-                    "source": path,
-                    "loaded_at": row[1],
-                    "items_count": row[2],
-                    "status": "cached",
-                }
-            )
-        conn.close()
-    except (OSError, sqlite3.Error):
-        pass
-    return entries
+        return redis_cache.snippets_cache_entries(limit=limit)
+    except Exception:
+        return []

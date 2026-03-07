@@ -731,24 +731,37 @@ def get_embedding_batch(
     texts: list[str],
     batch_size: int | None = None,
     workers: int | None = None,
+    progress_callback=None,
 ) -> list[list[float]]:
     """
     Produce embeddings for a list of texts. Uses batch API where supported;
     for openai_api, workers > 1 runs batches in parallel.
     When EMBEDDING_CACHE_SIZE > 0, results for local/openai_api are cached by text hash.
+    progress_callback(done_in_batch, total_in_batch): optional, called after each chunk.
     """
     if not texts:
         return []
     texts = [sanitize_text_for_embedding(t) for t in texts]
     size = batch_size if batch_size is not None else _embedding_batch_size()
     w = workers if workers is not None else _embedding_workers()
+    total_count = len(texts)
+
+    def _report(done: int, total: int) -> None:
+        if progress_callback and callable(progress_callback):
+            try:
+                progress_callback(done, total)
+            except Exception:
+                pass
 
     if _EMBEDDING_BACKEND in ("none", "null", "off"):
         dim = get_embedding_dimension()
         return [_get_embedding_placeholder(t, dim) for t in texts]
 
     if _EMBEDDING_BACKEND == "deterministic":
-        return [_get_embedding_deterministic(t) for t in texts]
+        _report(0, total_count)
+        out = [_get_embedding_deterministic(t) for t in texts]
+        _report(total_count, total_count)
+        return out
 
     use_cache = _embedding_cache_max_size() > 0 and _EMBEDDING_BACKEND in ("local", "openai_api")
     if use_cache:
@@ -762,13 +775,18 @@ def get_embedding_batch(
         uncached_idx = list(range(len(texts)))
         uncached_texts = texts
 
+    embed_total = len(uncached_texts)
+    _report(0, embed_total)
+
     if _EMBEDDING_BACKEND == "openai_api":
         uncached_vecs = _get_embedding_api_batch_parallel(uncached_texts, size, w)
+        _report(embed_total, embed_total)
     else:
         uncached_vecs = []
         for i in range(0, len(uncached_texts), size):
             chunk = uncached_texts[i : i + size]
             uncached_vecs.extend(_get_embedding_local_batch(chunk))
+            _report(len(uncached_vecs), embed_total)
 
     if use_cache:
         for j, i in enumerate(uncached_idx):

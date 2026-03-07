@@ -161,8 +161,10 @@ class MemoryStore:
             from qdrant_client import QdrantClient
             from qdrant_client.models import Distance, PointStruct, VectorParams
 
-            host = os.environ.get("QDRANT_HOST", "localhost")
-            port = int(os.environ.get("QDRANT_PORT", "6333"))
+            from . import env_config
+
+            host = env_config.get_qdrant_host()
+            port = env_config.get_qdrant_port()
             client = QdrantClient(host=host, port=port, check_compatibility=False)
             if not client.collection_exists(_MEMORY_COLLECTION):
                 client.create_collection(
@@ -377,8 +379,10 @@ class MemoryStore:
             from . import embedding
 
             vec = embedding.get_embedding(query)
-            host = os.environ.get("QDRANT_HOST", "localhost")
-            port = int(os.environ.get("QDRANT_PORT", "6333"))
+            from . import env_config
+
+            host = env_config.get_qdrant_host()
+            port = env_config.get_qdrant_port()
             client = QdrantClient(host=host, port=port, check_compatibility=False)
             if not client.collection_exists(_MEMORY_COLLECTION):
                 return []

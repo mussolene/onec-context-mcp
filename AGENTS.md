@@ -22,14 +22,15 @@
 
 Если файлы переиндексируются при каждом перезапуске:
 
-1. **INGEST_CACHE_FILE** — в Docker: `/app/var/ingest_cache/ingest_cache.db` (→ ./data/ingest_cache).
-2. **Ошибка чтения кэша** — при `[ingest] WARN: ingest cache read failed` проверьте права, существование файла, место на диске. В логе будет подсказка.
-3. **Распаковка по умолчанию** — ingest пишет в **data/unpacked** (DATA_UNPACKED_DIR) структуру **version/stem** (run_unpack_sync), затем run_ingest_from_unpacked индексирует из неё. Команда **ingest-from-unpacked** ожидает именно эту структуру; вывод **unpack-dir** (version/lang/name) с ней не совместим. INGEST_USE_TEMP=1 — временная папка с удалением после индексации.
-4. **Watchdog** — состояние (hbk, standards, snippets) хранится в той же SQLite-базе, что и ingest-кэш; при рестарте неизменённые .hbk пропускаются по кэшу. Следит за **STANDARDS_DIR** и **SNIPPETS_DIR**; при изменении нескольких каталогов запускает load-standards, load-snippets и/или ingest **параллельно**.
-5. **reinit --force** — стирает коллекции и кэш, затем init; полная переиндексация ожидаема.
-6. **Сброс только Qdrant** (volume/контейнер пересоздан, кэш остался): справка не восстанавливается (ingest всё пропускает по кэшу), сниппеты при следующем load-snippets снова появятся. Решение: `reinit --force` или очистить кэш (ingest_cache.db) и запустить ingest. Подробно: `docs/ingest-troubleshooting.md` §5.
-7. **Сниппеты/стандарты грузятся при каждом старте:** раньше watchdog и кэш load-snippets опирались на **mtime** (время изменения файла). После перезапуска контейнера или нового монтирования volume mtime мог меняться → «каталог изменился» → load-snippets запускался каждый раз. Теперь: подпись каталога в кэше — по **(path, size)**; watchdog сравнивает состояние по **path → size**. После рестарта те же файлы с теми же размерами не считаются изменёнными.
-8. **«Snippets: loading…» висит, хотя загрузка давно закончилась:** дашборд показывает «loading», пока существует файл-маркер `load_snippets.running` (создаётся при старте load-snippets, удаляется в `finally`). Если процесс упал (SIGKILL и т.п.) до снятия маркера, статус «loading» остаётся. Маркер считается **устаревшим** через 10 минут (по mtime файла); тогда дашборд перестаёт показывать «loading». Вручную можно удалить файл в каталоге кэша ingest (рядом с `ingest_cache.db`). Во время загрузки дашборд показывает прогресс в pts (например «Snippets: loading 120/500 pts», «Standards: loading 45/200 pts»).
+1. **Кэш ингеста** — только **Redis** (REDIS_URL или REDIS_HOST обязательны для ingest-worker и mcp). SQLite для кэша не используется. В Docker Redis поднимается вместе с mcp и ingest-worker (`make up` → qdrant + mcp + redis; `make ingest-up` → + ingest-worker).
+2. **INGEST_CACHE_FILE** — путь к каталогу маркеров (load_*.running, load_*.status.json); сами данные кэша в Redis.
+3. **Ошибка кэша** — при недоступности Redis (RuntimeError) проверьте REDIS_URL/REDIS_HOST и что контейнер redis запущен.
+4. **Распаковка по умолчанию** — ingest пишет в **data/unpacked** (DATA_UNPACKED_DIR) структуру **version/stem** (run_unpack_sync), затем run_ingest_from_unpacked индексирует из неё. Команда **ingest-from-unpacked** ожидает именно эту структуру; вывод **unpack-dir** (version/lang/name) с ней не совместим. INGEST_USE_TEMP=1 — временная папка с удалением после индексации.
+5. **Watchdog** — состояние (hbk, standards, snippets) хранится в Redis; при рестарте неизменённые .hbk пропускаются по кэшу. Следит за **STANDARDS_DIR** и **SNIPPETS_DIR**; при изменении нескольких каталогов запускает load-standards, load-snippets и/или ingest **параллельно**.
+6. **reinit --force** — стирает коллекции и кэш, затем init; полная переиндексация ожидаема.
+7. **Сброс только Qdrant** (volume пересоздан, Redis-кэш остался): справка не восстанавливается (ingest пропускает по кэшу). Решение: `reinit --force` или очистить ключи ingest/snippets в Redis и запустить ingest. Подробно: `docs/ingest-troubleshooting.md` §5.
+8. **Сниппеты/стандарты грузятся при каждом старте:** раньше watchdog и кэш load-snippets опирались на **mtime** (время изменения файла). После перезапуска контейнера или нового монтирования volume mtime мог меняться → «каталог изменился» → load-snippets запускался каждый раз. Теперь: подпись каталога в кэше — по **(path, size)**; watchdog сравнивает состояние по **path → size**. После рестарта те же файлы с теми же размерами не считаются изменёнными.
+9. **«Snippets: loading…» висит, хотя загрузка давно закончилась:** дашборд показывает «loading», пока существует файл-маркер `load_snippets.running` (создаётся при старте load-snippets, удаляется в `finally`). Если процесс упал (SIGKILL и т.п.) до снятия маркера, статус «loading» остаётся. Маркер считается **устаревшим** через 10 минут (по mtime файла); тогда дашборд перестаёт показывать «loading». Вручную можно удалить файл в каталоге маркеров (INGEST_CACHE_FILE указывает на каталог). Во время загрузки дашборд показывает прогресс в pts (например «Snippets: loading 120/500 pts», «Standards: loading 45/200 pts»).
 
 ### Ingest завис (0 done, прогресс не растёт)
 
@@ -103,7 +104,7 @@
 
 ### Цикл «Написание кода»
 
-`get_1c_code_answer` / `search_1c_help_keyword` → реализация → `document_diagnostics` → при ERROR/WARNING: исправить и повторить diagnostics до чистоты → `save_1c_snippet` (если переиспользуемо) → опционально unit-тест 1С (xUnitFor1C, Vanessa-Automation).
+`get_1c_code_answer` / `search_1c_help_keyword` → реализация → `document_diagnostics` → при ERROR/WARNING: исправить и повторить diagnostics до чистоты → `save_1c_snippet` (если переиспользуемо) → опционально unit-тест 1С (YaxUnit) или BDD/сценарий (Vanessa-Automation). См. `docs/1c-testing-guide.md`.
 
 ### Цикл «Рефакторинг»
 
@@ -113,4 +114,4 @@
 
 - **BSL LS:** `document_diagnostics` — статический анализ (не runtime). Вызывать после каждой правки; цикл до чистоты.
 - **Python (onec_help):** `PYTHONPATH=src python -m pytest tests -v --cov=src/onec_help --cov-report=term-missing --cov-fail-under=70`; `ruff check src tests && ruff format --check src tests`. При падении покрытия — добавить тесты.
-- **1C runtime:** xUnitFor1C (unit), Vanessa-Automation (BDD), CoverageBSL. При новой логике — предлагать/создавать тесты. Если есть `Tests/` или `features/` — считать тесты частью workflow.
+- **1C runtime:** YaxUnit (unit-тесты процедур/функций; искать в `Tests/`), Vanessa-Automation (BDD, xdd, UI; искать в `features/`, `BDD/`), CoverageBSL. При новой логике — предлагать unit (YaxUnit) или сценарий (Vanessa). Подробно: `docs/1c-testing-guide.md`.

@@ -96,11 +96,12 @@ def _get_help_path() -> Path:
     if _HELP_PATH is None:
         import os
 
+        from . import env_config
+
         p = (os.environ.get("HELP_PATH") or "").strip()
         if p:
             return Path(p)
-        # Default: data/ relative to cwd — out-of-box without env
-        return Path("data").resolve()
+        return Path(env_config.DATA_DIR_DEFAULT).resolve()
     return _HELP_PATH
 
 
@@ -797,7 +798,9 @@ def _build_mcp_app(help_path: Path) -> Any:
             f"Topics indexed: **{count}**",
             f"Embeddings: **{count}**",
         ]
-        storage_path = os.environ.get("QDRANT_STORAGE_PATH")
+        from . import env_config
+
+        storage_path = env_config.get_qdrant_storage_path()
         if storage_path and os.path.isdir(storage_path):
             try:
                 from ._utils import dir_size_on_disk

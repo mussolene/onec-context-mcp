@@ -162,7 +162,9 @@ def load_vocab(
 
 def bm25_vocab_path(collection: str = "onec_help") -> Path:
     """Default path for BM25 vocab file."""
-    base = Path(os.environ.get("DATA_DIR", "data"))
+    from . import env_config
+
+    base = Path(env_config.get_data_dir())
     if not base.is_absolute():
         base = Path.cwd() / base
     return base.resolve() / "bm25_vocab" / f"{collection}.json"

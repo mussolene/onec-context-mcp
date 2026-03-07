@@ -35,6 +35,7 @@ except ImportError:
     SparseVectorParams = None  # type: ignore
     Modifier = None  # type: ignore
 
+from . import env_config
 from ._utils import path_inside_base, safe_error_message
 from .toc_parser import (
     load_toc_json,
@@ -116,8 +117,8 @@ def get_collection_vector_size(
     Used as fallback when embedding API is down to produce correct-dim placeholder vectors."""
     if QdrantClient is None:
         return None
-    host = qdrant_host or os.environ.get("QDRANT_HOST", "localhost")
-    port = qdrant_port or int(os.environ.get("QDRANT_PORT", "6333"))
+    host = qdrant_host or env_config.get_qdrant_host()
+    port = qdrant_port or env_config.get_qdrant_port()
     try:
         client = QdrantClient(host=host, port=port, check_compatibility=False)
         if not client.collection_exists(collection):
@@ -375,6 +376,11 @@ def build_index(
     total = 0
     batch_num = 0
     iter_size = len(all_items) if (use_bm25 and all_items) else len(paths_to_index)
+    if progress_callback and callable(progress_callback):
+        try:
+            progress_callback(0, "indexing", total_estimated)
+        except (TypeError, Exception):
+            pass
     for batch_start in range(0, iter_size, batch_size):
         batch_num += 1
         batch_end = min(batch_start + batch_size, iter_size)
@@ -400,21 +406,19 @@ def build_index(
                 items.append((rel_str, text, title, point_index, outgoing_links))
         if not items:
             continue
-        if progress_callback and callable(progress_callback):
-            try:
-                progress_callback(total, "embedding", total_estimated)
-            except TypeError:
+        def _embed_progress(done_in_batch: int, total_in_batch: int) -> None:
+            if progress_callback and callable(progress_callback):
                 try:
-                    progress_callback(total, "embedding")
-                except Exception as e:
-                    logging.getLogger(__name__).debug("progress_callback failed: %s", e)
-            except Exception as e:
-                logging.getLogger(__name__).debug("progress_callback failed: %s", e)
+                    progress_callback(total + done_in_batch, "embedding", total_estimated)
+                except (TypeError, Exception):
+                    pass
+
         texts_for_embedding = [it[1][:max_input_chars] for it in items]
         vectors = embedding.get_embedding_batch(
             texts_for_embedding,
             batch_size=embedding_batch_size,
             workers=embedding_workers,
+            progress_callback=_embed_progress,
         )
         if len(vectors) != len(items):
             # Retry once with same batch (transient API/parsing issue); same batch is sent twice to API
@@ -558,8 +562,8 @@ def get_index_status(
         sample_size = _index_status_sample_size()
     if QdrantClient is None:
         return {"error": "qdrant-client not available", "exists": False, "points_count": 0}
-    host = qdrant_host or os.environ.get("QDRANT_HOST", "localhost")
-    port = qdrant_port or int(os.environ.get("QDRANT_PORT", "6333"))
+    host = qdrant_host or env_config.get_qdrant_host()
+    port = qdrant_port or env_config.get_qdrant_port()
     try:
         client = QdrantClient(host=host, port=port, check_compatibility=False)
     except Exception as e:
@@ -624,8 +628,8 @@ def get_all_collections_status(
     Always reads current state from Qdrant API (no cache)."""
     if QdrantClient is None:
         return []
-    host = qdrant_host or os.environ.get("QDRANT_HOST", "localhost")
-    port = qdrant_port or int(os.environ.get("QDRANT_PORT", "6333"))
+    host = qdrant_host or env_config.get_qdrant_host()
+    port = qdrant_port or env_config.get_qdrant_port()
     try:
         client = QdrantClient(host=host, port=port, check_compatibility=False)
     except Exception as e:
@@ -713,8 +717,8 @@ def add_bm25_to_collection(
 
     if QdrantClient is None or SparseVector is None or SparseVectorParams is None:
         raise RuntimeError("qdrant-client required for add-bm25")
-    host = qdrant_host or os.environ.get("QDRANT_HOST", "localhost")
-    port = qdrant_port or int(os.environ.get("QDRANT_PORT", "6333"))
+    host = qdrant_host or env_config.get_qdrant_host()
+    port = qdrant_port or env_config.get_qdrant_port()
     client = QdrantClient(host=host, port=port, check_compatibility=False)
     if not client.collection_exists(collection):
         raise RuntimeError(f"Collection {collection} does not exist. Run ingest first.")
@@ -851,8 +855,8 @@ def search_index(
     version, language, entity_type: optional payload filters."""
     from . import embedding
 
-    host = qdrant_host or os.environ.get("QDRANT_HOST", "localhost")
-    port = qdrant_port or int(os.environ.get("QDRANT_PORT", "6333"))
+    host = qdrant_host or env_config.get_qdrant_host()
+    port = qdrant_port or env_config.get_qdrant_port()
     if QdrantClient is None:
         return []
     client = QdrantClient(host=host, port=port, check_compatibility=False)
@@ -989,8 +993,8 @@ def get_topic_from_index(
     """Return full topic text from Qdrant payload by path (when file is not on disk)."""
     if QdrantClient is None or Filter is None or FieldCondition is None or MatchValue is None:
         return ""
-    host = qdrant_host or os.environ.get("QDRANT_HOST", "localhost")
-    port = qdrant_port or int(os.environ.get("QDRANT_PORT", "6333"))
+    host = qdrant_host or env_config.get_qdrant_host()
+    port = qdrant_port or env_config.get_qdrant_port()
     topic_path = topic_path.lstrip("/")
     path_variants = [topic_path]
     if not topic_path.endswith(".md") and not topic_path.endswith(".html"):
@@ -1057,8 +1061,8 @@ def search_index_keyword(
     """Search by keyword. Uses BM25 sparse if available, else payload.keywords/substring."""
     if QdrantClient is None:
         return []
-    host = qdrant_host or os.environ.get("QDRANT_HOST", "localhost")
-    port = qdrant_port or int(os.environ.get("QDRANT_PORT", "6333"))
+    host = qdrant_host or env_config.get_qdrant_host()
+    port = qdrant_port or env_config.get_qdrant_port()
     client = QdrantClient(host=host, port=port, check_compatibility=False)
     q_lower = query.strip().lower()
     if not q_lower:
@@ -1284,8 +1288,8 @@ def list_index_titles(
     Deduplicates by path (one entry per path when multiple versions exist)."""
     if QdrantClient is None:
         return []
-    host = qdrant_host or os.environ.get("QDRANT_HOST", "localhost")
-    port = qdrant_port or int(os.environ.get("QDRANT_PORT", "6333"))
+    host = qdrant_host or env_config.get_qdrant_host()
+    port = qdrant_port or env_config.get_qdrant_port()
     client = QdrantClient(host=host, port=port, check_compatibility=False)
     out: list[dict[str, Any]] = []
     seen_paths: set[str] = set()
@@ -1330,8 +1334,8 @@ def list_index_nav_items(
     """List (path, title, breadcrumb) from index for building nav tree. Deduplicates by path."""
     if QdrantClient is None:
         return []
-    host = qdrant_host or os.environ.get("QDRANT_HOST", "localhost")
-    port = qdrant_port or int(os.environ.get("QDRANT_PORT", "6333"))
+    host = qdrant_host or env_config.get_qdrant_host()
+    port = qdrant_port or env_config.get_qdrant_port()
     client = QdrantClient(host=host, port=port, check_compatibility=False)
     if not client.collection_exists(collection):
         return []
@@ -1472,8 +1476,8 @@ def get_topic_metadata(
     }
     if QdrantClient is None or Filter is None or FieldCondition is None or MatchValue is None:
         return out
-    host = qdrant_host or os.environ.get("QDRANT_HOST", "localhost")
-    port = qdrant_port or int(os.environ.get("QDRANT_PORT", "6333"))
+    host = qdrant_host or env_config.get_qdrant_host()
+    port = qdrant_port or env_config.get_qdrant_port()
     topic_path = topic_path.lstrip("/")
     path_variants = [topic_path]
     if not topic_path.endswith(".md") and not topic_path.endswith(".html"):
@@ -1538,8 +1542,8 @@ def get_1c_help_related(
     Aggregates links from all points with this path (multiple versions/chunks)."""
     if QdrantClient is None or Filter is None or FieldCondition is None or MatchValue is None:
         return []
-    host = qdrant_host or os.environ.get("QDRANT_HOST", "localhost")
-    port = qdrant_port or int(os.environ.get("QDRANT_PORT", "6333"))
+    host = qdrant_host or env_config.get_qdrant_host()
+    port = qdrant_port or env_config.get_qdrant_port()
     topic_path = topic_path.lstrip("/")
     path_variants = [topic_path]
     if not topic_path.endswith(".md") and not topic_path.endswith(".html"):

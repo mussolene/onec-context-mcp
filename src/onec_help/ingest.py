@@ -3,7 +3,7 @@
 Unpacks to a temp dir in the container, builds docs, indexes with version/language, then cleans up.
 Supports language filter (e.g. only *_ru.hbk) and concurrent processing.
 Progress is printed to stderr so long runs are not killed by "no output" timeouts.
-Writes ingest status to SQLite cache DB (ingest_current, ingest_runs) for dashboard.
+Cache and status: Redis (REDIS_URL or REDIS_HOST required). Runs with ingest-worker and mcp.
 """
 
 from __future__ import annotations
@@ -14,7 +14,6 @@ import json
 import os
 import re
 import shutil
-import sqlite3
 import sys
 import threading
 import time
@@ -24,24 +23,11 @@ from pathlib import Path
 from typing import Any
 
 from ._utils import mask_path_for_log, safe_error_message
+from . import redis_cache
+from . import env_config
 
-# How often to write status to SQLite while ingest runs (seconds); env INDEX_STATUS_INTERVAL_SEC
+# How often to write status to Redis while ingest runs (seconds); env INDEX_STATUS_INTERVAL_SEC
 STATUS_UPDATE_INTERVAL_SEC = 2.0
-# Path for ingest cache (SQLite). data/ingest_cache — общий каталог для ingest и dashboard.
-DEFAULT_INGEST_CACHE_FILE = str(Path("data/ingest_cache/ingest_cache.db").resolve())
-_CACHE_TABLE = "ingest_cache"
-_STATUS_TABLE_RUNS = "ingest_runs"
-_STATUS_TABLE_CURRENT = "ingest_current"
-_STATUS_TABLE_FAILED = "ingest_failed"
-_INGEST_RUNS_LIMIT = 20
-
-
-def _sqlite_timeout() -> float:
-    """Seconds to wait for SQLite lock (env SQLITE_BUSY_TIMEOUT). Helps on Docker Mac bind mounts."""
-    try:
-        return max(5.0, float(os.environ.get("SQLITE_BUSY_TIMEOUT", "15")))
-    except (TypeError, ValueError):
-        return 15.0
 
 
 def _default_workers() -> int:
@@ -73,7 +59,8 @@ def _ingest_cache_key(version: str, lang: str, path: Path) -> str:
 
 
 def _ingest_cache_path() -> str:
-    path = os.environ.get("INGEST_CACHE_FILE", DEFAULT_INGEST_CACHE_FILE)
+    """Return path whose parent is used for markers (load_*.running, load_*.status.json). Redis holds cache."""
+    path = env_config.get_ingest_cache_file()
     parent = os.path.dirname(path)
     if parent:
         os.makedirs(parent, exist_ok=True)
@@ -81,192 +68,49 @@ def _ingest_cache_path() -> str:
 
 
 def clear_ingest_cache() -> bool:
-    """Delete ingest cache DB file (cache + status). Returns True if removed or absent."""
-    path = _ingest_cache_path()
+    """Clear ingest and snippets cache in Redis. Returns True on success."""
     try:
-        if os.path.exists(path):
-            os.remove(path)
-        return True
-    except OSError:
+        return redis_cache.clear_all()
+    except Exception:
         return False
 
 
-def _log_cache_error(op: str, path: str, err: Exception) -> None:
-    """Log cache I/O error once per run to avoid spam."""
-    if not hasattr(_log_cache_error, "_warned"):
-        _log_cache_error._warned = set()  # type: ignore[attr-defined]
-    key = (op, path)
-    if key not in _log_cache_error._warned:  # type: ignore[attr-defined]
-        _log_cache_error._warned.add(key)  # type: ignore[attr-defined]
-        env_hint = ""
-        if "INGEST_CACHE_FILE" not in os.environ:
-            env_hint = " Set INGEST_CACHE_FILE to a persistent path (e.g. in Docker: /app/var/ingest_cache/ingest_cache.db)."
-        _log(
-            f"[ingest] WARN: ingest cache {op} failed for {mask_path_for_log(path)}: {safe_error_message(err)}. "
-            f"Re-indexing will not be skipped.{env_hint} Check path exists, permissions, and disk space."
-        )
-
-
 def read_ingest_cache_entries(limit: int = 100) -> list[dict[str, Any]]:
-    """Return list of cached indexed files from ingest_cache for display.
-    Each item: {path, version, language, points, status: 'cached'}."""
-    entries: list[dict[str, Any]] = []
-    path = _ingest_cache_path()
-    try:
-        conn = sqlite3.connect(path, timeout=_sqlite_timeout())
-        conn.execute(
-            f"CREATE TABLE IF NOT EXISTS {_CACHE_TABLE} "
-            "(key TEXT PRIMARY KEY, hash TEXT NOT NULL, indexed INTEGER NOT NULL, points INTEGER)"
-        )
-        for row in conn.execute(
-            f"SELECT key, hash, indexed, points FROM {_CACHE_TABLE} WHERE indexed = 1 ORDER BY key LIMIT ?",
-            (limit,),
-        ):
-            key = row[0]
-            parts = key.split("/", 2)
-            version = parts[0] if len(parts) > 0 else ""
-            language = parts[1] if len(parts) > 1 else ""
-            path_name = parts[2] if len(parts) > 2 else key
-            entries.append(
-                {
-                    "path": path_name,
-                    "version": version,
-                    "language": language,
-                    "points": row[3] or 0,
-                    "status": "cached",
-                }
-            )
-        conn.close()
-    except (OSError, sqlite3.Error):
-        pass
-    return entries
+    """Return list of cached indexed files for display. Each item: {path, version, language, points, status}."""
+    return redis_cache.ingest_cache_entries(limit=limit)
 
 
 def _load_ingest_cache() -> dict[str, dict[str, Any]]:
-    """Load cache from SQLite. Returns dict key -> {hash, indexed, points}."""
-    path = _ingest_cache_path()
-    entries: dict[str, dict[str, Any]] = {}
+    """Load cache from Redis. Returns dict key -> {hash, indexed, points}."""
     try:
-        conn = sqlite3.connect(path, timeout=_sqlite_timeout())
-        conn.execute(
-            f"CREATE TABLE IF NOT EXISTS {_CACHE_TABLE} "
-            "(key TEXT PRIMARY KEY, hash TEXT NOT NULL, indexed INTEGER NOT NULL, points INTEGER)"
-        )
-        for row in conn.execute(f"SELECT key, hash, indexed, points FROM {_CACHE_TABLE}"):
-            entries[row[0]] = {
-                "hash": row[1],
-                "indexed": bool(row[2]),
-                "points": row[3],
-            }
-        conn.close()
-    except (OSError, sqlite3.Error) as e:
-        _log_cache_error("read", path, e)
-    return entries
+        return redis_cache.ingest_cache_get_all()
+    except Exception:
+        return {}
 
 
 def _load_ingest_cache_indexed_set() -> set[tuple[str, str, str]]:
-    """Load set of (version, language, hash) for all indexed entries. Used by run_ingest_from_unpacked to skip already indexed help."""
-    out: set[tuple[str, str, str]] = set()
-    path = _ingest_cache_path()
-    try:
-        conn = sqlite3.connect(path, timeout=_sqlite_timeout())
-        conn.execute(
-            f"CREATE TABLE IF NOT EXISTS {_CACHE_TABLE} "
-            "(key TEXT PRIMARY KEY, hash TEXT NOT NULL, indexed INTEGER NOT NULL, points INTEGER)"
-        )
-        for row in conn.execute(
-            f"SELECT key, hash FROM {_CACHE_TABLE} WHERE indexed = 1 AND hash != ''"
-        ):
-            key, file_hash = row[0], row[1]
-            parts = key.split("|", 1)[0].split("/")
-            if len(parts) >= 2:
-                out.add((parts[0], parts[1], file_hash))
-        conn.close()
-    except (OSError, sqlite3.Error):
-        pass
-    return out
+    """Set of (version, language, hash) for indexed entries."""
+    return redis_cache.ingest_cache_get_indexed_set()
 
 
 def _update_ingest_cache_entry(key: str, file_hash: str, points: int) -> None:
-    """Persist one cache entry (SQLite INSERT OR REPLACE). No full rewrite."""
-    path = _ingest_cache_path()
+    """Persist one cache entry to Redis."""
     try:
-        conn = sqlite3.connect(path, timeout=_sqlite_timeout())
-        conn.execute(
-            f"CREATE TABLE IF NOT EXISTS {_CACHE_TABLE} "
-            "(key TEXT PRIMARY KEY, hash TEXT NOT NULL, indexed INTEGER NOT NULL, points INTEGER)"
-        )
-        conn.execute(
-            f"INSERT OR REPLACE INTO {_CACHE_TABLE} (key, hash, indexed, points) VALUES (?, ?, 1, ?)",
-            (key, file_hash, points),
-        )
-        conn.commit()
-        conn.close()
-    except (OSError, sqlite3.Error) as e:
-        _log_cache_error("write", path, e)
+        redis_cache.ingest_cache_set_entry(key, file_hash, points)
+    except Exception:
+        pass
 
 
 def _log_status_error(op: str, err: Exception) -> None:
-    """Log ingest status SQLite error once per run to avoid spam."""
+    """Log ingest status error once per run."""
     if not hasattr(_log_status_error, "_warned"):
         _log_status_error._warned = set()  # type: ignore[attr-defined]
-    key = op
-    if key not in _log_status_error._warned:  # type: ignore[attr-defined]
-        _log_status_error._warned.add(key)  # type: ignore[attr-defined]
+    if op not in _log_status_error._warned:  # type: ignore[attr-defined]
+        _log_status_error._warned.add(op)  # type: ignore[attr-defined]
         _log(
             f"[ingest] WARN: ingest status {op} failed: {safe_error_message(err)}. "
             "dashboard may show incomplete data."
         )
-
-
-def _init_ingest_status_tables(conn: sqlite3.Connection) -> None:
-    """Create ingest status tables if not exist. WAL optional (INGEST_SQLITE_WAL=0 avoids SIGBUS on Docker Mac)."""
-    use_wal = (os.environ.get("INGEST_SQLITE_WAL") or "1").strip().lower() not in (
-        "0",
-        "false",
-        "no",
-        "off",
-    )
-    conn.execute("PRAGMA journal_mode=WAL" if use_wal else "PRAGMA journal_mode=DELETE")
-    conn.execute(
-        f"""CREATE TABLE IF NOT EXISTS {_STATUS_TABLE_CURRENT} (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
-            started_at REAL NOT NULL,
-            total_tasks INTEGER NOT NULL,
-            done_tasks INTEGER NOT NULL,
-            total_points INTEGER NOT NULL,
-            status TEXT NOT NULL,
-            payload_json TEXT NOT NULL,
-            updated_at REAL NOT NULL
-        )"""
-    )
-    conn.execute(
-        f"""CREATE TABLE IF NOT EXISTS {_STATUS_TABLE_RUNS} (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            started_at REAL NOT NULL,
-            finished_at REAL NOT NULL,
-            status TEXT NOT NULL,
-            total_tasks INTEGER NOT NULL,
-            done_tasks INTEGER NOT NULL,
-            total_points INTEGER NOT NULL,
-            failed_count INTEGER NOT NULL,
-            embedding_backend TEXT,
-            total_elapsed_sec REAL
-        )"""
-    )
-    conn.execute(
-        f"""CREATE TABLE IF NOT EXISTS {_STATUS_TABLE_FAILED} (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            run_id INTEGER NOT NULL,
-            version TEXT NOT NULL,
-            language TEXT NOT NULL,
-            path TEXT NOT NULL,
-            error TEXT NOT NULL,
-            error_category TEXT,
-            FOREIGN KEY (run_id) REFERENCES {_STATUS_TABLE_RUNS}(id)
-        )"""
-    )
-    conn.commit()
 
 
 def _error_category_and_stored_message(err: str) -> tuple[str, str]:
@@ -289,52 +133,31 @@ def _error_category_and_stored_message(err: str) -> tuple[str, str]:
 
 
 def _create_ingest_run(started_at: float, embedding_backend: str, total_tasks: int) -> int | None:
-    """Create an in_progress row in ingest_runs; return run_id. Errors -> None."""
-    path = _ingest_cache_path()
+    """Create run in Redis; return run_id. Errors -> None."""
     try:
-        conn = sqlite3.connect(path, timeout=_sqlite_timeout())
-        _init_ingest_status_tables(conn)
-        conn.execute(
-            f"""INSERT INTO {_STATUS_TABLE_RUNS}
-                (started_at, finished_at, status, total_tasks, done_tasks, total_points,
-                 failed_count, embedding_backend, total_elapsed_sec)
-                VALUES (?, ?, 'in_progress', ?, 0, 0, 0, ?, 0)""",
-            (started_at, started_at, total_tasks, embedding_backend or "none"),
-        )
-        run_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-        conn.commit()
-        conn.close()
+        run_id = redis_cache.ingest_run_create(started_at, embedding_backend or "none", total_tasks)
         return run_id
-    except (OSError, sqlite3.Error) as e:
+    except Exception as e:
         _log_status_error("create run", e)
         return None
 
 
 def _append_failed_to_cache(run_id: int, task: dict[str, Any]) -> None:
-    """Append one failed task to ingest_failed immediately so errors survive process kill."""
-    path = _ingest_cache_path()
-    err = (task.get("error") or "")[:500]
-    cat, err_stored = _error_category_and_stored_message(err)
+    """Append one failed task to Redis (per-run and accumulated log for dashboard)."""
+    _, err_stored = _error_category_and_stored_message((task.get("error") or "")[:500])
     path_for_db = task.get("path_full") or task.get("path", "")
+    version = task.get("version", "")
+    language = task.get("language", "")
     try:
-        conn = sqlite3.connect(path, timeout=_sqlite_timeout())
-        _init_ingest_status_tables(conn)
-        conn.execute(
-            f"""INSERT INTO {_STATUS_TABLE_FAILED}
-                (run_id, version, language, path, error, error_category)
-                VALUES (?, ?, ?, ?, ?, ?)""",
-            (
-                run_id,
-                task.get("version", ""),
-                task.get("language", ""),
-                path_for_db,
-                err_stored[:500],
-                cat,
-            ),
+        redis_cache.ingest_run_append_failed(
+            run_id,
+            version,
+            language,
+            path_for_db,
+            err_stored[:500],
         )
-        conn.commit()
-        conn.close()
-    except (OSError, sqlite3.Error) as e:
+        redis_cache.ingest_errors_append(version, language, path_for_db, err_stored[:500])
+    except Exception as e:
         _log_status_error("append failed", e)
 
 
@@ -357,8 +180,7 @@ def _persist_ingest_status_sqlite(
     embedding_workers: int | None = None,
     run_id: int | None = None,
 ) -> None:
-    """Persist ingest status to SQLite (ingest_current). On completion, update ingest_runs if run_id set else insert; failed_tasks already in DB when run_id used."""
-    path = _ingest_cache_path()
+    """Persist ingest status to Redis (ingest:current). On completion update run and trim old runs."""
     elapsed = time.time() - started_at
     payload: dict[str, Any] = {
         "started_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(started_at)),
@@ -406,109 +228,60 @@ def _persist_ingest_status_sqlite(
         payload["finished_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(finished_at))
         payload["total_elapsed_sec"] = round(finished_at - started_at, 1)
 
+    payload_with_ts = {**payload, "started_at_ts": started_at}
     try:
-        conn = sqlite3.connect(path, timeout=_sqlite_timeout())
-        _init_ingest_status_tables(conn)
-        updated_at = time.time()
-        payload_json = json.dumps(payload, ensure_ascii=False)
-
-        if status == "completed":
-            # Update existing run (errors already in ingest_failed) or insert new run + failed rows
-            if run_id is not None:
-                conn.execute(
-                    f"""UPDATE {_STATUS_TABLE_RUNS} SET
-                        finished_at = ?, status = ?, done_tasks = ?, total_points = ?,
-                        failed_count = ?, total_elapsed_sec = ?
-                        WHERE id = ?""",
-                    (
-                        finished_at,
-                        status,
-                        done_tasks,
-                        total_points,
-                        failed_count,
-                        finished_at - started_at if finished_at else None,
-                        run_id,
-                    ),
-                )
-            else:
-                conn.execute(
-                    f"""INSERT INTO {_STATUS_TABLE_RUNS}
-                        (started_at, finished_at, status, total_tasks, done_tasks, total_points,
-                         failed_count, embedding_backend, total_elapsed_sec)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        started_at,
-                        finished_at,
-                        status,
-                        total_tasks,
-                        done_tasks,
-                        total_points,
-                        failed_count,
-                        embedding_backend or "none",
-                        finished_at - started_at if finished_at else None,
-                    ),
-                )
-                rid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-                if rid and failed_tasks:
-                    for ft in failed_tasks:
-                        err = ft.get("error", "") or ""
-                        cat, err_stored = _error_category_and_stored_message(err)
-                        path_for_db = ft.get("path_full") or ft.get("path", "")
-                        conn.execute(
-                            f"""INSERT INTO {_STATUS_TABLE_FAILED}
-                                (run_id, version, language, path, error, error_category)
-                                VALUES (?, ?, ?, ?, ?, ?)""",
-                            (
-                                rid,
-                                ft.get("version", ""),
-                                ft.get("language", ""),
-                                path_for_db,
-                                err_stored[:500],
-                                cat,
-                            ),
-                        )
-            # Trim old runs
-            cursor = conn.execute(
-                f"SELECT id FROM {_STATUS_TABLE_RUNS} ORDER BY id DESC LIMIT 1 OFFSET {_INGEST_RUNS_LIMIT}"
-            )
-            row = cursor.fetchone()
-            if row:
-                conn.execute(f"DELETE FROM {_STATUS_TABLE_RUNS} WHERE id <= ?", (row[0],))
-                conn.execute(f"DELETE FROM {_STATUS_TABLE_FAILED} WHERE run_id <= ?", (row[0],))
-            conn.execute(f"DELETE FROM {_STATUS_TABLE_CURRENT} WHERE id = 1")
-        else:
-            conn.execute(
-                f"""INSERT OR REPLACE INTO {_STATUS_TABLE_CURRENT}
-                    (id, started_at, total_tasks, done_tasks, total_points, status, payload_json, updated_at)
-                    VALUES (1, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    started_at,
-                    total_tasks,
-                    done_tasks,
-                    total_points,
-                    status,
-                    payload_json,
-                    updated_at,
-                ),
-            )
-        conn.commit()
-        conn.close()
-    except (OSError, sqlite3.Error) as e:
+        redis_cache.ingest_current_set(payload_with_ts)
+    except Exception as e:
         _log_status_error("write", e)
+    if status == "completed" and run_id is not None and finished_at is not None:
+        try:
+            redis_cache.ingest_run_update(
+                run_id,
+                finished_at,
+                status,
+                done_tasks,
+                total_points,
+                failed_count,
+                finished_at - started_at,
+            )
+            redis_cache.ingest_trim_old_runs()
+        except Exception as e:
+            _log_status_error("write run", e)
 
 
 def _vacuum_cache_db() -> None:
-    """VACUUM the ingest cache SQLite DB to reclaim space. Skip if INGEST_VACUUM_CACHE=0 (avoids SIGBUS on Docker Mac)."""
-    v = (os.environ.get("INGEST_VACUUM_CACHE") or "1").strip().lower()
-    if v in ("0", "false", "no", "off"):
-        return
-    path = _ingest_cache_path()
-    try:
-        conn = sqlite3.connect(path, timeout=_sqlite_timeout())
-        conn.execute("VACUUM")
-        conn.close()
-    except (OSError, sqlite3.Error) as e:
-        _log(f"[ingest] WARN: VACUUM failed for {mask_path_for_log(path)}: {safe_error_message(e)}")
+    """No-op: cache is in Redis (no VACUUM). Kept for API compatibility."""
+
+
+def _flush_ingest_status(state_lock: threading.Lock, state: dict[str, Any]) -> None:
+    """Write current state to Redis immediately (e.g. after each embedding batch). No-op if completed."""
+    with state_lock:
+        if state.get("status") == "completed":
+            return
+        done_tasks = state["done_tasks"]
+        total_points = state["total_points"]
+        folders = copy.deepcopy(state["folders"])
+        current = list(state["current_work"].values())
+        failed_tasks = list(state.get("failed", []))
+        completed_files = list(state.get("completed_files", []))
+        current_task_points = state.get("current_task_points", 0) or 0
+        current_task_estimated = state.get("current_task_estimated_total")
+    _write_ingest_status(
+        started_at=state["started_at"],
+        embedding_backend=state["embedding_backend"],
+        total_tasks=state["total_tasks"],
+        done_tasks=done_tasks,
+        total_points=total_points,
+        folders=folders,
+        status="in_progress",
+        current=current,
+        failed_tasks=failed_tasks,
+        current_task_points=current_task_points if current_task_points > 0 else None,
+        current_task_estimated_total=current_task_estimated,
+        completed_files=completed_files,
+        max_workers=state.get("max_workers"),
+        embedding_workers=state.get("embedding_workers"),
+    )
 
 
 def _status_writer_loop(
@@ -517,7 +290,7 @@ def _status_writer_loop(
     state: dict[str, Any],
     interval_sec: float,
 ) -> None:
-    """Background thread: write status to SQLite every interval_sec until stop_event is set."""
+    """Background thread: write status to Redis every interval_sec until stop_event is set."""
     while not stop_event.wait(timeout=interval_sec):
         with state_lock:
             if state.get("status") == "completed":
@@ -571,7 +344,7 @@ def _write_ingest_status(
     embedding_workers: int | None = None,
     run_id: int | None = None,
 ) -> None:
-    """Write ingest status to SQLite cache DB for dashboard."""
+    """Write ingest status to Redis for dashboard."""
     _persist_ingest_status_sqlite(
         started_at=started_at,
         embedding_backend=embedding_backend,
@@ -593,81 +366,34 @@ def _write_ingest_status(
 
 
 def read_ingest_status() -> dict[str, Any] | None:
-    """Read ingest status from SQLite cache DB (ingest_current). Returns None if no active run."""
-    db_path = _ingest_cache_path()
+    """Read ingest status from Redis."""
     try:
-        conn = sqlite3.connect(db_path, timeout=_sqlite_timeout())
-        _init_ingest_status_tables(conn)
-        row = conn.execute(
-            f"SELECT payload_json, started_at FROM {_STATUS_TABLE_CURRENT} WHERE id = 1"
-        ).fetchone()
-        conn.close()
-        if row:
-            data = json.loads(row[0])
-            if data.get("status") == "in_progress" and row[1] is not None:
-                data["elapsed_sec"] = round(time.time() - row[1], 1)
-            return data
-    except (OSError, sqlite3.Error, json.JSONDecodeError):
-        pass
-    return None
+        return redis_cache.ingest_current_get()
+    except Exception:
+        return None
 
 
 def read_last_ingest_run() -> dict[str, Any] | None:
-    """Read last completed ingest run from SQLite ingest_runs. Returns None if none."""
-    db_path = _ingest_cache_path()
+    """Read last ingest run from Redis. Returns None if none."""
     try:
-        conn = sqlite3.connect(db_path, timeout=_sqlite_timeout())
-        _init_ingest_status_tables(conn)
-        row = conn.execute(
-            f"""SELECT started_at, finished_at, status, total_tasks, done_tasks, total_points,
-                       failed_count, embedding_backend, total_elapsed_sec
-                FROM {_STATUS_TABLE_RUNS} ORDER BY id DESC LIMIT 1"""
-        ).fetchone()
-        conn.close()
-        if row:
-            return {
-                "started_at": row[0],
-                "finished_at": row[1],
-                "status": row[2],
-                "total_tasks": row[3],
-                "done_tasks": row[4],
-                "total_points": row[5],
-                "failed_count": row[6],
-                "embedding_backend": row[7],
-                "total_elapsed_sec": row[8],
-                "finished_at_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(row[1]))
-                if row[1]
-                else None,
-            }
-    except (OSError, sqlite3.Error):
-        pass
-    return None
+        return redis_cache.ingest_last_run()
+    except Exception:
+        return None
 
 
 def read_last_ingest_failed(limit: int = 20) -> list[dict[str, str]]:
-    """Read failed tasks from ingest_failed table for the latest run. For dashboard."""
-    db_path = _ingest_cache_path()
+    """Read failed tasks for the latest run from Redis."""
     try:
-        conn = sqlite3.connect(db_path, timeout=_sqlite_timeout())
-        _init_ingest_status_tables(conn)
-        run_row = conn.execute(
-            f"SELECT id FROM {_STATUS_TABLE_RUNS} ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        if not run_row:
-            conn.close()
-            return []
-        run_id = run_row[0]
-        rows = conn.execute(
-            f"""SELECT version, language, path, error FROM {_STATUS_TABLE_FAILED}
-                WHERE run_id = ? ORDER BY id LIMIT ?""",
-            (run_id, limit),
-        ).fetchall()
-        conn.close()
-        return [
-            {"version": r[0], "language": r[1], "path": r[2], "error": (r[3] or "")[:500]}
-            for r in rows
-        ]
-    except (OSError, sqlite3.Error):
+        return redis_cache.ingest_last_failed(limit=limit)
+    except Exception:
+        return []
+
+
+def read_ingest_errors_log(limit: int = 50) -> list[dict[str, str]]:
+    """Read accumulated errors from Redis (ingest:errors). Always available for dashboard. Same shape as read_last_ingest_failed."""
+    try:
+        return redis_cache.ingest_errors_list(limit=limit)
+    except Exception:
         return []
 
 
@@ -874,6 +600,7 @@ def _unpack_build_and_index(
                         current_work[ident]["estimated_total"] = total_estimated
                     if phase:
                         current_work[ident]["stage"] = phase
+            _flush_ingest_status(state_lock, state)
 
         n = build_index_fn(
             docs_dir=md_dir,
@@ -1436,7 +1163,7 @@ def run_unpack_sync(
     """
     from .unpack import unpack_hbk
 
-    out_raw = output_dir or os.environ.get("DATA_UNPACKED_DIR", "data/unpacked")
+    out_raw = output_dir or env_config.get_data_unpacked_dir()
     output_base = Path(out_raw).resolve()
     pairs = [(Path(p).resolve(), v) for p, v in source_dirs_with_versions]
     tasks = collect_hbk_tasks(pairs, languages)
@@ -1604,6 +1331,7 @@ def _index_one_unpacked_task(
                         current_work[ident]["estimated_total"] = total_estimated
                     if phase:
                         current_work[ident]["stage"] = phase
+            _flush_ingest_status(state_lock, state)
 
         n = build_index_fn(
             docs_dir=docs_dir,

@@ -18,9 +18,11 @@
 
 ### 2.1. Жив ли процесс ingest
 
+Если дашборд показывает «всё стоит» (цифры не меняются, Standards/Snippets «loading» без прогресса) — в первую очередь проверьте, запущен ли контейнер **ingest-worker**. Без него статус в кэше и маркеры load_standards/load_snippets не обновляются.
+
 - **Docker:**  
-  `docker compose ps`  
-  `docker compose logs ingest-worker --tail 200`  
+  `docker compose -f docker-compose.base.yml -f docker-compose.yml ps`  
+  `docker compose -f docker-compose.base.yml -f docker-compose.yml logs ingest-worker --tail 200`  
   (или сервис, в котором запущен ingest/watchdog.)
 
 - **Локальный запуск:**  
@@ -34,7 +36,7 @@
 
 - **ingest:** `/app/var/log/ingest.log`
 - **watchdog:** `/app/var/log/watchdog.log`
-- **При запуске ingest из watchdog** полный stderr/stdout каждого запуска дописывается в каталог кэша: `ingest_stderr.log` (в том же каталоге, что и `ingest_cache.db`). Файл ротируется по размеру (при превышении 2 MiB создаётся `ingest_stderr.log.old`). В контейнере путь: `/app/var/ingest_cache/ingest_stderr.log` (volume `./data/ingest_cache`).
+- **При запуске ingest из watchdog** полный stderr/stdout каждого запуска дописывается в каталог маркеров: `ingest_stderr.log` (каталог из INGEST_CACHE_FILE). Файл ротируется по размеру (при превышении 2 MiB создаётся `ingest_stderr.log.old`). В контейнере путь: `/app/var/ingest_cache/ingest_stderr.log` (volume `./data/ingest_cache`).
 
 При любом падении в первую очередь смотрите лог ingest:
 ```bash
@@ -55,10 +57,16 @@ docker exec <ingest-worker-container> tail -500 /app/var/ingest_cache/ingest_std
 - **slot not available within 300s** — семафор `EMBEDDING_MAX_CONCURRENT`: один из запросов не освободил слот (завис или краш).
 - **Bus error** — падение процесса; возможные причины см. раздел **7. Причины SIGBUS (exit -7)** ниже.
 - **exit -7** (в логе watchdog: `ingest failed (exit -7)`) — процесс ingest убит сигналом **SIGBUS (7)**. Это не обязательно нагрузка/OOM; см. раздел **7**.
+- **Redis** — кэш и статус хранятся только в Redis; при недоступности Redis (connection refused) ingest и дашборд не смогут читать/писать статус. Убедитесь, что контейнер redis запущен и REDIS_URL задан.
+- **TimeoutError** (embedding API batch error, retrying with smaller batches) — LM Studio или API не успевает ответить. Увеличить `EMBEDDING_TIMEOUT` или уменьшить `EMBEDDING_BATCH_SIZE`; проверить, что LM Studio запущен и модель загружена.
+
+### 2.4. Дашборд не обновляется
+
+**Кэш и статус — только Redis.** Живой статус ингеста и история запусков хранятся в Redis (ключи `ingest:current`, `ingest:runs`, `ingest:failed:*`). Дашборд и ingest-worker используют один и тот же Redis (REDIS_URL в docker-compose задаётся для mcp и ingest-worker). Если Redis недоступен — проверьте, что контейнер redis запущен и REDIS_URL=redis://redis:6379/0.
 
 ### 2.5. Ошибки в кэше (ingest_failed)
 
-Ошибки завершённых задач пишутся в SQLite-кэш (таблица `ingest_failed`). После завершения run их можно посмотреть через последний run в `ingest_runs`. Пока run в статусе `in_progress`, в `ingest_failed` могут быть только уже упавшие задачи; текущая «зависшая» задача туда не попадёт, пока не упадёт по исключению.
+Ошибки завершённых задач пишутся в Redis (списки `ingest:failed:{run_id}`). После завершения run их можно посмотреть через последний run. Пока run в статусе `in_progress`, в failed могут быть только уже упавшие задачи; текущая «зависшая» задача туда не попадёт, пока не упадёт по исключению.
 
 ---
 
@@ -135,7 +143,7 @@ docker exec <ingest-worker-container> tail -500 /app/var/ingest_cache/ingest_std
 
 ## 4d. Коллекция onec_help_memory не появляется (standards/snippets не загрузились)
 
-**Симптомы:** в дашборде Qdrant только коллекция `onec_help`, нет `onec_help_memory`; Standards и Snippets показывают «—» после запуска watchdog.
+**Симптомы:** в дашборде Qdrant только коллекция `onec_help`, нет `onec_help_memory`; Standards и Snippets показывают «нет данных» после запуска watchdog.
 
 **Причина:** load_standards и load_snippets пишут в коллекцию **onec_help_memory** только при **доступном embedding API**. Если при старте подпроцесса embedding недоступен (EMBEDDING_API_URL не отвечает, таймаут, LM Studio не запущен), команды завершаются с кодом 1 и ничего не записывают в Qdrant.
 
@@ -156,6 +164,14 @@ docker exec <ingest-worker-container> tail -500 /app/var/ingest_cache/ingest_std
    Если в stderr появится «Embedding not available (check EMBEDDING_BACKEND and EMBEDDING_API_URL)» — исправить доступ к API и перезапустить watchdog.
 
 4. **STANDARDS_DIR / SNIPPETS_DIR** — в контейнере это `/data/standards` и `/data/snippets` (volume из `./data/standards`, `./data/snippets`). Если каталоги пусты или не смонтированы, load завершится без ошибки с «0 loaded» и коллекция не создаётся.
+
+---
+
+## 4e. Мало точек в onec_help_memory (например 730)
+
+**Коллекция onec_help_memory** объединяет: стандарты (v8-code-style, v8std), сниппеты (fastcode, helpf, локальные), а также точки, сохранённые через MCP (`save_1c_snippet`). Число точек в дашборде — это сумма всего этого.
+
+Если отображается, например, **730 pts** — это нормально, если загружена только часть источников, загрузка ещё не завершилась или в каталогах мало файлов. Чтобы увеличить: убедиться, что load-standards и load-snippets успешно отработали (в дашборде не «нет данных»), проверить объём в `./data/standards` и `./data/snippets`, при необходимости увеличить `EMBEDDING_TIMEOUT` и перезапустить загрузку.
 
 ---
 

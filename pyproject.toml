@@ -13,6 +13,7 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "markdown>=3.5",
     "qdrant-client>=1.7",
+    "redis>=4.5",
     "rich>=13.0",
     "snowballstemmer>=2.2",
 ]
@@ -26,6 +27,7 @@ embed = [
     "sentence-transformers>=2.2",
 ]
 dev = [
+    "fakeredis>=2.0",
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "ruff>=0.4",

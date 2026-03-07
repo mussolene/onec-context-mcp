@@ -95,9 +95,11 @@ ruff check src tests && ruff format src tests
 
 ## Инструменты тестирования 1С/BSL
 
+Подробно: `docs/1c-testing-guide.md` в репозитории.
+
 - **BSL LS** (`document_diagnostics`): статический анализ — ошибки, предупреждения, стиль. Вызывать после каждой правки; это не runtime-тесты.
-- **xUnitFor1C**: unit-тесты для 1С. Обычно папка `Tests/` с тестовыми процедурами. Запуск через 1С:Предприятие или CLI.
-- **Vanessa-Automation**: BDD-тесты (Gherkin `.feature`). Для приёмочного и интеграционного тестирования.
+- **YaxUnit** (или xUnitFor1C): unit-тесты процедур/функций 1С. **Где искать:** `Tests/`, подсистемы тестов, модули `*Тест*`. Запуск через 1С:Предприятие, EDT или CLI.
+- **Vanessa-Automation** (xdd, UI): BDD (Gherkin `.feature`), data-driven (xdd), UI-автоматизация, приёмочные тесты. **Где искать:** `features/`, `BDD/`, каталоги с `.feature` и шагами.
 - **CoverageBSL**: измерение покрытия кода BSL в 1С:Предприятие и OneScript.
 
-При добавлении новой логики 1С — предлагать или создавать unit-тесты (xUnitFor1C) или BDD (Vanessa-Automation). Если в проекте есть `Tests/` или `features/` — считать тесты частью workflow.
+При добавлении новой логики 1С — предлагать unit-тесты (YaxUnit) для модулей или BDD/сценарии (Vanessa) для приёмки. Если в проекте есть `Tests/` или `features/` — считать тесты частью workflow.

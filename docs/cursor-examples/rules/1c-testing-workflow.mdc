@@ -1,13 +1,17 @@
 ---
-description: Workflow тестирования для кода 1С/BSL и Python (onec_help). Когда писать тесты, pytest, BSL LS.
+description: Workflow тестирования для кода 1С/BSL и Python (onec_help). YaxUnit, Vanessa (xdd/UI), pytest, BSL LS. Где искать тесты.
 globs:
   - "**/*.bsl"
   - "**/tests/**"
   - "**/*.feature"
+  - "**/features/**"
+  - "**/BDD/**"
 alwaysApply: false
 ---
 
 # 1C Testing Workflow
+
+Подробнее: `docs/1c-testing-guide.md` (в репозитории 1c_hbk_helper). При написании/правке тестов 1С использовать MCP: **1c-help** (примеры API, поиск по справке), **lsp-bsl-bridge** (`document_diagnostics` по модулю теста/шагов).
 
 ## BSL LS (статический анализ)
 
@@ -25,9 +29,11 @@ ruff check src tests && ruff format src tests
 
 При падении покрытия ниже 70% — добавить тесты перед merge.
 
-## Runtime-тесты 1С
+## Runtime-тесты 1С (репо конфигурации 1С)
 
-- **xUnitFor1C**: unit-тесты. При добавлении новой логики 1С — предлагать или создавать тесты.
-- **Vanessa-Automation**: BDD (`.feature`). Для приёмочного тестирования.
-- **CoverageBSL**: измерение покрытия.
-- Если в проекте есть `Tests/` или `features/` — считать тесты частью workflow.
+Два основных фреймворка:
+
+- **YaxUnit** (или xUnitFor1C): unit-тесты процедур/функций BSL. **Где искать:** `Tests/`, подсистемы тестов, модули `*Тест*`. При новой логике в модулях — предлагать или писать unit-тест (YaxUnit).
+- **Vanessa-Automation** (xdd, UI): BDD-сценарии (Gherkin `.feature`), data-driven (xdd), UI-автоматизация, приёмочные тесты. **Где искать:** `features/`, `BDD/`, каталоги с `.feature` и шагами. При сценариях и приёмке — предлагать/править Vanessa.
+
+Если в проекте есть `Tests/` или `features/` (или `BDD/`) — считать тесты частью workflow и искать тесты там. **CoverageBSL** — измерение покрытия BSL в 1С:Предприятие/OneScript.

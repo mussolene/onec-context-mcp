@@ -9,6 +9,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
+from . import env_config
+
 
 def _make_args(**kwargs: Any) -> argparse.Namespace:
     """Build argparse-like namespace for cmd_* calls."""
@@ -83,9 +85,9 @@ def cmd_build_index(args: argparse.Namespace) -> int:
     try:
         count = build_index(
             docs_dir=Path(docs_dir),
-            qdrant_host=os.environ.get("QDRANT_HOST", "localhost"),
-            qdrant_port=int(os.environ.get("QDRANT_PORT", "6333")),
-            collection=os.environ.get("QDRANT_COLLECTION", "onec_help"),
+            qdrant_host=env_config.get_qdrant_host(),
+            qdrant_port=env_config.get_qdrant_port(),
+            collection=env_config.get_qdrant_collection(),
             incremental=getattr(args, "incremental", False),
             embedding_batch_size=getattr(args, "embedding_batch_size", None),
             embedding_workers=getattr(args, "embedding_workers", None),
@@ -104,9 +106,9 @@ def cmd_add_bm25(args: argparse.Namespace) -> int:
 
     try:
         count = add_bm25_to_collection(
-            qdrant_host=os.environ.get("QDRANT_HOST", "localhost"),
-            qdrant_port=int(os.environ.get("QDRANT_PORT", "6333")),
-            collection=args.collection or os.environ.get("QDRANT_COLLECTION", "onec_help"),
+            qdrant_host=env_config.get_qdrant_host(),
+            qdrant_port=env_config.get_qdrant_port(),
+            collection=args.collection or env_config.get_qdrant_collection(),
             batch_size=getattr(args, "batch_size", 200),
             verbose=not getattr(args, "quiet", False),
         )
@@ -159,8 +161,8 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
 
     once = getattr(args, "once", False)
     interval = max(0.5, float(getattr(args, "interval", 1.5)))
-    qdrant_host = os.environ.get("QDRANT_HOST", "localhost")
-    qdrant_port = int(os.environ.get("QDRANT_PORT", "6333"))
+    qdrant_host = env_config.get_qdrant_host()
+    qdrant_port = env_config.get_qdrant_port()
 
     try:
         from rich.console import Console
@@ -220,9 +222,9 @@ def cmd_unpack_dir(args: argparse.Namespace) -> int:
             else:
                 sources.append((s, Path(s).name or "default"))
     if not sources:
-        base = os.environ.get("HELP_SOURCE_BASE") or os.environ.get("HELP_SOURCES_DIR")
-        if base and base.strip():
-            discovered = discover_version_dirs(base.strip())
+        base = env_config.get_help_source_base()
+        if base:
+            discovered = discover_version_dirs(base)
             sources = [(str(p), v) for p, v in discovered]
         if not sources:
             sources = parse_source_dirs_env(os.environ.get("HELP_SOURCE_DIRS"))
@@ -279,9 +281,9 @@ def cmd_unpack_sync(args: argparse.Namespace) -> int:
             else:
                 sources.append((s, Path(s).name or "default"))
     if not sources:
-        base = os.environ.get("HELP_SOURCE_BASE") or os.environ.get("HELP_SOURCES_DIR")
-        if base and base.strip():
-            discovered = discover_version_dirs(base.strip())
+        base = env_config.get_help_source_base()
+        if base:
+            discovered = discover_version_dirs(base)
             sources = [(str(p), v) for p, v in discovered]
         if not sources:
             sources = parse_source_dirs_env(os.environ.get("HELP_SOURCE_DIRS"))
@@ -304,7 +306,7 @@ def cmd_unpack_sync(args: argparse.Namespace) -> int:
     languages = parse_languages_env(
         raw_lang if raw_lang is not None and raw_lang.strip() else os.environ.get("HELP_LANGUAGES")
     )
-    out = getattr(args, "output_dir", None) or os.environ.get("DATA_UNPACKED_DIR", "data/unpacked")
+    out = getattr(args, "output_dir", None) or env_config.get_data_unpacked_dir()
     out = Path(out).resolve()
     try:
         n = run_unpack_sync(
@@ -409,9 +411,9 @@ def cmd_ingest(args: argparse.Namespace) -> int:
             else:
                 sources.append((line, Path(line).name or "default"))
     if not sources:
-        base = os.environ.get("HELP_SOURCE_BASE") or os.environ.get("HELP_SOURCES_DIR")
-        if base and base.strip():
-            discovered = discover_version_dirs(base.strip())
+        base = env_config.get_help_source_base()
+        if base:
+            discovered = discover_version_dirs(base)
             sources = [(str(p), v) for p, v in discovered]
         if not sources:
             sources = parse_source_dirs_env(os.environ.get("HELP_SOURCE_DIRS"))
@@ -435,7 +437,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         if not use_temp and not getattr(args, "dry_run", False):
             from .ingest import run_ingest_from_unpacked, run_unpack_sync
 
-            unpacked_dir = os.environ.get("DATA_UNPACKED_DIR", "data/unpacked")
+            unpacked_dir = env_config.get_data_unpacked_dir()
             unpacked_base = Path(unpacked_dir).resolve()
             unpacked_base.mkdir(parents=True, exist_ok=True)
             run_unpack_sync(
@@ -447,9 +449,9 @@ def cmd_ingest(args: argparse.Namespace) -> int:
             )
             n = run_ingest_from_unpacked(
                 unpacked_base=unpacked_base,
-                qdrant_host=os.environ.get("QDRANT_HOST", "localhost"),
-                qdrant_port=int(os.environ.get("QDRANT_PORT", "6333")),
-                collection=os.environ.get("QDRANT_COLLECTION", "onec_help"),
+                qdrant_host=env_config.get_qdrant_host(),
+                qdrant_port=env_config.get_qdrant_port(),
+                collection=env_config.get_qdrant_collection(),
                 incremental=not getattr(args, "recreate", False),
                 verbose=not getattr(args, "quiet", False),
                 embedding_batch_size=getattr(args, "embedding_batch_size", None),
@@ -462,9 +464,9 @@ def cmd_ingest(args: argparse.Namespace) -> int:
                 source_dirs_with_versions=sources,
                 languages=languages,
                 temp_base=args.temp_base or os.environ.get("HELP_INGEST_TEMP") or _default_temp,
-                qdrant_host=os.environ.get("QDRANT_HOST", "localhost"),
-                qdrant_port=int(os.environ.get("QDRANT_PORT", "6333")),
-                collection=os.environ.get("QDRANT_COLLECTION", "onec_help"),
+                qdrant_host=env_config.get_qdrant_host(),
+                qdrant_port=env_config.get_qdrant_port(),
+                collection=env_config.get_qdrant_collection(),
                 incremental=not getattr(args, "recreate", False),
                 max_workers=getattr(args, "workers", None),
                 max_tasks=getattr(args, "max_tasks", None),
@@ -487,9 +489,7 @@ def cmd_ingest_from_unpacked(args: argparse.Namespace) -> int:
 
     from .ingest import run_ingest_from_unpacked
 
-    unpacked_dir = getattr(args, "dir", None) or os.environ.get(
-        "DATA_UNPACKED_DIR", "data/unpacked"
-    )
+    unpacked_dir = getattr(args, "dir", None) or env_config.get_data_unpacked_dir()
     base = Path(unpacked_dir).resolve()
     if not base.is_dir():
         print(f"Error: unpacked dir not found: {base}", file=sys.stderr)
@@ -502,9 +502,9 @@ def cmd_ingest_from_unpacked(args: argparse.Namespace) -> int:
     try:
         n = run_ingest_from_unpacked(
             unpacked_base=base,
-            qdrant_host=os.environ.get("QDRANT_HOST", "localhost"),
-            qdrant_port=int(os.environ.get("QDRANT_PORT", "6333")),
-            collection=os.environ.get("QDRANT_COLLECTION", "onec_help"),
+            qdrant_host=env_config.get_qdrant_host(),
+            qdrant_port=env_config.get_qdrant_port(),
+            collection=env_config.get_qdrant_collection(),
             incremental=not getattr(args, "recreate", False),
             verbose=not getattr(args, "quiet", False),
             embedding_batch_size=getattr(args, "embedding_batch_size", None),
@@ -1158,9 +1158,9 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 def cmd_reinit(args: argparse.Namespace) -> int:
     """Reinit: erase Qdrant + cache, then init. If DB exists with data, runs init (no wipe) unless --force."""
-    qdrant_host = os.environ.get("QDRANT_HOST", "localhost")
-    qdrant_port = int(os.environ.get("QDRANT_PORT", "6333"))
-    collection = os.environ.get("QDRANT_COLLECTION", "onec_help")
+    qdrant_host = env_config.get_qdrant_host()
+    qdrant_port = env_config.get_qdrant_port()
+    collection = env_config.get_qdrant_collection()
     force = getattr(args, "force", False)
     if not force and _collection_has_data(qdrant_host, qdrant_port, collection):
         if not getattr(args, "quiet", False):
@@ -1205,9 +1205,9 @@ def cmd_qdrant_backup(args: argparse.Namespace) -> int:
     import urllib.request
     from datetime import datetime
 
-    host = os.environ.get("QDRANT_HOST", "localhost")
-    port = int(os.environ.get("QDRANT_PORT", "6333"))
-    collection = os.environ.get("QDRANT_COLLECTION", "onec_help")
+    host = env_config.get_qdrant_host()
+    port = env_config.get_qdrant_port()
+    collection = env_config.get_qdrant_collection()
     base = f"http://{host}:{port}"
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1244,9 +1244,9 @@ def cmd_qdrant_restore(args: argparse.Namespace) -> int:
     """Восстановить коллекцию из снапшота."""
     import urllib.request
 
-    host = os.environ.get("QDRANT_HOST", "localhost")
-    port = int(os.environ.get("QDRANT_PORT", "6333"))
-    collection = os.environ.get("QDRANT_COLLECTION", "onec_help")
+    host = env_config.get_qdrant_host()
+    port = env_config.get_qdrant_port()
+    collection = env_config.get_qdrant_collection()
     base = f"http://{host}:{port}"
     backup_dir = Path(args.backup_dir)
 
@@ -1782,8 +1782,8 @@ def main() -> int:
         "directory",
         type=str,
         nargs="?",
-        default=os.environ.get("HELP_PATH", "data"),
-        help="Directory with help (.md or HTML); default: HELP_PATH or 'data'",
+        default=os.environ.get("HELP_PATH", env_config.DATA_DIR_DEFAULT),
+        help="Directory with help (.md or HTML); default: HELP_PATH or DATA_DIR",
     )
     p_mcp.add_argument(
         "--transport",

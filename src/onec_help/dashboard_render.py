@@ -61,6 +61,8 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                         if stage == "embedding"
                         else "запись в Qdrant"
                         if stage == "writing"
+                        else "индексация"
+                        if stage == "indexing"
                         else stage or "indexing"
                     )
                     label = (
@@ -76,6 +78,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                     tasks_parts.append(
                         Text(f"  [{i + 1}] {version} / {lang} — {path} — {stage_label}")
                     )
+                    tasks_parts.append(Text("\n"))
             if len(current_tasks) > 10:
                 tasks_parts.append(Text(f"  … and {len(current_tasks) - 10} more"))
         else:
@@ -103,7 +106,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
             )
         )
     else:
-        tasks_parts.append(Text("Ingest: —"))
+        tasks_parts.append(Text("Ingest: нет данных"))
 
     tasks_parts.append(Text(""))  # spacer before Standards/Snippets
     standards_loading = data.get("standards_loading")
@@ -123,7 +126,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
     elif standards_loading:
         tasks_parts.append(Text("Standards: loading…"))
     else:
-        tasks_parts.append(Text("Standards: —"))
+        tasks_parts.append(Text("Standards: нет данных (watchdog или load-standards)"))
 
     tasks_parts.append(Text(""))  # spacer before Snippets
     snippets_loading = data.get("snippets_loading")
@@ -151,12 +154,12 @@ def render_dashboard(data: dict[str, Any]) -> Any:
             )
         )
     else:
-        tasks_parts.append(Text("Snippets: —"))
+        tasks_parts.append(Text("Snippets: нет данных (watchdog или load-snippets)"))
 
     tasks_content: Any = Group(*tasks_parts)
     panels.append(Panel(tasks_content, title="[bold]Tasks[/bold]", border_style="blue"))
 
-    # --- Panel 2: Errors ---
+    # --- Panel 2: Errors (из накопительного лога Redis, всегда доступны) ---
     failed = data.get("failed_tasks") or []
     err_max_len = 80
     if failed:
@@ -175,9 +178,15 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 (t.get("path") or "—"),
                 err,
             )
+        err_content: Any = Group(
+            err_table,
+            Text("[dim]Ошибки накапливаются в Redis, доступны для просмотра.[/dim]"),
+        )
         panels.append(
             Panel(
-                err_table, title=f"[bold]Errors[/bold] ({len(failed)} failed)", border_style="red"
+                err_content,
+                title=f"[bold]Errors[/bold] ({len(failed)} failed)",
+                border_style="red",
             )
         )
     else:
@@ -193,30 +202,21 @@ def render_dashboard(data: dict[str, Any]) -> Any:
         else:
             panels.append(Panel("—", title="[bold]Errors[/bold]", border_style="dim"))
 
-    # --- Panel 3: Database ---
+    # --- Panel 3: Database (только фактические данные Qdrant; не смешиваем с прогрессом загрузки) ---
     index_status = data.get("index_status") or {}
     collections = data.get("collections") or []
     standards_loading_db = data.get("standards_loading")
     snippets_loading_db = data.get("snippets_loading")
-    loading_pts = (
-        (data.get("standards_loading_pts") or {})
-        if standards_loading_db
-        else (data.get("snippets_loading_pts") or {})
-        if snippets_loading_db
-        else {}
-    )
     if index_status.get("error"):
         db_content = f"Qdrant: [red]{index_status.get('error', 'error')}[/red]"
-    elif collections or loading_pts:
+    elif collections:
         db_table = Table(show_header=True, header_style="bold")
         db_table.add_column("Collection")
         db_table.add_column("Points")
         db_table.add_column("Indexed vectors")
         db_table.add_column("Segments")
-        seen_names = set()
         for c in collections:
             name = c.get("name") or "—"
-            seen_names.add(name)
             pts = c.get("points_count")
             vecs = c.get("indexed_vectors_count")
             segs = c.get("segments_count")
@@ -226,18 +226,16 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 str(vecs) if vecs is not None else "—",
                 str(segs) if segs is not None else "—",
             )
-        if (standards_loading_db or snippets_loading_db) and "onec_help_memory" not in seen_names:
-            loaded_ld = loading_pts.get("loaded", 0)
-            total_ld = loading_pts.get("total", 0)
-            db_table.add_row(
-                "onec_help_memory (загрузка…)",
-                f"~{loaded_ld}" + (f"/{total_ld}" if total_ld else ""),
-                "—",
-                "—",
-            )
         db_parts: list[Any] = [db_table]
         if standards_loading_db or snippets_loading_db:
-            db_parts.append(Text("[dim]Обновление: standards/snippets → onec_help_memory[/dim]"))
+            db_parts.append(Text("[dim]Обновление: standards/snippets → onec_help_memory (прогресс в Tasks)[/dim]"))
+        # Пояснение: onec_help_memory = standards + snippets + сохранённые из MCP; число pts может быть меньше суммы источников до завершения загрузки
+        for c in collections or []:
+            if (c.get("name") or "").strip() == "onec_help_memory":
+                db_parts.append(
+                    Text("[dim]onec_help_memory: стандарты + сниппеты + save_1c_snippet[/dim]")
+                )
+                break
         versions = index_status.get("versions") or []
         languages = index_status.get("languages") or []
         if versions:
@@ -315,7 +313,7 @@ def render_dashboard_compact(data: dict[str, Any], *, spinner: str = "") -> str:
         if failed:
             parts.append(f"{failed} failed")
     else:
-        parts.append("Ingest: —")
+        parts.append("Ingest: нет данных")
 
     failed_tasks = data.get("failed_tasks") or []
     total_err = (data.get("ingest_last_run") or {}).get("failed_count") or len(failed_tasks)

@@ -51,7 +51,7 @@ description: Ведёт агента по разработке 1С (BSL) с MCP 
 4. Вызвать `document_diagnostics(uri)`.
 5. **При ERROR или WARNING:** исправить → повторить п. 4. Не продолжать, пока не чисто.
 6. Если результат переиспользуемый: вызвать `save_1c_snippet(code_snippet, description, title)`.
-7. По желанию добавить unit-тесты 1С (xUnitFor1C) или BDD (Vanessa-Automation) для новой логики.
+7. По желанию добавить unit-тесты 1С (YaxUnit) или BDD/сценарии (Vanessa-Automation: .feature, xdd, UI) для новой логики. Где искать: `Tests/` (unit), `features/` или `BDD/` (Vanessa). См. `docs/1c-testing-guide.md`.
 
 ### Рефакторинг (цикл по файлам)
 
@@ -122,4 +122,4 @@ file:///projects/src/DataProcessors/.../Forms/.../Ext/Form/Module.bsl
 
 ## Дополнительно
 
-См. [reference.md](reference.md): URI, примеры вызовов, команды тестирования (pytest, xUnitFor1C, CoverageBSL).
+См. [reference.md](reference.md): URI, примеры вызовов, команды тестирования (pytest, YaxUnit, Vanessa, CoverageBSL). См. `docs/1c-testing-guide.md`: что тестировать YaxUnit, что — Vanessa (xdd/UI), где искать тесты.

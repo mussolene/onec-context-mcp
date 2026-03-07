@@ -1,13 +1,10 @@
 """
 Watchdog: monitor new .hbk files, incremental ingest; process pending memory embeddings.
-Also monitors STANDARDS_DIR and SNIPPETS_DIR: on change runs load-standards / load-snippets
-(so standards and snippets from disk are reloaded automatically like ingest for .hbk).
-Uses same discovery as ingest (discover_version_dirs + collect_hbk_tasks) for .hbk.
-State for hbk/standards/snippets is stored in the same SQLite DB as ingest (one place).
+Also monitors STANDARDS_DIR and SNIPPETS_DIR: on change runs load-standards / load-snippets.
+State for hbk/standards/snippets is stored in Redis (same as ingest cache).
 """
 
 import os
-import sqlite3
 import subprocess
 import sys
 import time
@@ -15,9 +12,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from ._utils import safe_error_message
-from .ingest import _ingest_cache_path, _sqlite_timeout, collect_hbk_tasks, discover_version_dirs
+from .ingest import _ingest_cache_path, collect_hbk_tasks, discover_version_dirs
+from . import redis_cache
 
-_WATCHDOG_STATE_TABLE = "watchdog_state"
 _STANDARDS_EXT = frozenset({".md"})
 _SNIPPETS_EXT = frozenset({".json", ".bsl", ".1c", ".md"})
 _INGEST_STDERR_LOG = "ingest_stderr.log"
@@ -32,49 +29,18 @@ def _parse_languages() -> list[str] | None:
 
 
 def _load_watchdog_state(kind: str) -> dict[str, float]:
-    """Load state dict (path -> value) for given kind from ingest SQLite DB. kind: hbk, standards, snippets."""
-    out: dict[str, float] = {}
-    db_path = _ingest_cache_path()
+    """Load state dict (path -> value) for given kind from Redis. kind: hbk, standards, snippets."""
     try:
-        parent = Path(db_path).parent
-        if parent:
-            parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(db_path, timeout=_sqlite_timeout())
-        conn.execute(
-            f"CREATE TABLE IF NOT EXISTS {_WATCHDOG_STATE_TABLE} "
-            "(kind TEXT NOT NULL, path TEXT NOT NULL, value REAL NOT NULL, PRIMARY KEY (kind, path))"
-        )
-        for row in conn.execute(
-            f"SELECT path, value FROM {_WATCHDOG_STATE_TABLE} WHERE kind = ?", (kind,)
-        ):
-            out[row[0]] = row[1]
-        conn.close()
-    except (OSError, sqlite3.Error):
-        pass
-    return out
+        return redis_cache.watchdog_state_get(kind)
+    except Exception:
+        return {}
 
 
 def _save_watchdog_state(kind: str, data: dict[str, float]) -> None:
-    """Save state dict (path -> value) for given kind into ingest SQLite DB."""
-    db_path = _ingest_cache_path()
+    """Save state dict for kind to Redis."""
     try:
-        parent = Path(db_path).parent
-        if parent:
-            parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(db_path, timeout=_sqlite_timeout())
-        conn.execute(
-            f"CREATE TABLE IF NOT EXISTS {_WATCHDOG_STATE_TABLE} "
-            "(kind TEXT NOT NULL, path TEXT NOT NULL, value REAL NOT NULL, PRIMARY KEY (kind, path))"
-        )
-        conn.execute(f"DELETE FROM {_WATCHDOG_STATE_TABLE} WHERE kind = ?", (kind,))
-        for path, value in data.items():
-            conn.execute(
-                f"INSERT INTO {_WATCHDOG_STATE_TABLE} (kind, path, value) VALUES (?, ?, ?)",
-                (kind, path, float(value)),
-            )
-        conn.commit()
-        conn.close()
-    except (OSError, sqlite3.Error):
+        redis_cache.watchdog_state_set(kind, data)
+    except Exception:
         pass
 
 

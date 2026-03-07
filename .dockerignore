@@ -1,0 +1,45 @@
+# Git and IDE
+.git
+.gitignore
+.cursor
+.cursorignore
+*.md
+!README.md
+
+# Tests and dev — not needed in image
+tests/
+*.pyc
+__pycache__/
+.pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
+.mypy_cache/
+
+# Docs and scripts — not needed at runtime
+docs/
+scripts/
+*.ipynb
+
+# Data and local state — mounted as volumes, never copy into image
+data/
+.env
+.env.*
+*.db
+*.sqlite
+
+# Docker and CI
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+.github/
+Makefile
+
+# BSL bridge (separate image)
+deps/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+*.egg

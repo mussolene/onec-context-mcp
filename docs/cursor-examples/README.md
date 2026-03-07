@@ -34,6 +34,7 @@ docs/cursor-examples/
 ## Связь с проектом
 
 - См. [AGENTS.md](../../AGENTS.md) — workflow разработки 1С с BSL LS, embedding и индексация.
+- См. [1c-testing-guide.md](../1c-testing-guide.md) — тестирование 1С: YaxUnit (unit), Vanessa-Automation (BDD, xdd, UI), где искать тесты, что применять.
 - См. [embedding.md](../embedding.md) — пайплайн embedding (batch/single, retry, 429), точки интеграции.
 - См. [mcp-tools-reference.md](../mcp-tools-reference.md) — справочник MCP-инструментов 1c-help (параметры, лимиты, порядок вызовов).
 - См. [bsl-ls-mcp-setup.md](../bsl-ls-mcp-setup.md) — подключение BSL LS как MCP.

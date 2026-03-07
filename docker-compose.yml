@@ -1,5 +1,5 @@
-# По умолчанию: только qdrant + mcp (make up). Ingest-worker — по профилю: make ingest-up.
-# usage: make up → qdrant + mcp; make ingest-up → + ingest-worker (watchdog).
+# Кэш ингеста и статус — Redis (обязательно). Запускается с mcp и ingest-worker.
+# make up → qdrant + mcp + redis; make ingest-up → + ingest-worker.
 #
 # Для одного контейнера: make up-full   или   docker compose -f docker-compose.base.yml -f docker-compose.full.yml up -d
 #
@@ -7,12 +7,18 @@
 services:
   mcp:
     environment:
+      REDIS_URL: redis://redis:6379/0
       MCP_MODE: api
-      # Та же модель и бэкенд, что и у ingest-worker — иначе поиск (MCP) и индекс (ingest) будут в разных пространствах
-      EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-openai_api}
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-nomic-embed-text-v2-moe}
-      EMBEDDING_API_URL: ${EMBEDDING_API_URL:-http://host.docker.internal:1234/v1}
-      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION:-768}
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports: ["6379:6379"]
 
   ingest-worker:
     profiles:
@@ -22,6 +28,7 @@ services:
       args:
         EMBEDDING_BACKEND: "${EMBEDDING_BACKEND:-openai_api}"
     environment:
+      REDIS_URL: redis://redis:6379/0
       QDRANT_HOST: ${QDRANT_HOST:-qdrant}
       QDRANT_PORT: ${QDRANT_PORT:-6333}
       QDRANT_COLLECTION: ${QDRANT_COLLECTION:-onec_help}
@@ -32,8 +39,6 @@ services:
       DATA_UNPACKED_DIR: ${DATA_UNPACKED_DIR:-/app/data/unpacked}
       INGEST_USE_TEMP: ${INGEST_USE_TEMP:-0}
       INGEST_CACHE_FILE: ${INGEST_CACHE_FILE:-/app/var/ingest_cache/ingest_cache.db}
-      INGEST_VACUUM_CACHE: ${INGEST_VACUUM_CACHE:-0}
-      INGEST_SQLITE_WAL: ${INGEST_SQLITE_WAL:-0}
       INGEST_FAILED_LOG: ${INGEST_FAILED_LOG:-/var/log/ingest_failed.log}
       INGEST_MAX_WORKERS: ${INGEST_MAX_WORKERS:-4}
       EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-openai_api}
@@ -70,6 +75,7 @@ services:
     depends_on:
       qdrant:
         condition: service_healthy
+      redis:
+        condition: service_started
     restart: unless-stopped
-    # Опционально: лимит памяти при OOM (M1 16 GB). При превышении падает контейнер, а не хост. Раскомментируйте при повторяющихся падениях.
-    # mem_limit: 4g
+    # mem_limit: 4g  # при OOM на M1
