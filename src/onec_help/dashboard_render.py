@@ -227,7 +227,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
     tasks_content: Any = Group(*tasks_parts)
     panels.append(Panel(tasks_content, title="[bold]Tasks[/bold]", border_style="blue"))
 
-    # --- Panel 2: Errors (from Redis accumulated log, always available) ---
+    # --- Panel 2: Errors (ingest only; MCP errors are in panel "MCP requests") ---
     failed = data.get("failed_tasks") or []
     err_max_len = 80
     if failed:
@@ -248,7 +248,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
             )
         err_content: Any = Group(
             err_table,
-            Text("[dim]Errors accumulated in Redis, available for viewing.[/dim]"),
+            Text("[dim]Ingest errors (Redis). MCP errors → see panel «MCP requests».[/dim]"),
         )
         panels.append(
             Panel(
@@ -268,7 +268,13 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 )
             )
         else:
-            panels.append(Panel("—", title="[bold]Errors[/bold]", border_style="dim"))
+            panels.append(
+                Panel(
+                    "—\n[dim]Ingest only. MCP errors → «MCP requests» or docker compose logs mcp.[/dim]",
+                    title="[bold]Errors[/bold]",
+                    border_style="dim",
+                )
+            )
 
     # --- Panel 3: Database (Qdrant actual data only; not mixed with loading progress) ---
     index_status = data.get("index_status") or {}
@@ -383,6 +389,8 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 Text(f"  {e.get('tool', '?')}: {(e.get('error') or '')[:80]}")
                 for e in errors_recent[:5]
             ],
+            Text(""),
+            Text("[dim]Full MCP logs: docker compose logs mcp.[/dim]"),
         )
     if total == 0 and last_hour == 0:
         mcp_content = Group(
@@ -391,6 +399,13 @@ def render_dashboard(data: dict[str, Any]) -> Any:
             Text(
                 "[dim]0 requests — call an MCP tool from Cursor (e.g. get_1c_help_index_status). Same REDIS_URL for MCP and dashboard (Docker: redis://redis:6379/0).[/dim]"
             ),
+            Text("[dim]MCP errors (tools + protocol) appear here; full logs: docker compose logs mcp.[/dim]"),
+        )
+    elif errors_total == 0 and (total > 0 or last_hour > 0):
+        mcp_content = Group(
+            mcp_content,
+            Text(""),
+            Text("[dim]Full MCP logs: docker compose logs mcp.[/dim]"),
         )
     panels.append(Panel(mcp_content, title="[bold]MCP requests[/bold]", border_style="cyan"))
 

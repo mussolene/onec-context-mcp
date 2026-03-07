@@ -760,8 +760,10 @@ def add_bm25_to_collection(
 ) -> int:
     """Add BM25 sparse vectors to existing collection. No re-ingest, no re-embedding.
 
-    Scrolls points from collection, builds BM25 from payload text, recreates collection
-    with dense+sparse, upserts all points. Returns total points migrated.
+    Uses a temporary collection to avoid data loss on timeout/crash: writes to
+    {collection}_bm25_tmp first, then swaps. Original collection is only dropped
+    after the temp is fully written. On re-run, if tmp exists with marker, finishes
+    the swap (recovery). Returns total points migrated.
     """
     from . import embedding
     from .sparse_bm25 import bm25_vocab_path, build_bm25_vectors, save_vocab
@@ -806,7 +808,36 @@ def add_bm25_to_collection(
                 )
         return getattr(client.get_collection(collection), "points_count", 0) or 0
 
-    # Scroll all points
+    tmp_collection = f"{collection}_bm25_tmp"
+    vocab_dir = bm25_vocab_path(collection).parent
+    marker_path = vocab_dir / f".tmp_{collection}.complete"
+
+    # Recovery: previous run wrote to tmp then crashed during swap. Copy tmp -> collection.
+    if client.collection_exists(tmp_collection):
+        if marker_path.exists():
+            if verbose:
+                print(f"[add-bm25] Recovering from {tmp_collection}...", file=sys.stderr)
+            try:
+                _recover_add_bm25_swap(
+                    client, collection, tmp_collection, batch_size, verbose
+                )
+            finally:
+                try:
+                    marker_path.unlink()
+                except OSError:
+                    pass
+                try:
+                    if client.collection_exists(tmp_collection):
+                        client.delete_collection(tmp_collection)
+                except Exception:
+                    pass
+            return getattr(client.get_collection(collection), "points_count", 0) or 0
+        try:
+            client.delete_collection(tmp_collection)
+        except Exception:
+            pass
+
+    # Scroll all points from original collection
     points = []
     offset = None
     while True:
@@ -828,7 +859,7 @@ def add_bm25_to_collection(
         return 0
 
     if verbose:
-        print(f"[add-bm25] Migrating {len(points)} points...", file=sys.stderr, flush=True)
+        print(f"[add-bm25] Migrating {len(points)} points (safe: tmp first)...", file=sys.stderr, flush=True)
 
     texts = []
     dense_vectors = []
@@ -858,13 +889,14 @@ def add_bm25_to_collection(
     optimizers = (
         OptimizersConfigDiff(indexing_threshold=1) if OptimizersConfigDiff is not None else None
     )
-    client.recreate_collection(
-        collection_name=collection,
+
+    # Create temp collection and write all points there (original untouched)
+    client.create_collection(
+        collection_name=tmp_collection,
         vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
         sparse_vectors_config=sparse_config,
         optimizers_config=optimizers,
     )
-
     for i in range(0, len(points), batch_size):
         batch_ids = ids[i : i + batch_size]
         batch_payloads = payloads[i : i + batch_size]
@@ -880,17 +912,112 @@ def add_bm25_to_collection(
             )
             vec_dict: dict[str, Any] = {"": dense, SPARSE_VECTOR_NAME: sv}
             batch_points.append(PointStruct(id=pid, vector=vec_dict, payload=pl))
-        client.upsert(collection_name=collection, points=batch_points)
+        client.upsert(collection_name=tmp_collection, points=batch_points)
         if verbose and (i + batch_size) % 1000 == 0:
             print(
-                f"[add-bm25] Upserted {min(i + batch_size, len(points))}/{len(points)}",
+                f"[add-bm25] Upserted {min(i + batch_size, len(points))}/{len(points)} to tmp",
                 file=sys.stderr,
                 flush=True,
             )
 
+    vocab_dir.mkdir(parents=True, exist_ok=True)
+    marker_path.write_text("", encoding="utf-8")
+
+    # Swap: drop original, recreate, copy from tmp (if we crash here, re-run recovers from tmp)
+    client.delete_collection(collection)
+    client.create_collection(
+        collection_name=collection,
+        vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
+        sparse_vectors_config=sparse_config,
+        optimizers_config=optimizers,
+    )
+    offset = None
+    while True:
+        res, next_offset = client.scroll(
+            collection_name=tmp_collection,
+            limit=batch_size,
+            offset=offset,
+            with_payload=True,
+            with_vectors=True,
+        )
+        if res:
+            batch_points = []
+            for p in res:
+                vec = getattr(p, "vector", None)
+                payload = getattr(p, "payload", None) or {}
+                pid = getattr(p, "id", 0)
+                batch_points.append(PointStruct(id=pid, vector=vec, payload=payload))
+            client.upsert(collection_name=collection, points=batch_points)
+        if next_offset is None:
+            break
+        offset = next_offset
+
+    client.delete_collection(tmp_collection)
+    try:
+        marker_path.unlink()
+    except OSError:
+        pass
+
     if verbose:
         print(f"[add-bm25] Done. BM25 vocab saved to {vocab_path}", file=sys.stderr)
     return len(points)
+
+
+def _recover_add_bm25_swap(
+    client: Any,
+    collection: str,
+    tmp_collection: str,
+    batch_size: int,
+    verbose: bool,
+) -> None:
+    """Copy tmp_collection (dense+sparse) into collection. Call after crash during swap."""
+    res, _ = client.scroll(
+        collection_name=tmp_collection,
+        limit=1,
+        with_payload=False,
+        with_vectors=True,
+    )
+    dim = 768
+    if res:
+        vec = getattr(res[0], "vector", None)
+        if isinstance(vec, dict):
+            dense = vec.get("") or vec.get(None)
+        else:
+            dense = vec
+        if isinstance(dense, list) and len(dense) > 0:
+            dim = len(dense)
+    sparse_config = {SPARSE_VECTOR_NAME: SparseVectorParams(modifier=Modifier.IDF)}
+    optimizers = (
+        OptimizersConfigDiff(indexing_threshold=1) if OptimizersConfigDiff is not None else None
+    )
+    if client.collection_exists(collection):
+        client.delete_collection(collection)
+    client.create_collection(
+        collection_name=collection,
+        vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
+        sparse_vectors_config=sparse_config,
+        optimizers_config=optimizers,
+    )
+    offset = None
+    while True:
+        res, next_offset = client.scroll(
+            collection_name=tmp_collection,
+            limit=batch_size,
+            offset=offset,
+            with_payload=True,
+            with_vectors=True,
+        )
+        if res:
+            batch_points = []
+            for p in res:
+                vec = getattr(p, "vector", None)
+                payload = getattr(p, "payload", None) or {}
+                pid = getattr(p, "id", 0)
+                batch_points.append(PointStruct(id=pid, vector=vec, payload=payload))
+            client.upsert(collection_name=collection, points=batch_points)
+        if next_offset is None:
+            break
+        offset = next_offset
 
 
 def _remove_bm25_from_collection(

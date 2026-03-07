@@ -17,7 +17,6 @@
 - **read-hbk-container** — чтение .hbk как бинарного контейнера (alkoleft/hbk-viewer): сущности, извлечение в каталог, TOC в JSON (вспомогательная команда).
 - **Сниппеты:** ./data/snippets, parse-fastcode/parse-helpf пишут туда, `load-snippets` загружает. `make snippets` — оба сайта; `make parse-helpf` — только FAQ.
 - **Стандарты:** `make load-standards` — v8-code-style и v8std (STANDARDS_REPOS).
-
 ## Ingest: переиндексация при перезапуске
 
 Если файлы переиндексируются при каждом перезапуске:

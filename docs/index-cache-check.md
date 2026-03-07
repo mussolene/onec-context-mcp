@@ -18,10 +18,9 @@
 Добавлено/изменено:
 
 1. **tests/conftest.py** — фикстуры `_nosync_root()` и `nosync_root`. Переменные окружения и пути к `data/`, Qdrant или ingest cache **не меняют**.
-2. **scripts/load_test_mcp.py** — только HTTP-запросы к MCP (JSON-RPC). К Qdrant и кэшу не обращается.
-3. **tests/test_mcp_functional_crypto.py** — вызовы MCP по HTTP. Кэш и индекс не трогает.
-4. **tests/fixtures/mcp_crypto_queries.json** — конфиг запросов, не исполняемый код.
-5. **docs/** — только новые/обновлённые документы.
+2. **tests/test_mcp_functional_crypto.py** — вызовы MCP по HTTP. Кэш и индекс не трогает.
+3. **tests/fixtures/mcp_crypto_queries.json** — конфиг запросов, не исполняемый код.
+4. **docs/** — только новые/обновлённые документы.
 
 В тестах:
 

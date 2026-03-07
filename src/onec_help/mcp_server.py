@@ -102,6 +102,14 @@ except ImportError:
     FastMCP = None  # type: ignore
     _HAS_FASTMCP = False
 
+try:
+    from fastmcp.server.middleware.error_handling import ErrorHandlingMiddleware
+
+    _HAS_ERROR_MIDDLEWARE = True
+except ImportError:
+    ErrorHandlingMiddleware = None  # type: ignore
+    _HAS_ERROR_MIDDLEWARE = False
+
 _HELP_PATH = None  # Path | None
 
 
@@ -335,6 +343,24 @@ def _hybrid_search(
     return (results, meta)
 
 
+def _mcp_error_to_redis_callback(error: Exception, context: Any) -> None:
+    """Record MCP errors (transport/protocol, not tool-level) to Redis for dashboard.
+    Tool-level errors are already recorded by _record_mcp_tool."""
+    method = getattr(context, "method", None) or "_request"
+    if method == "tools/call":
+        return  # tool handler already recorded via decorator
+    try:
+        from . import redis_cache
+
+        redis_cache.mcp_request_record(
+            tool_name=method[:64],
+            success=False,
+            error_msg=safe_error_message(error),
+        )
+    except Exception:
+        pass
+
+
 def _build_mcp_app(help_path: Path) -> Any:
     """Build FastMCP app with all tools registered. Used by run_mcp and by tests (in-memory client)."""
     global _HELP_PATH
@@ -344,6 +370,10 @@ def _build_mcp_app(help_path: Path) -> Any:
         raise RuntimeError("fastmcp required: pip install fastmcp")
 
     mcp = FastMCP("1C Help")
+    if _HAS_ERROR_MIDDLEWARE and ErrorHandlingMiddleware is not None:
+        mcp.add_middleware(
+            ErrorHandlingMiddleware(error_callback=_mcp_error_to_redis_callback)
+        )
 
     @mcp.tool()
     @_record_mcp_tool

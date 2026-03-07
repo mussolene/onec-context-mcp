@@ -33,6 +33,7 @@ def _call_mcp_via_http(tool: str, args: dict) -> str:
     ).encode()
     req = urllib.request.Request(url, data=body, method="POST")
     req.add_header("Content-Type", "application/json")
+    req.add_header("Accept", "application/json, text/event-stream")
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
