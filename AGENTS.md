@@ -53,6 +53,7 @@
 - `unpack` — 7z, zipfile, ZIP from offset, unzip, scan local headers, **HBK binary container** (источник: alkoleft/hbk-viewer); при контейнере пишет `.toc.json`; `unpack-diag` — диагностика при ошибке; `hbk_container` — чтение бинарного .hbk (FileStorage, PackBlock, Book); `toc_parser` — разбор текста PackBlock TOC в плоский список (path, title_ru/en, breadcrumb, entity_type); `categories` — парсинг `__categories__` и дерево TOC; `html2md` — HTML → Markdown; `tree` — дерево (build_tree_for_web и др.); `indexer` — Qdrant, при наличии `.toc.json` в source_dir подмешивает title/breadcrumb/section_path в payload; `memory` — тройная память; `watchdog` — мониторинг .hbk и pending embeddings; `mcp_server` — FastMCP (search_1c_help, get_1c_help_topic, get_1c_function_info, save_1c_snippet, get_1c_help_related, compare_1c_help и др.). Payload точек при TOC содержит `breadcrumb`, `entity_type`.
 - Тесты в `tests/`, покрытие ≥70% (pytest-cov, `--cov-fail-under=70`).
 - Фикстуры — минимальный срез справки в `tests/fixtures/help_sample/`.
+- При локальном запуске тестов не перезапускайте контейнеры и не используйте продуктовый каталог `data/`: задайте в окружении `INGEST_CACHE_FILE`, `DATA_DIR`, `DATA_UNPACKED_DIR` и при необходимости `STANDARDS_DIR`, `SNIPPETS_DIR` на тестовый каталог (например `$(mktemp -d)`), чтобы тесты не затирали данные.
 
 ## MCP и конфиг Cursor
 

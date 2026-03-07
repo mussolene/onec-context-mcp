@@ -439,14 +439,14 @@ def test_cmd_qdrant_restore_file_not_found(
     assert "not found" in capsys.readouterr().err or "Error:" in capsys.readouterr().err
 
 
+@patch("onec_help.cli._clear_before_reinit", return_value=True)
 @patch("onec_help.cli.cmd_load_standards", return_value=0)
 @patch("onec_help.cli.cmd_load_snippets", return_value=0)
 @patch("onec_help.cli.cmd_ingest", return_value=0)
-@patch("onec_help.ingest.clear_ingest_cache")
 def test_cmd_reinit_force(
-    mock_clear_cache, mock_ingest, mock_snippets, mock_standards, tmp_path: Path
+    mock_ingest, mock_snippets, mock_standards, mock_clear_before_reinit, tmp_path: Path
 ) -> None:
-    """cmd_reinit with force clears cache and runs init."""
+    """cmd_reinit with force calls _clear_before_reinit (Qdrant+cache) then init; never touch real data."""
     args = make_args(force=True)
     with patch.dict(
         "os.environ",
@@ -455,7 +455,7 @@ def test_cmd_reinit_force(
     ):
         rc = cmd_reinit(args)
     assert rc == 0
-    mock_clear_cache.assert_called()
+    mock_clear_before_reinit.assert_called_once()
     mock_ingest.assert_called()
     mock_snippets.assert_called()
     mock_standards.assert_called()

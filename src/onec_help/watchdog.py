@@ -188,10 +188,10 @@ def run_watchdog(
         try:
             now = time.time()
             current = _scan_hbk_like_ingest(base)
-            current_std = _scan_standards_dir_stable(standards_dir) if standards_dir.exists() else {}
-            current_snip = (
-                _scan_snippets_dir_stable(snippets_dir) if snippets_dir.exists() else {}
+            current_std = (
+                _scan_standards_dir_stable(standards_dir) if standards_dir.exists() else {}
             )
+            current_snip = _scan_snippets_dir_stable(snippets_dir) if snippets_dir.exists() else {}
 
             run_ingest = False
             run_standards = False
@@ -350,7 +350,11 @@ def _run_ingest() -> bool:
                     decoded = result.stderr.decode("utf-8", errors="replace").strip()
                     tail = "\n".join(decoded.splitlines()[-25:]) if decoded else ""
                     if tail:
-                        print(f"[watchdog] ingest stderr (last 25 lines):\n{tail}", file=sys.stderr, flush=True)
+                        print(
+                            f"[watchdog] ingest stderr (last 25 lines):\n{tail}",
+                            file=sys.stderr,
+                            flush=True,
+                        )
                 except Exception:
                     pass
             return False
@@ -359,7 +363,7 @@ def _run_ingest() -> bool:
         _append_ingest_run_log(
             -1,
             b"",
-            f"[watchdog] ingest timeout (3600s)\n".encode("utf-8"),
+            b"[watchdog] ingest timeout (3600s)\n",
         )
         print(
             "[watchdog] ingest failed: timeout, will retry on next poll",

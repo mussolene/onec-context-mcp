@@ -221,7 +221,12 @@ def _log_status_error(op: str, err: Exception) -> None:
 
 def _init_ingest_status_tables(conn: sqlite3.Connection) -> None:
     """Create ingest status tables if not exist. WAL optional (INGEST_SQLITE_WAL=0 avoids SIGBUS on Docker Mac)."""
-    use_wal = (os.environ.get("INGEST_SQLITE_WAL") or "1").strip().lower() not in ("0", "false", "no", "off")
+    use_wal = (os.environ.get("INGEST_SQLITE_WAL") or "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
     conn.execute("PRAGMA journal_mode=WAL" if use_wal else "PRAGMA journal_mode=DELETE")
     conn.execute(
         f"""CREATE TABLE IF NOT EXISTS {_STATUS_TABLE_CURRENT} (
@@ -1583,6 +1588,7 @@ def _index_one_unpacked_task(
             "stage": "indexing",
         }
     try:
+
         def _on_batch(
             pts: int,
             phase: str | None = None,

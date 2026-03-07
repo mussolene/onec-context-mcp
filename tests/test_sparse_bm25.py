@@ -79,17 +79,17 @@ def test_load_vocab_missing_keys_uses_defaults(tmp_path: Path) -> None:
     assert n == 0
 
 
-def test_bm25_vocab_path_default() -> None:
-    """bm25_vocab_path returns path under data/bm25_vocab."""
-    with patch.dict(os.environ, {"DATA_DIR": "data"}):
+def test_bm25_vocab_path_default(tmp_path: Path) -> None:
+    """bm25_vocab_path returns path under DATA_DIR/bm25_vocab (use tmp_path, never project data/)."""
+    with patch.dict(os.environ, {"DATA_DIR": str(tmp_path)}):
         p = bm25_vocab_path("onec_help")
     assert "bm25_vocab" in str(p)
     assert p.name == "onec_help.json"
 
 
-def test_bm25_vocab_path_custom_collection() -> None:
+def test_bm25_vocab_path_custom_collection(tmp_path: Path) -> None:
     """bm25_vocab_path uses collection name."""
-    with patch.dict(os.environ, {"DATA_DIR": "data"}):
+    with patch.dict(os.environ, {"DATA_DIR": str(tmp_path)}):
         p = bm25_vocab_path("custom")
     assert p.name == "custom.json"
 
