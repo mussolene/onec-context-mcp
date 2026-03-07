@@ -736,6 +736,43 @@ def cmd_index_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_dashboard(args: argparse.Namespace) -> int:
+    """Print dashboard (Tasks, Errors, Database). Requires rich. --once: single frame; else Live refresh."""
+    try:
+        from rich.console import Console
+        from rich.live import Live
+    except ImportError:
+        print("Install rich: pip install rich", file=sys.stderr)
+        return 1
+
+    from .dashboard_data import get_dashboard_data
+    from .dashboard_render import render_dashboard
+
+    interval = max(0.5, float(getattr(args, "interval", 3)))
+    once = getattr(args, "once", False)
+    console = Console()
+
+    if once:
+        data = get_dashboard_data()
+        console.print(render_dashboard(data))
+        return 0
+
+    def _gen():
+        data = get_dashboard_data()
+        return render_dashboard(data)
+
+    try:
+        with Live(_gen(), console=console, refresh_per_second=1 / interval, transient=False) as live:
+            while True:
+                import time
+
+                time.sleep(interval)
+                live.update(_gen())
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
 def cmd_unpack_dir(args: argparse.Namespace) -> int:
     """Unpack all .hbk from source dir(s) into output_dir (no indexing)."""
     import os
@@ -2236,6 +2273,26 @@ def main() -> int:
         help="Single-line output (for piping/scripts)",
     )
     p_status.set_defaults(func=cmd_index_status)
+
+    # dashboard (Tasks, Errors, Database; Rich panels)
+    p_dashboard = sub.add_parser(
+        "dashboard",
+        help="Show dashboard (Tasks, Errors, Qdrant). Rich panels; --once for single frame.",
+    )
+    p_dashboard.add_argument(
+        "--once",
+        action="store_true",
+        help="Print one frame and exit (no live refresh)",
+    )
+    p_dashboard.add_argument(
+        "--interval",
+        "-n",
+        type=float,
+        default=3,
+        metavar="SEC",
+        help="Refresh interval in seconds when not --once (default: 3)",
+    )
+    p_dashboard.set_defaults(func=cmd_dashboard)
 
     # mcp
     p_mcp = sub.add_parser("mcp", help="Run MCP server (stdio, sse, http, streamable-http)")
