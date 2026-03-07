@@ -11,8 +11,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from . import env_config
-from . import redis_cache
+from . import env_config, redis_cache
 from ._utils import safe_error_message
 from .ingest import _ingest_cache_path, collect_hbk_tasks, discover_version_dirs
 

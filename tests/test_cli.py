@@ -974,9 +974,7 @@ def test_cmd_load_standards_no_source(capsys) -> None:
     ):
         assert cmd_load_standards(args) == 0
     err = capsys.readouterr().err
-    assert "No source" in err and (
-        "STANDARDS_REPOS" in err or "STANDARDS_DIR" in err
-    )
+    assert "No source" in err and ("STANDARDS_REPOS" in err or "STANDARDS_DIR" in err)
 
 
 @patch("onec_help.memory.get_memory_store")
