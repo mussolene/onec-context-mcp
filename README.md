@@ -105,17 +105,17 @@ pip install -e ".[dev]"
 | `MCP_PATH` | URL-путь эндпоинта MCP | `/mcp` |
 | `MCP_SNIPPET_MAX_CHARS` | Макс. символов сниппета в результатах поиска | `1200` |
 | `MCP_MAX_TOPIC_CHARS` | Макс. символов топика в get_1c_code_answer/search_with_content | `4000` |
-| `EMBEDDING_BACKEND` | Эмбеддинги: `local` (по умолчанию, sentence-transformers), `openai_api` (внешний API), `deterministic` (768 dim без модели) или `none` (плейсхолдер) | `local` |
-| `EMBEDDING_MODEL` | Имя модели. Для local — HuggingFace (по умолчанию nomic-ai/nomic-embed-text-v2-moe); для openai_api — id в LM Studio / Ollama. Размерность 768 по умолчанию. | `nomic-ai/nomic-embed-text-v2-moe` |
-| `EMBEDDING_API_URL` | Для openai_api: базовый URL (по умолчанию LM Studio: `http://localhost:1234/v1` локально, в контейнере — `http://host.docker.internal:1234/v1`). При недоступности/ошибках используются плейсхолдер-векторы и семантический поиск ограничен | LM Studio: 1234 |
+| `EMBEDDING_BACKEND` | Эмбеддинги: `openai_api` (по умолчанию, Ollama), `local` (sentence-transformers), `deterministic`, `none` | `openai_api` |
+| `EMBEDDING_MODEL` | Имя модели. По умолчанию `nomic-embed-text-v2-moe` (Ollama). Для local — HuggingFace id `nomic-ai/nomic-embed-text-v2-moe` | `nomic-embed-text-v2-moe` |
+| `EMBEDDING_API_URL` | URL API: по умолчанию Ollama `http://localhost:11434/v1` (локально), в контейнере — `http://host.docker.internal:11434/v1` | Ollama: 11434 |
 | `EMBEDDING_API_KEY` | Ключ API (если нужен для openai_api) | — |
 | `EMBEDDING_DIMENSION` | Размерность при openai_api (если не задана — определяется по первому ответу API) | — |
-| `EMBEDDING_BATCH_SIZE` | Размер батча для эмбеддингов (текстов за один вызов encode/API). По умолчанию 64 | `64` |
-| `EMBEDDING_WORKERS` | Число параллельных запросов к внешнему API (только openai_api). По умолчанию 4 | `4` |
+| `EMBEDDING_BATCH_SIZE` | Размер батча для эмбеддингов. По умолчанию 32 | `32` |
+| `EMBEDDING_WORKERS` | Число параллельных запросов к внешнему API (только openai_api). По умолчанию 2 | `2` |
 | `EMBEDDING_FORCE_BATCH` | Максимальная мощность: `1`/`true`/`yes` — батч 256 и 16 воркеров для любого типа embedding | — |
 | `EMBEDDING_MAX_CONCURRENT` | Макс. одновременных запросов к API (при ingest с несколькими воркерами снижает перегрузку LM Studio) | — |
 | `BM25_ENABLED` | BM25 sparse vectors для keyword-поиска (по умолчанию 1). 0 — отключить. При инкрементальном ingest BM25 не строится (нужен полный корпус) — после ingest выполните `make add-bm25` | `1` |
-| `EMBEDDING_TIMEOUT` | Таймаут HTTP-запроса к API (секунды). При ошибке — retry с backoff, затем плейсхолдер | `60` |
+| `EMBEDDING_TIMEOUT` | Таймаут HTTP-запроса к API (секунды). При ошибке — retry с backoff, затем плейсхолдер | `90` |
 | `EMBEDDING_BATCH_TIMEOUT` | Таймаут для batch-запроса (секунды). По умолчанию — формула от размера батча | — |
 | `MCP_MODE` | `api` — только MCP (split, по умолчанию); `full` — всё в mcp (один контейнер) | `api` |
 | `WATCHDOG_ENABLED` | По умолчанию `1` — watchdog включён (split: ingest-worker; full: в фоне). `0` — отключить | `1` |
@@ -223,13 +223,29 @@ Ingest берёт .hbk из `HELP_SOURCE_BASE` (подпапки = версии 
 
 ---
 
-### Эмбеддинги
+### Эмбеддинги: как пользоваться
+
+По умолчанию используется **Ollama** — переменные задавать не нужно.
+
+1. **Установить и запустить Ollama**, один раз выполнить:
+   ```bash
+   ollama pull nomic-embed-text-v2-moe
+   ```
+2. **Запускать проект как обычно** (`make up`, `make ingest-up` и т.д.) — переменные для эмбеддингов можно не задавать.
+3. **Локально (без Docker):** достаточно запущенного Ollama с этой моделью на `localhost:11434`.
+4. **В Docker** контейнеры по умолчанию обращаются к Ollama на хосте по `host.docker.internal:11434` — Ollama должен быть запущен на машине с Docker.
+
+**Другие бэкенды:** если нужен LM Studio или local (sentence-transformers), задайте в `.env` бэкенд, URL и модель (примеры в **env.example**). Подробнее: [docs/embedding.md](docs/embedding.md), [docs/embedding-models-analysis.md](docs/embedding-models-analysis.md).
+
+---
+
+### Эмбеддинги (переменные)
 
 | Режим | Описание |
 |-------|----------|
 | `none` | Плейсхолдеры; только search_1c_help_keyword |
 | `deterministic` | 768 dim без модели; воспроизводимый поиск |
-| `openai_api` | LM Studio, Ollama; `EMBEDDING_API_URL` в .env |
+| `openai_api` | Ollama по умолчанию (11434); LM Studio — задать `EMBEDDING_API_URL` в .env |
 | `local` | sentence-transformers в контейнере; build-arg при сборке |
 
 При `openai_api`/`none`/`deterministic` sentence-transformers не ставится. Сборка без них: `EMBEDDING_BACKEND=none docker compose build`.

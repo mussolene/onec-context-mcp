@@ -41,10 +41,9 @@ RETRY_BASE_DELAY = 1.0
 
 _embedding_model = None
 
-_EMBEDDING_BACKEND = os.environ.get("EMBEDDING_BACKEND", "local").strip().lower()
-# Должна совпадать при индексации (ingest) и при поиске (MCP/search_index), иначе семантика ломается
-# Default: nomic-embed (768). For local use HuggingFace id; for API Ollama/LM Studio use short name.
-_EMBEDDING_MODEL = (os.environ.get("EMBEDDING_MODEL") or "nomic-ai/nomic-embed-text-v2-moe").strip()
+_EMBEDDING_BACKEND = os.environ.get("EMBEDDING_BACKEND", "openai_api").strip().lower()
+# Must match at ingest and at MCP search. Default: nomic-embed (Ollama); for local use HuggingFace id.
+_EMBEDDING_MODEL = (os.environ.get("EMBEDDING_MODEL") or "nomic-embed-text-v2-moe").strip()
 _LMSTUDIO_PREFERRED_EMBEDDING_MODELS = (
     "nomic-embed",  # nomic-embed-text-v2-moe (multilingual, 768), nomic-embed-text
     "paraphrase-multilingual",
@@ -55,7 +54,7 @@ _LMSTUDIO_PREFERRED_EMBEDDING_MODELS = (
 if "EMBEDDING_API_URL" in os.environ:
     _EMBEDDING_API_URL = (os.environ.get("EMBEDDING_API_URL") or "").strip().rstrip("/")
 else:
-    _EMBEDDING_API_URL = "http://localhost:1234/v1"
+    _EMBEDDING_API_URL = "http://localhost:11434/v1"
 
 
 def _is_safe_embedding_url(url: str) -> bool:

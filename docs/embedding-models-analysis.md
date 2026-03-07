@@ -150,11 +150,11 @@ export PYTORCH_ENABLE_MPS_FALLBACK=1
 
 В коде при необходимости можно явно задать устройство для `SentenceTransformer` (например, `device="mps"` при доступности MPS). При нестабильности MPS для части операций используется fallback на CPU.
 
-### Если используете LM Studio или Ollama
+### Если используете Ollama (по умолчанию) или LM Studio
 
-- **Бэкенд:** `EMBEDDING_BACKEND=openai_api`
-- **EMBEDDING_API_URL:** `http://localhost:1234/v1` (LM Studio) или `http://localhost:11434/v1` (Ollama)
-- **Модель:** по умолчанию выбирается nomic-embed (nomic-embed-text-v2-moe); при необходимости задайте `EMBEDDING_MODEL` и `EMBEDDING_DIMENSION=768`.
+- **По умолчанию:** Ollama на `http://localhost:11434/v1`, модель `nomic-embed-text-v2-moe`. Ничего задавать не нужно после `ollama pull nomic-embed-text-v2-moe`.
+- **LM Studio:** задайте `EMBEDDING_API_URL=http://localhost:1234/v1`; модель по умолчанию nomic-embed-text-v2-moe.
+- **Модель:** при необходимости задайте `EMBEDDING_MODEL` и `EMBEDDING_DIMENSION=768`.
 
 Размерность задаётся через `EMBEDDING_DIMENSION` или определяется по первому ответу API.
 
@@ -181,8 +181,8 @@ python -m onec_help ingest
 |----------|--------------|
 | Нет внешнего API, нужна только скорость ingest | **deterministic** — семантический поиск отключён, работает BM25. |
 | Нет внешнего API, нужен семантический поиск по русскому | **local** (по умолчанию `nomic-ai/nomic-embed-text-v2-moe`, 768 dim). Требуется `pip install sentence-transformers`. |
-| Запущен **LM Studio** | **openai_api** + `EMBEDDING_API_URL=http://localhost:1234/v1`. Модель по приоритету: nomic-embed, paraphrase-multilingual и др.; размерность 768 по умолчанию. |
-| Запущен **Ollama** | **openai_api** + `EMBEDDING_API_URL=http://localhost:11434/v1` + `EMBEDDING_MODEL=nomic-embed-text-v2-moe` (по умолчанию). `EMBEDDING_DIMENSION=768`. |
+| **Ollama (по умолчанию)** | **openai_api** + `EMBEDDING_API_URL=http://localhost:11434/v1` (дефолт). Модель `nomic-embed-text-v2-moe`, 768 dim. Работает из коробки. |
+| Запущен **LM Studio** | **openai_api** + `EMBEDDING_API_URL=http://localhost:1234/v1`. Модель nomic-embed-text-v2-moe; размерность 768. |
 
 Для наших целей (справка 1С, русский текст) по умолчанию везде **nomic-embed** (768 dim): local, openai_api (Ollama/LM Studio), deterministic. При недоступности API код переходит на deterministic-векторы 768 dim, поиск продолжает работать за счёт BM25.
 

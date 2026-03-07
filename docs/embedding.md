@@ -10,8 +10,8 @@
 
 | Бэкенд | Описание | Размерность |
 |--------|----------|-------------|
-| **local** | По умолчанию. sentence-transformers, модель **nomic-embed-text-v2-moe** (HuggingFace: nomic-ai/nomic-embed-text-v2-moe, 768 dim, 100+ языков). Размерность по модели; при недоступности — из Qdrant или EMBEDDING_DIMENSION. | авто |
-| **openai_api** | LM Studio (localhost:1234), Ollama, OpenAI-совместимый API. Размерность — по ответу API; при недоступности API используется deterministic-вектор с размерностью из Qdrant или EMBEDDING_DIMENSION. | авто |
+| **openai_api** | По умолчанию. Ollama (localhost:11434), модель nomic-embed-text-v2-moe (768). Работает из коробки после `ollama pull nomic-embed-text-v2-moe`. Также LM Studio (1234), любой OpenAI-совместимый API. | авто |
+| **local** | sentence-transformers (HuggingFace: nomic-ai/nomic-embed-text-v2-moe, 768 dim). Размерность по модели. | авто |
 | **deterministic** | Хэш без модели (NFC, токены). Размерность берётся из коллекции Qdrant, затем EMBEDDING_DIMENSION, иначе последний резерв (768). | из БД / env |
 | **none** | Плейсхолдер (hash). Размерность — как у deterministic. | из БД / env |
 
@@ -62,14 +62,14 @@
 
 | Переменная | Описание | По умолчанию |
 |------------|----------|--------------|
-| EMBEDDING_BACKEND | local (по умолчанию), openai_api, deterministic, none | local |
-| EMBEDDING_MODEL | Имя модели. Для local — HuggingFace (по умолчанию nomic-ai/nomic-embed-text-v2-moe); для openai_api — id в LM Studio / Ollama (nomic-embed-text-v2-moe) | nomic-ai/nomic-embed-text-v2-moe |
-| EMBEDDING_API_URL | URL LM Studio / OpenAI-совместимого API | http://localhost:1234/v1 |
+| EMBEDDING_BACKEND | openai_api (по умолчанию, Ollama), local, deterministic, none | openai_api |
+| EMBEDDING_MODEL | Имя модели. По умолчанию nomic-embed-text-v2-moe (Ollama). Для local — HuggingFace id nomic-ai/nomic-embed-text-v2-moe | nomic-embed-text-v2-moe |
+| EMBEDDING_API_URL | URL Ollama / LM Studio / OpenAI-совместимого API | http://localhost:11434/v1 |
 | EMBEDDING_DIMENSION | Размерность при openai_api | авто |
-| EMBEDDING_BATCH_SIZE | Размер батча | 64 |
-| EMBEDDING_WORKERS | Параллельных воркеров (только openai_api) | 4 |
+| EMBEDDING_BATCH_SIZE | Размер батча | 32 |
+| EMBEDDING_WORKERS | Параллельных воркеров (только openai_api) | 2 |
 | EMBEDDING_MAX_CONCURRENT | Глобальный семафор для API; ожидание слота — таймаут 300 с (избежание deadlock) | нет |
-| EMBEDDING_TIMEOUT | Таймаут одиночного запроса (с) | 60 |
+| EMBEDDING_TIMEOUT | Таймаут одиночного запроса (с) | 90 |
 | EMBEDDING_BATCH_TIMEOUT | Таймаут batch-запроса (с) | max(timeout, 30 + batch/10) |
 | EMBEDDING_FORCE_BATCH | 1/true — макс. батч (256) и воркеры (16) | 0 |
 | EMBEDDING_CACHE_SIZE | Макс. записей кэша по хэшу текста (local/openai_api). 0 — кэш отключён. Снижает повторные отправки при повторных запусках. | 10000 |

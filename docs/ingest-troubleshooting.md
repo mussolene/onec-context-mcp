@@ -30,7 +30,7 @@
 
 - **ingest.log:** последняя строка — `[embedding] embedding API batch error (64 texts), retrying with smaller batches: TimeoutError`. Узкое место — запрос к LM Studio (батч 64 не укладывается в таймаут).
 - **Qdrant логи:** только GET /collections, GET /collections/…, POST …/scroll, все ответы 200 за 0.0001–0.07 с. Записей (PUT/upsert) в последних строках нет — дашборд только опрашивает коллекции; ingest не доходит до записи, т.к. ждёт векторы от API.
-- **Контейнер ingest-worker:** `EMBEDDING_TIMEOUT=60`, `EMBEDDING_BATCH_SIZE=64`, `EMBEDDING_WORKERS=4`. При 60 с и батче 64 LM Studio на хосте (host.docker.internal:1234) не успевает ответить.
+- **Контейнер ingest-worker:** по умолчанию Ollama (host.docker.internal:11434). При таймаутах увеличьте `EMBEDDING_TIMEOUT` или уменьшите `EMBEDDING_BATCH_SIZE`/`EMBEDDING_WORKERS`.
 
 **Вывод:** проблема не в Qdrant и не в Redis; задержка из‑за **API эмбеддингов (LM Studio)**. По умолчанию в коде и compose уже заданы `EMBEDDING_TIMEOUT=90`, `EMBEDDING_BATCH_SIZE=32`, `EMBEDDING_WORKERS=2`; при необходимости можно увеличить таймаут до 120 в `.env`.
 
@@ -168,7 +168,7 @@ docker exec <ingest-worker-container> tail -500 /app/var/ingest_cache/ingest_std
 
 ## 4c. LM Studio и сеть
 
-- Убедиться, что **LM Studio запущен** и слушает порт (по умолчанию 1234). В контейнере используется `EMBEDDING_API_URL=http://host.docker.internal:1234/v1`.
+- Убедиться, что **Ollama запущен** на хосте (по умолчанию порт 11434). В контейнере используется `EMBEDDING_API_URL=http://host.docker.internal:11434/v1`. Для LM Studio задайте `EMBEDDING_API_URL=http://host.docker.internal:1234/v1`.
 - При нестабильном ответе или 429: уменьшить батч/воркеры и задать `EMBEDDING_MAX_CONCURRENT`; проверить логи LM Studio на хосте на предмет перегрузки и ограничений.
 
 ---
@@ -187,7 +187,7 @@ docker exec <ingest-worker-container> tail -500 /app/var/ingest_cache/ingest_std
    ```
    Искать: `[watchdog] load-standards exited 1:` или `load-snippets exited 1:` и текст после (например «Embedding not available»).
 
-2. **Доступность API эмбеддингов** из контейнера ingest-worker: в нём задано `EMBEDDING_API_URL=http://host.docker.internal:1234/v1`. Убедиться, что LM Studio (или другой сервис) запущен на хосте и слушает порт 1234.
+2. **Доступность API эмбеддингов** из контейнера ingest-worker: по умолчанию `EMBEDDING_API_URL=http://host.docker.internal:11434/v1` (Ollama). Убедиться, что Ollama запущен на хосте и слушает порт 11434; при использовании LM Studio задайте порт 1234 в .env.
 
 3. **Запуск вручную** для проверки:
    ```bash

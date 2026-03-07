@@ -77,7 +77,7 @@
 
 ## Конфиденциальность и NDA
 
-- **Embedding API:** текст справки 1С и поисковые запросы отправляются на внешний сервис (LM Studio, OpenAI и т.п.). При работе с конфиденциальными данными или NDA используйте on-prem сервис эмбеддингов (EMBEDDING_API_URL на внутренний хост).
+- **Embedding API:** по умолчанию Ollama (localhost:11434), модель nomic-embed-text-v2-moe. Текст справки и поисковые запросы отправляются на этот сервис; при конфиденциальных данных используйте on-prem (EMBEDDING_API_URL на внутренний хост).
 - **Memory (MEMORY_ENABLED=1):** история сессий (topic_path, save_snippet, exchange) хранится в JSONL и Qdrant. Учитывайте политику хранения и доступ к этим данным.
 - **save_1c_snippet:** сохранённый код пишется в memory. При SAVE_SNIPPET_TO_FILES=1 — также в SNIPPETS_DIR. При конфиденциальном коде настройте SNIPPETS_DIR и MEMORY_BASE_PATH в защищённое место.
 - **Логи:** в production (PRODUCTION=1) в ответах API и логах не раскрываются полные пути и текст исключений.
