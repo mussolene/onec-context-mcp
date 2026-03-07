@@ -142,12 +142,17 @@ def run_watchdog(
     last_snippets = _load_state(_watchdog_snippets_state_path())
 
     last_pending = 0.0
+    last_ingest_failed = False
     poll = max(60, poll_interval_sec)
     pending_int = max(60, pending_interval_sec)
     while True:
         try:
             now = time.time()
             current = _scan_hbk_like_ingest(base)
+            # Retry ingest on next poll if previous run failed (recovery after crash/OOM)
+            if last_ingest_failed and current:
+                print("[watchdog] retrying ingest after previous failure", file=sys.stderr, flush=True)
+                last_ingest_failed = not _run_ingest()
             if current != last_hbk:
                 prev_keys = set(last_hbk)
                 curr_keys = set(current)
@@ -163,7 +168,7 @@ def run_watchdog(
                 last_hbk = current
                 _save_state(cache_path, current)
                 if current:
-                    _run_ingest()
+                    last_ingest_failed = not _run_ingest()
 
             if standards_dir.exists():
                 current_std = _scan_standards_dir(standards_dir)
@@ -199,17 +204,30 @@ def run_watchdog(
         time.sleep(poll)
 
 
-def _run_ingest() -> None:
-    """Run full ingest (python -m onec_help ingest)."""
+def _run_ingest() -> bool:
+    """Run full ingest (python -m onec_help ingest). Returns True if exit code was 0, False otherwise."""
     try:
-        subprocess.run(
+        result = subprocess.run(
             [sys.executable, "-m", "onec_help", "ingest"],
             capture_output=True,
             timeout=3600,
             env=os.environ.copy(),
         )
+        if result.returncode != 0:
+            print(
+                f"[watchdog] ingest failed (exit {result.returncode}), will retry on next poll",
+                file=sys.stderr,
+                flush=True,
+            )
+            return False
+        return True
     except (subprocess.TimeoutExpired, OSError) as e:
-        print(f"[watchdog] ingest failed: {safe_error_message(e)}", file=sys.stderr, flush=True)
+        print(
+            f"[watchdog] ingest failed: {safe_error_message(e)}, will retry on next poll",
+            file=sys.stderr,
+            flush=True,
+        )
+        return False
 
 
 def _run_load_standards(standards_dir: str) -> None:

@@ -21,6 +21,13 @@ def _env_path(name: str, default=None):
     return default
 
 
+def _load_operation_running_path(name: str) -> Path:
+    """Path to marker file so index-status can show 'Standards/Snippets: loading…'."""
+    from .ingest import _ingest_cache_path
+
+    return Path(_ingest_cache_path()).parent / f"load_{name}.running"
+
+
 def cmd_unpack(args: argparse.Namespace) -> int:
     """Unpack .hbk with 7z."""
     from .unpack import unpack_hbk
@@ -137,7 +144,15 @@ def _short_error(err: str, max_len: int = 40) -> str:
 
 
 def _render_index_status_compact(
-    s, collections, ingest, snippets, spinner, format_duration
+    s,
+    collections,
+    ingest,
+    snippets,
+    spinner,
+    format_duration,
+    *,
+    standards_loading: bool = False,
+    snippets_loading: bool = False,
 ) -> tuple[str, int]:
     """Single-line compact output (for piping/scripts)."""
     prefix = f"{spinner} index-status".strip() if spinner else "index-status"
@@ -234,8 +249,8 @@ def _render_index_status_compact(
             err = f"Failed: {total_err}"
             if failed_tasks:
                 ft = failed_tasks[0]
-                short = (ft.get("path") or "").replace(".hbk", "") or ft.get("error", "")[:20]
-                err += f" {short}:{_short_error(ft.get('error', ''))}"
+                short = (ft.get("path") or "").replace(".hbk", "") or "?"
+                err += f" {short}: {_short_error(ft.get('error', ''), max_len=80)}"
             parts.append(err)
     if snippets:
         fp = snippets.get("files_processed", 0)
@@ -254,11 +269,25 @@ def _render_index_status_compact(
         if elapsed is not None and elapsed > 0:
             snip_str += f" {format_duration(elapsed)}"
         parts.append(snip_str)
+    if standards_loading:
+        parts.append("Standards: loading…")
+    if snippets_loading:
+        parts.append("Snippets: loading…")
     return f"{prefix} │ {' │ '.join(parts)}\n", 0
 
 
 def _render_index_status_rich(
-    s, collections, ingest, snippets, spinner, format_duration, host, port
+    s,
+    collections,
+    ingest,
+    snippets,
+    spinner,
+    format_duration,
+    host,
+    port,
+    *,
+    standards_loading: bool = False,
+    snippets_loading: bool = False,
 ) -> tuple[str, int]:
     """Rich multi-line status: collections, operations, current files, elapsed, ETA, errors."""
     lines: list[str] = []
@@ -449,7 +478,8 @@ def _render_index_status_rich(
                 )
                 + "│"
             )
-            for ft in failed_tasks[:10]:
+            err_max_len = max(w - 8, 60)
+            for ft in failed_tasks[:20]:
                 path_raw = ft.get("path") or "?"
                 path = path_raw.replace(".hbk", "")
                 err = (ft.get("error") or "").strip()
@@ -459,10 +489,19 @@ def _render_index_status_rich(
                     path = "…" + path[-(w - 11) :]
                 line(f"│   {ver}/{lang} {path}".ljust(w - 1) + "│")
                 if err:
-                    err_short = err[: (w - 8)] + ("…" if len(err) > w - 8 else "")
-                    line(f"│     → {err_short}".ljust(w - 1) + "│")
-            if len(failed_tasks) > 10:
-                line(f"│   ... +{len(failed_tasks) - 10} more".ljust(w - 1) + "│")
+                    err_chunk1 = err[:err_max_len]
+                    err_chunk2 = err[err_max_len: err_max_len * 2] if len(err) > err_max_len else ""
+                    for err_line in [err_chunk1, err_chunk2]:
+                        if not err_line:
+                            continue
+                        err_short = err_line + ("…" if len(err_line) >= err_max_len else "")
+                        line(f"│     → {err_short}".ljust(w - 1) + "│")
+            if len(failed_tasks) > 20:
+                line(f"│   ... +{len(failed_tasks) - 20} more".ljust(w - 1) + "│")
+        elif total_err > 0:
+            line(f"├{sep}┤")
+            line(f"│ Failed ({total_err})".ljust(w - 1) + "│")
+            line(f"│   (re-run ingest to capture error details)".ljust(w - 1) + "│")
         elif completed:
             line(f"├{sep}┤")
             line(f"│ Files (per file) {''.rjust(w - 18)}│")
@@ -525,6 +564,13 @@ def _render_index_status_rich(
         if elapsed is not None and elapsed > 0:
             snip_line += f" in {format_duration(elapsed)}"
         line(f"│ {snip_line}".ljust(w - 1) + "│")
+
+    if standards_loading or snippets_loading:
+        line(f"├{sep}┤")
+        if standards_loading:
+            line(f"│ Standards: loading…".ljust(w - 1) + "│")
+        if snippets_loading:
+            line(f"│ Snippets: loading…".ljust(w - 1) + "│")
 
     line(f"└{sep}┘")
     return "\n".join(lines) + "\n", 0
@@ -595,15 +641,41 @@ def _render_index_status(*, spinner: str = "", compact: bool = False) -> tuple[s
 
     snippets = read_last_snippets_run()
 
+    # Background operations (load-standards / load-snippets in progress)
+    try:
+        from .ingest import _ingest_cache_path
+
+        _cache_dir = Path(_ingest_cache_path()).parent
+        standards_loading = (_cache_dir / "load_standards.running").exists()
+        snippets_loading = (_cache_dir / "load_snippets.running").exists()
+    except Exception:
+        standards_loading = snippets_loading = False
+
     # --- Compact (single line) ---
     if compact:
         return _render_index_status_compact(
-            s, collections, ingest, snippets, spinner, format_duration
+            s,
+            collections,
+            ingest,
+            snippets,
+            spinner,
+            format_duration,
+            standards_loading=standards_loading,
+            snippets_loading=snippets_loading,
         )
 
     # --- Rich multi-line ---
     return _render_index_status_rich(
-        s, collections, ingest, snippets, spinner, format_duration, host, port
+        s,
+        collections,
+        ingest,
+        snippets,
+        spinner,
+        format_duration,
+        host,
+        port,
+        standards_loading=standards_loading,
+        snippets_loading=snippets_loading,
     )
 
 
@@ -616,6 +688,7 @@ def cmd_index_status(args: argparse.Namespace) -> int:
     watch = getattr(args, "watch", False)
     interval = float(getattr(args, "interval", 2))
     compact = getattr(args, "compact", False)
+    exit_when_done = getattr(args, "exit_when_done", False)
     tick = [0]
 
     def _print_update() -> int:
@@ -635,7 +708,8 @@ def cmd_index_status(args: argparse.Namespace) -> int:
                 sys.stdout.write("\033[H\033[J")  # clear screen, cursor home
                 try:
                     intv = int(interval)
-                    sys.stdout.write(f"\033[1;1H\033[K⟳ refresh {intv}s  Ctrl+C to stop\n")
+                    hint = "Ctrl+C to stop" if not exit_when_done else "exit when idle"
+                    sys.stdout.write(f"\033[1;1H\033[K⟳ refresh {intv}s  {hint}\n")
                 except (ValueError, OSError):
                     pass
             print(out, end="")
@@ -650,10 +724,16 @@ def cmd_index_status(args: argparse.Namespace) -> int:
     try:
         while True:
             _print_update()
+            if exit_when_done:
+                from .ingest import read_ingest_status
+
+                if read_ingest_status() is None:
+                    break
             time.sleep(interval)
     except KeyboardInterrupt:
         progress_done("")
         return 0
+    return 0
 
 
 def cmd_unpack_dir(args: argparse.Namespace) -> int:
@@ -1071,62 +1151,70 @@ def cmd_load_snippets(args: argparse.Namespace) -> int:
             record_snippets_run(0, len(sources), 0, started_at)
             return 0
 
-        if files_skipped > 0:
-            print(
-                f"load-snippets │ Cache hit: skip {files_skipped} unchanged; loading {len(to_load)}",
-                file=sys.stderr,
+        _snippets_marker = _load_operation_running_path("snippets")
+        try:
+            _snippets_marker.write_text(str(started_at), encoding="utf-8")
+        except OSError:
+            pass
+        try:
+            if files_skipped > 0:
+                print(
+                    f"load-snippets │ Cache hit: skip {files_skipped} unchanged; loading {len(to_load)}",
+                    file=sys.stderr,
+                )
+
+            items: list[dict] = []
+            folder_ext = frozenset({".bsl", ".1c", ".md"})
+            per_func = getattr(args, "per_function", False)
+
+            for path, stype in to_load:
+                path = Path(path).resolve()
+                src_items = (
+                    _load_json_items(path)
+                    if stype == "json"
+                    else _load_folder_items(path, per_func=per_func)
+                )
+                items.extend(src_items)
+                # Update cache per source
+                key = str(path)
+                sig = _file_signature(path) if stype == "json" else _folder_signature(path, folder_ext)
+                if sig:
+                    update_snippets_cache(key, sig, len(src_items))
+
+            if not items:
+                print("No snippets to load.", file=sys.stderr)
+                return 0
+
+            by_domain: dict[str, list[dict]] = {"snippets": [], "community_help": []}
+            for it in items:
+                t = (it.get("type") or "snippet").lower()
+                domain = "community_help" if t == "reference" else "snippets"
+                by_domain[domain].append(it)
+
+            def _progress(loaded: int, tot: int, skipped: int) -> None:
+                progress_line(
+                    f"load-snippets │ {loaded + skipped}/{tot} │ {loaded} loaded │ {skipped} skip"
+                )
+
+            store = get_memory_store()
+            total_loaded = 0
+            domain_counts: list[str] = []
+            for domain, domain_items in by_domain.items():
+                if not domain_items:
+                    continue
+                n = store.upsert_curated_snippets(
+                    domain_items, progress_callback=_progress, domain=domain
+                )
+                total_loaded += n
+                domain_counts.append(f"{domain}={n}")
+
+            record_snippets_run(len(to_load), files_skipped, total_loaded, started_at)
+            progress_done(
+                f"load-snippets │ ✓ {total_loaded} loaded ({', '.join(domain_counts)}) → onec_help_memory"
             )
-
-        items: list[dict] = []
-        folder_ext = frozenset({".bsl", ".1c", ".md"})
-        per_func = getattr(args, "per_function", False)
-
-        for path, stype in to_load:
-            path = Path(path).resolve()
-            src_items = (
-                _load_json_items(path)
-                if stype == "json"
-                else _load_folder_items(path, per_func=per_func)
-            )
-            items.extend(src_items)
-            # Update cache per source
-            key = str(path)
-            sig = _file_signature(path) if stype == "json" else _folder_signature(path, folder_ext)
-            if sig:
-                update_snippets_cache(key, sig, len(src_items))
-
-        if not items:
-            print("No snippets to load.", file=sys.stderr)
             return 0
-
-        by_domain: dict[str, list[dict]] = {"snippets": [], "community_help": []}
-        for it in items:
-            t = (it.get("type") or "snippet").lower()
-            domain = "community_help" if t == "reference" else "snippets"
-            by_domain[domain].append(it)
-
-        def _progress(loaded: int, tot: int, skipped: int) -> None:
-            progress_line(
-                f"load-snippets │ {loaded + skipped}/{tot} │ {loaded} loaded │ {skipped} skip"
-            )
-
-        store = get_memory_store()
-        total_loaded = 0
-        domain_counts: list[str] = []
-        for domain, domain_items in by_domain.items():
-            if not domain_items:
-                continue
-            n = store.upsert_curated_snippets(
-                domain_items, progress_callback=_progress, domain=domain
-            )
-            total_loaded += n
-            domain_counts.append(f"{domain}={n}")
-
-        record_snippets_run(len(to_load), files_skipped, total_loaded, started_at)
-        progress_done(
-            f"load-snippets │ ✓ {total_loaded} loaded ({', '.join(domain_counts)}) → onec_help_memory"
-        )
-        return 0
+        finally:
+            _snippets_marker.unlink(missing_ok=True)
     except json.JSONDecodeError as e:
         print(f"Error: invalid JSON: {e}", file=sys.stderr)
         return 1
@@ -1238,11 +1326,18 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
         # ITS v8std only: dirs_to_load stays empty
 
     try:
+        import time as _time
         import shutil as _shutil
 
         from ._utils import progress_done, progress_line
         from .memory import get_memory_store
         from .standards_loader import collect_from_folder
+
+        _marker = _load_operation_running_path("standards")
+        try:
+            _marker.write_text(str(_time.time()), encoding="utf-8")
+        except OSError:
+            pass
 
         # Копировать загруженные репо в папку standards (если загрузка из репо, а не из path)
         if temp_dirs:
@@ -1335,6 +1430,7 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
     finally:
         import shutil
 
+        _load_operation_running_path("standards").unlink(missing_ok=True)
         for tmp in temp_dirs:
             shutil.rmtree(tmp, ignore_errors=True)
 
@@ -2127,6 +2223,11 @@ def main() -> int:
         default=2,
         metavar="SEC",
         help="Refresh interval for --watch (default: 2)",
+    )
+    p_status.add_argument(
+        "--exit-when-done",
+        action="store_true",
+        help="In --watch mode: exit when no ingest is running (no active indexing)",
     )
     p_status.add_argument(
         "--compact",

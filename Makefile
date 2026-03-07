@@ -42,7 +42,7 @@ deps/mcp-bsl-lsp-bridge/.git/HEAD:
 
 fetch-bsl-bridge: deps/mcp-bsl-lsp-bridge/.git/HEAD
 .PHONY: init init-full reinit reinit-full ingest ingest-full build-index build-index-full add-bm25 add-bm25-full
-.PHONY: index-status index-status-full watch-index-status watch-index-status-full unpack-help help
+.PHONY: index-status index-status-full watch-index-status watch-index-status-done watch-index-status-full unpack-help help
 
 WATCH_INTERVAL ?= 2
 
@@ -121,9 +121,12 @@ index-status:
 index-status-full:
 	$(COMPOSE_FULL) exec mcp python -m onec_help index-status
 
-# Watch index status
+# Watch index status (Ctrl+C to stop). Use watch-index-status-done to exit when ingest finishes.
 watch-index-status:
 	$(COMPOSE) exec -it $(INDEX_STATUS_SERVICE) python -m onec_help index-status --watch --interval $(WATCH_INTERVAL)
+
+watch-index-status-done:
+	$(COMPOSE) exec -it $(INDEX_STATUS_SERVICE) python -m onec_help index-status --watch --interval $(WATCH_INTERVAL) --exit-when-done
 
 watch-index-status-full:
 	$(COMPOSE_FULL) exec -it mcp python -m onec_help index-status --watch --interval $(WATCH_INTERVAL)
@@ -217,7 +220,8 @@ help:
 	@echo "  make build-index      Индексация из папки (ARGS=путь)"
 	@echo "  make add-bm25         Добавить BM25 sparse vectors (без re-ingest)"
 	@echo "  make index-status     Статус индекса"
-	@echo "  make watch-index-status  Статус в реальном времени"
+	@echo "  make watch-index-status       Статус в реальном времени (Ctrl+C — выход)"
+	@echo "  make watch-index-status-done  То же, выход когда индексация не идёт"
 	@echo "  make fetch-bsl-bridge  Клонировать mcp-bsl-lsp-bridge (для Windows)"
 	@echo "  make up               Start qdrant + mcp (по умолчанию только эти два)"
 	@echo "  make ingest-up        Start + ingest-worker (watchdog, индексация)"

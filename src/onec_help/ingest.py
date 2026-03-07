@@ -1223,7 +1223,7 @@ def run_ingest(
                         shutil.rmtree(md_dir.parent)
                     except OSError:
                         pass
-                    raise
+                    # Continue with next task instead of raising (recovery: remaining files still get indexed)
     finally:
         # Всегда пишем завершение в кэш — index-status читает реальный статус из той же БД
         with state_lock:
