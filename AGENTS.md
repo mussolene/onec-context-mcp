@@ -27,6 +27,8 @@
 3. **Распаковка по умолчанию** — ingest пишет в **data/unpacked** (DATA_UNPACKED_DIR) структуру **version/stem** (run_unpack_sync), затем run_ingest_from_unpacked индексирует из неё. Команда **ingest-from-unpacked** ожидает именно эту структуру; вывод **unpack-dir** (version/lang/name) с ней не совместим. INGEST_USE_TEMP=1 — временная папка с удалением после индексации.
 4. **Watchdog** — state в INGEST_CACHE (watchdog_hbk_cache.json); при рестарте неизменённые .hbk пропускаются по кэшу. Также следит за **STANDARDS_DIR** и **SNIPPETS_DIR**: при изменении файлов (.md в standards, .json/.bsl/.1c/.md в snippets) автоматически запускает load-standards и load-snippets (как ingest для .hbk).
 5. **reinit --force** — стирает коллекции и кэш, затем init; полная переиндексация ожидаема.
+6. **Сброс только Qdrant** (volume/контейнер пересоздан, кэш остался): справка не восстанавливается (ingest всё пропускает по кэшу), сниппеты при следующем load-snippets снова появятся. Решение: `reinit --force` или очистить кэш (ingest_cache.db) и запустить ingest. Подробно: `docs/ingest-troubleshooting.md` §5.
+7. **Сниппеты/стандарты грузятся при каждом старте:** раньше watchdog и кэш load-snippets опирались на **mtime** (время изменения файла). После перезапуска контейнера или нового монтирования volume mtime мог меняться → «каталог изменился» → load-snippets запускался каждый раз. Теперь: подпись каталога в кэше — по **(path, size)**; watchdog сравнивает состояние по **path → size**. После рестарта те же файлы с теми же размерами не считаются изменёнными.
 
 ### Ingest завис (0 done, прогресс не растёт)
 

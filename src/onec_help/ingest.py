@@ -1575,6 +1575,28 @@ def run_ingest_from_unpacked(
         _log(f"[ingest-from-unpacked] Cache hit: skip {skipped} already indexed (unchanged)")
     tasks = tasks_to_do
     if not tasks:
+        # All skipped by cache — verify collection has data (user may have reset Qdrant only)
+        try:
+            from qdrant_client import QdrantClient
+
+            client = QdrantClient(host=qdrant_host, port=qdrant_port, check_compatibility=False)
+            if not client.collection_exists(collection):
+                _log(
+                    "[ingest-from-unpacked] WARN: All tasks skipped by cache but collection "
+                    f"'{collection}' does not exist. Qdrant was likely reset. Clear ingest cache and "
+                    "re-run ingest, or run: reinit --force"
+                )
+            else:
+                info = client.get_collection(collection)
+                pts = info.points_count if hasattr(info, "points_count") else 0
+                if pts == 0 and skipped > 0:
+                    _log(
+                        "[ingest-from-unpacked] WARN: All tasks skipped by cache but collection "
+                        f"'{collection}' has 0 points. Qdrant was likely reset. Clear ingest cache "
+                        "(or reinit --force) and re-run ingest to re-index help."
+                    )
+        except Exception as e:
+            _log(f"[ingest-from-unpacked] Could not check collection: {safe_error_message(e)}")
         return 0
 
     embedding_backend = (os.environ.get("EMBEDDING_BACKEND") or "local").strip().lower()

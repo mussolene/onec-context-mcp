@@ -57,22 +57,26 @@ def _file_signature(path: Path) -> str | None:
 
 
 def _folder_signature(folder: Path, extensions: frozenset[str] | None = None) -> str | None:
-    """Signature for folder: hash of sorted (relpath, mtime) for matching files."""
+    """Signature for folder: hash of sorted (relpath, size). Uses size (not mtime) so it is stable across container restarts and volume remounts."""
     exts = extensions or {".bsl", ".1c", ".md"}
     try:
-        parts: list[tuple[str, float]] = []
+        parts: list[tuple[str, int]] = []
         for f in folder.rglob("*"):
             if not f.is_file():
                 continue
             if f.suffix.lower() not in exts:
                 continue
             try:
+                st = f.stat()
                 rel = str(f.relative_to(folder))
-                parts.append((rel, f.stat().st_mtime))
+                parts.append((rel, st.st_size))
             except (ValueError, OSError):
                 continue
         if not parts:
-            return f"empty:{folder.stat().st_mtime}"
+            try:
+                return f"empty:{folder.stat().st_size}"
+            except OSError:
+                return None
         parts.sort(key=lambda x: x[0])
         raw = json.dumps(parts, sort_keys=True)
         return hashlib.sha256(raw.encode()).hexdigest()

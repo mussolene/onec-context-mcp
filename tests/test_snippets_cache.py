@@ -39,7 +39,7 @@ def test_folder_signature(tmp_path: Path) -> None:
 
 
 def test_folder_signature_empty_returns_empty_marker(tmp_path: Path) -> None:
-    """_folder_signature for empty folder returns empty:mtime."""
+    """_folder_signature for empty folder returns empty:<size> (stable across restarts)."""
     sig = _folder_signature(tmp_path)
     assert sig is not None
     assert sig.startswith("empty:")

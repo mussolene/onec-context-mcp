@@ -53,6 +53,20 @@ def _scan_dir_by_ext(dir_path: Path, exts: frozenset[str]) -> dict[str, float]:
     return out
 
 
+def _scan_dir_by_ext_sizes(dir_path: Path, exts: frozenset[str]) -> dict[str, int]:
+    """Scan directory; return path -> size. Stable across restarts (no mtime)."""
+    out: dict[str, int] = {}
+    if not dir_path.exists() or not dir_path.is_dir():
+        return out
+    for f in dir_path.rglob("*"):
+        if f.is_file() and f.suffix.lower() in exts:
+            try:
+                out[str(f.resolve())] = f.stat().st_size
+            except OSError:
+                pass
+    return out
+
+
 def _scan_standards_dir(standards_dir: Path) -> dict[str, float]:
     """Scan STANDARDS_DIR for .md files (same as load-standards / collect_from_folder)."""
     return _scan_dir_by_ext(standards_dir, _STANDARDS_EXT)
@@ -61,6 +75,16 @@ def _scan_standards_dir(standards_dir: Path) -> dict[str, float]:
 def _scan_snippets_dir(snippets_dir: Path) -> dict[str, float]:
     """Scan SNIPPETS_DIR for .json, .bsl, .1c, .md (sources used by load-snippets)."""
     return _scan_dir_by_ext(snippets_dir, _SNIPPETS_EXT)
+
+
+def _scan_standards_dir_stable(standards_dir: Path) -> dict[str, int]:
+    """Scan STANDARDS_DIR; return path -> size. For watchdog state (stable across restarts)."""
+    return _scan_dir_by_ext_sizes(standards_dir, _STANDARDS_EXT)
+
+
+def _scan_snippets_dir_stable(snippets_dir: Path) -> dict[str, int]:
+    """Scan SNIPPETS_DIR; return path -> size. For watchdog state (stable across restarts)."""
+    return _scan_dir_by_ext_sizes(snippets_dir, _SNIPPETS_EXT)
 
 
 def _scan_hbk_like_ingest(base: Path | None = None) -> dict[str, float]:
@@ -135,11 +159,11 @@ def run_watchdog(
 
     standards_dir_str = (os.environ.get("STANDARDS_DIR") or "data/standards").strip()
     standards_dir = Path(standards_dir_str).resolve()
-    last_standards = _load_state(_watchdog_standards_state_path())
+    last_standards: dict[str, int | float] = _load_state(_watchdog_standards_state_path())
 
     snippets_dir_str = (os.environ.get("SNIPPETS_DIR") or "data/snippets").strip()
     snippets_dir = Path(snippets_dir_str).resolve()
-    last_snippets = _load_state(_watchdog_snippets_state_path())
+    last_snippets: dict[str, int | float] = _load_state(_watchdog_snippets_state_path())
 
     last_pending = 0.0
     last_ingest_failed = False
@@ -173,7 +197,7 @@ def run_watchdog(
                     last_ingest_failed = not _run_ingest()
 
             if standards_dir.exists():
-                current_std = _scan_standards_dir(standards_dir)
+                current_std = _scan_standards_dir_stable(standards_dir)
                 if current_std != last_standards:
                     if last_standards or current_std:
                         print(
@@ -186,7 +210,7 @@ def run_watchdog(
                     _run_load_standards(standards_dir_str)
 
             if snippets_dir.exists():
-                current_snip = _scan_snippets_dir(snippets_dir)
+                current_snip = _scan_snippets_dir_stable(snippets_dir)
                 if current_snip != last_snippets:
                     if last_snippets or current_snip:
                         print(
