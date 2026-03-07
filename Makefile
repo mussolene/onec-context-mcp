@@ -114,8 +114,9 @@ add-bm25:
 add-bm25-full:
 	$(COMPOSE_FULL) exec mcp python -m onec_help add-bm25 $(ARGS)
 
-# Dashboard (Tasks, Errors, Qdrant, versions 1C). ARGS='--once' — один кадр.
+# Dashboard (Tasks, Errors, Qdrant, versions 1C). Работает пока не прервать (Ctrl+C). ARGS='--once' — один кадр и выход.
 dashboard:
+	@echo "Dashboard (live). Ctrl+C to exit. One shot: make dashboard ARGS='--once'"
 	$(COMPOSE) exec -it $(INDEX_STATUS_SERVICE) python -m onec_help dashboard --interval $(WATCH_INTERVAL) $(ARGS)
 
 # Unpack .hbk без индексации

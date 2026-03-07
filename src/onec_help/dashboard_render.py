@@ -15,9 +15,8 @@ def render_dashboard(data: dict[str, Any]) -> Any:
 
     panels = []
 
-    # --- Panel 1: Tasks ---
-    tasks_lines: list[str] = []
-    tasks_extra_renderables: list[Any] = []  # ProgressBar(s) for current task(s)
+    # --- Panel 1: Tasks — summary lines + labeled progress bars stacked vertically ---
+    tasks_parts: list[Any] = []
     ingest = data.get("ingest")
     ingest_last = data.get("ingest_last_run")
     if ingest and ingest.get("status") == "in_progress":
@@ -32,15 +31,15 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 eta = f", ETA {format_duration(eta_sec)}"
             except (ZeroDivisionError, TypeError):
                 pass
-        tasks_lines.append(
-            f"Ingest: in progress {done}/{total}{eta} ({format_duration(elapsed)} elapsed)"
+        tasks_parts.append(
+            Text(f"Ingest: in progress {done}/{total}{eta} ({format_duration(elapsed)} elapsed)")
         )
-        # Show active tasks (one per worker in multi-threaded ingest, or single in from_unpacked)
         current_tasks = ingest.get("current") or []
         if current_tasks:
-            workers = len(current_tasks)
-            tasks_lines.append(f"  Active: {workers} task{'s' if workers != 1 else ''}")
-            for i, cur in enumerate(current_tasks[:10]):  # cap for display
+            tasks_parts.append(
+                Text(f"  Active: {len(current_tasks)} task{'s' if len(current_tasks) != 1 else ''}")
+            )
+            for i, cur in enumerate(current_tasks[:10]):
                 version = (cur.get("version") or "—")[:12]
                 lang = (cur.get("language") or "—")[:8]
                 path = (cur.get("path") or "—")[:36]
@@ -48,71 +47,83 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 pts = cur.get("points")
                 est = cur.get("estimated_total")
                 if pts is not None and est is not None and est > 0:
-                    progress = f" {pts}/{est} pts"
-                elif pts is not None:
-                    progress = f" {pts} pts"
+                    label = f"  [{i + 1}] {version} / {lang} — {path} — {stage} (embedding pts)"
+                    tasks_parts.append(Text(label))
+                    tasks_parts.append(
+                        ProgressBar(total=float(est), completed=float(pts), width=50)
+                    )
                 else:
-                    progress = ""
-                tasks_lines.append(f"    [{i + 1}] {version} / {lang} — {path} — {stage}{progress}")
-                # Progress bar for this task when we have points and total
-                if pts is not None and est is not None and est > 0:
-                    tasks_extra_renderables.append(
-                        ProgressBar(total=float(est), completed=float(pts), width=40)
+                    tasks_parts.append(
+                        Text(f"  [{i + 1}] {version} / {lang} — {path} — {stage}")
                     )
             if len(current_tasks) > 10:
-                tasks_lines.append(f"    … and {len(current_tasks) - 10} more")
-        # Fallback: single current-task bar from top-level payload (e.g. from_unpacked)
-        if not tasks_extra_renderables:
+                tasks_parts.append(Text(f"  … and {len(current_tasks) - 10} more"))
+        else:
             pts = ingest.get("current_task_points")
             est = ingest.get("current_task_estimated_total")
             if pts is not None and est is not None and est > 0:
-                tasks_extra_renderables.append(
-                    ProgressBar(total=float(est), completed=float(pts), width=40)
+                tasks_parts.append(Text("  Ingest current task (embedding pts)"))
+                tasks_parts.append(
+                    ProgressBar(total=float(est), completed=float(pts), width=50)
                 )
     elif ingest_last:
         total = ingest_last.get("total_tasks") or 0
         done = ingest_last.get("done_tasks") or 0
         failed = ingest_last.get("failed_count") or 0
         elapsed = ingest_last.get("total_elapsed_sec")
-        tasks_lines.append(
-            f"Ingest: last run {done}/{total} done"
-            + (f", {failed} failed" if failed else "")
-            + (f", {format_duration(elapsed)}" if elapsed is not None else "")
+        tasks_parts.append(
+            Text(
+                f"Ingest: last run {done}/{total} done"
+                + (f", {failed} failed" if failed else "")
+                + (f", {format_duration(elapsed)}" if elapsed is not None else "")
+            )
         )
     else:
-        tasks_lines.append("Ingest: —")
+        tasks_parts.append(Text("Ingest: —"))
 
+    tasks_parts.append(Text(""))  # spacer before Standards/Snippets
     standards_loading = data.get("standards_loading")
     standards_pts = data.get("standards_loading_pts")
     if standards_loading and standards_pts:
-        tasks_lines.append(
-            f"Standards: loading {standards_pts.get('loaded', 0)}/{standards_pts.get('total', 0)} pts"
+        loaded = standards_pts.get("loaded", 0)
+        tot_s = standards_pts.get("total", 0)
+        tasks_parts.append(
+            Text(f"Standards: загрузка в память (embedding + Qdrant) — {loaded}/{tot_s} pts")
+        )
+        tasks_parts.append(
+            ProgressBar(total=float(tot_s), completed=float(loaded), width=50)
         )
     elif standards_loading:
-        tasks_lines.append("Standards: loading…")
+        tasks_parts.append(Text("Standards: loading…"))
     else:
-        tasks_lines.append("Standards: —")
+        tasks_parts.append(Text("Standards: —"))
 
+    tasks_parts.append(Text(""))  # spacer before Snippets
     snippets_loading = data.get("snippets_loading")
     snippets_pts = data.get("snippets_loading_pts")
     snippets = data.get("snippets")
     if snippets_loading and snippets_pts:
-        tasks_lines.append(
-            f"Snippets: loading {snippets_pts.get('loaded', 0)}/{snippets_pts.get('total', 0)} pts"
+        loaded = snippets_pts.get("loaded", 0)
+        tot_sn = snippets_pts.get("total", 0)
+        tasks_parts.append(
+            Text(f"Snippets: загрузка в память (embedding + Qdrant) — {loaded}/{tot_sn} pts")
+        )
+        tasks_parts.append(
+            ProgressBar(total=float(tot_sn), completed=float(loaded), width=50)
         )
     elif snippets_loading:
-        tasks_lines.append("Snippets: loading…")
+        tasks_parts.append(Text("Snippets: loading…"))
     elif snippets:
         items = snippets.get("items_loaded")
-        tasks_lines.append(
-            f"Snippets: last run, {items} items" if items is not None else "Snippets: last run"
+        tasks_parts.append(
+            Text(
+                f"Snippets: last run, {items} items" if items is not None else "Snippets: last run"
+            )
         )
     else:
-        tasks_lines.append("Snippets: —")
+        tasks_parts.append(Text("Snippets: —"))
 
-    tasks_content: Any = "\n".join(tasks_lines)
-    if tasks_extra_renderables:
-        tasks_content = Group(Text("\n".join(tasks_lines)), "", *tasks_extra_renderables)
+    tasks_content: Any = Group(*tasks_parts)
     panels.append(Panel(tasks_content, title="[bold]Tasks[/bold]", border_style="blue"))
 
     # --- Panel 2: Errors ---

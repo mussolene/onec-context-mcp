@@ -158,7 +158,7 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
     from .dashboard_render import render_dashboard
 
     once = getattr(args, "once", False)
-    interval = max(0.5, float(getattr(args, "interval", 3)))
+    interval = max(0.5, float(getattr(args, "interval", 1.5)))
     qdrant_host = os.environ.get("QDRANT_HOST", "localhost")
     qdrant_port = int(os.environ.get("QDRANT_PORT", "6333"))
 
@@ -1745,9 +1745,9 @@ def main() -> int:
         "--interval",
         "-n",
         type=float,
-        default=3,
+        default=1.5,
         metavar="SEC",
-        help="Refresh interval in seconds when not --once (default: 3)",
+        help="Refresh interval in seconds when not --once (default: 1.5)",
     )
     p_dashboard.set_defaults(func=cmd_dashboard)
 

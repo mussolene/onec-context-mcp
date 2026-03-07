@@ -334,29 +334,33 @@ class MemoryStore:
             if progress_callback:
                 progress_callback(0, total, skipped)
             return 0
-        texts = [s for s, _, _, _ in valid]
-        vectors = embedding.get_embedding_batch(texts)
-        if len(vectors) != len(valid):
-            logging.getLogger(__name__).debug(
-                "upsert_curated_snippets embedding count mismatch (%s != %s), retrying batch",
-                len(vectors),
-                len(valid),
-            )
-            vectors = embedding.get_embedding_batch(texts)
-        if len(vectors) != len(valid):
-            skipped += len(valid)
-            if progress_callback:
-                progress_callback(0, total, skipped)
-            return 0
+        # Process in chunks so progress_callback runs during embedding (dashboard shows loaded/total)
+        chunk_size = max(32, min(256, len(valid) // 10 or 32))
         count = 0
-        for (_, payload, point_id, numeric_id), vec in zip(valid, vectors, strict=True):
-            try:
-                self._upsert_long(point_id, vec, payload, numeric_id=numeric_id)
-                count += 1
-            except Exception:
-                skipped += 1
-        if progress_callback:
-            progress_callback(count, total, skipped + (len(valid) - count))
+        for start in range(0, len(valid), chunk_size):
+            chunk = valid[start : start + chunk_size]
+            texts = [s for s, _, _, _ in chunk]
+            vectors = embedding.get_embedding_batch(texts)
+            if len(vectors) != len(chunk):
+                logging.getLogger(__name__).debug(
+                    "upsert_curated_snippets embedding count mismatch (%s != %s), retrying chunk",
+                    len(vectors),
+                    len(chunk),
+                )
+                vectors = embedding.get_embedding_batch(texts)
+            if len(vectors) != len(chunk):
+                skipped += len(chunk)
+                if progress_callback:
+                    progress_callback(count, total, skipped)
+                continue
+            for (_, payload, point_id, numeric_id), vec in zip(chunk, vectors, strict=True):
+                try:
+                    self._upsert_long(point_id, vec, payload, numeric_id=numeric_id)
+                    count += 1
+                except Exception:
+                    skipped += 1
+            if progress_callback:
+                progress_callback(count, total, skipped)
         return count
 
     def search_long(
