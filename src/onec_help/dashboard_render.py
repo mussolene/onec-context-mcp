@@ -23,6 +23,8 @@ def render_dashboard(data: dict[str, Any]) -> Any:
         total = ingest.get("total_tasks") or 0
         done = ingest.get("done_tasks") or 0
         elapsed = ingest.get("elapsed_sec") or 0
+        total_pts = ingest.get("total_points") or 0
+        est_pts = ingest.get("estimated_total_points")
         eta = ""
         if done and total and done < total and elapsed:
             try:
@@ -31,8 +33,15 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 eta = f", ETA {format_duration(eta_sec)}"
             except (ZeroDivisionError, TypeError):
                 pass
+        pts_str = ""
+        if total_pts > 0:
+            pts_str = f", {total_pts} pts"
+        if est_pts is not None and est_pts > 0:
+            pts_str += f" (est. ~{est_pts})"
         tasks_parts.append(
-            Text(f"Ingest: in progress {done}/{total}{eta} ({format_duration(elapsed)} elapsed)")
+            Text(
+                f"Ingest: in progress {done}/{total}{pts_str}{eta} ({format_duration(elapsed)} elapsed)"
+            )
         )
         current_tasks = ingest.get("current") or []
         if current_tasks:
@@ -47,21 +56,35 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 pts = cur.get("points")
                 est = cur.get("estimated_total")
                 if pts is not None and est is not None and est > 0:
-                    label = f"  [{i + 1}] {version} / {lang} — {path} — {stage} (embedding pts)"
+                    stage_label = (
+                        "эмбеддинг"
+                        if stage == "embedding"
+                        else "запись в Qdrant"
+                        if stage == "writing"
+                        else stage or "indexing"
+                    )
+                    label = (
+                        f"  [{i + 1}] {version} / {lang} — {path} — {stage_label} {pts}/{est} pts"
+                    )
                     tasks_parts.append(Text(label))
                     tasks_parts.append(
                         ProgressBar(total=float(est), completed=float(pts), width=50)
                     )
                     tasks_parts.append(Text("\n"))
                 else:
-                    tasks_parts.append(Text(f"  [{i + 1}] {version} / {lang} — {path} — {stage}"))
+                    stage_label = stage or "—"
+                    tasks_parts.append(
+                        Text(f"  [{i + 1}] {version} / {lang} — {path} — {stage_label}")
+                    )
             if len(current_tasks) > 10:
                 tasks_parts.append(Text(f"  … and {len(current_tasks) - 10} more"))
         else:
             pts = ingest.get("current_task_points")
             est = ingest.get("current_task_estimated_total")
             if pts is not None and est is not None and est > 0:
-                tasks_parts.append(Text("  Ingest current task (embedding pts)"))
+                tasks_parts.append(
+                    Text(f"  Ingest current task — {pts}/{est} pts (эмбеддинг / запись)")
+                )
                 tasks_parts.append(ProgressBar(total=float(est), completed=float(pts), width=50))
                 tasks_parts.append(Text("\n"))
     elif ingest_last:
@@ -69,9 +92,12 @@ def render_dashboard(data: dict[str, Any]) -> Any:
         done = ingest_last.get("done_tasks") or 0
         failed = ingest_last.get("failed_count") or 0
         elapsed = ingest_last.get("total_elapsed_sec")
+        total_pts = ingest_last.get("total_points")
+        pts_str = f", {total_pts} pts" if total_pts is not None and total_pts > 0 else ""
         tasks_parts.append(
             Text(
                 f"Ingest: last run {done}/{total} done"
+                + pts_str
                 + (f", {failed} failed" if failed else "")
                 + (f", {format_duration(elapsed)}" if elapsed is not None else "")
             )
@@ -83,13 +109,17 @@ def render_dashboard(data: dict[str, Any]) -> Any:
     standards_loading = data.get("standards_loading")
     standards_pts = data.get("standards_loading_pts")
     if standards_loading and standards_pts:
+        phase = standards_pts.get("phase", "embedding")
         loaded = standards_pts.get("loaded", 0)
         tot_s = standards_pts.get("total", 0)
-        tasks_parts.append(
-            Text(f"Standards: загрузка в память (embedding + Qdrant) — {loaded}/{tot_s} pts")
-        )
-        tasks_parts.append(ProgressBar(total=float(tot_s), completed=float(loaded), width=50))
-        tasks_parts.append(Text("\n"))
+        if phase == "parsing":
+            tasks_parts.append(Text("Standards: парсинг / подготовка (сбор .md)…"))
+        else:
+            tasks_parts.append(
+                Text(f"Standards: эмбеддинг + запись в Qdrant — {loaded}/{tot_s} pts")
+            )
+            tasks_parts.append(ProgressBar(total=float(tot_s), completed=float(loaded), width=50))
+            tasks_parts.append(Text("\n"))
     elif standards_loading:
         tasks_parts.append(Text("Standards: loading…"))
     else:
@@ -100,13 +130,17 @@ def render_dashboard(data: dict[str, Any]) -> Any:
     snippets_pts = data.get("snippets_loading_pts")
     snippets = data.get("snippets")
     if snippets_loading and snippets_pts:
+        phase = snippets_pts.get("phase", "embedding")
         loaded = snippets_pts.get("loaded", 0)
         tot_sn = snippets_pts.get("total", 0)
-        tasks_parts.append(
-            Text(f"Snippets: загрузка в память (embedding + Qdrant) — {loaded}/{tot_sn} pts")
-        )
-        tasks_parts.append(ProgressBar(total=float(tot_sn), completed=float(loaded), width=50))
-        tasks_parts.append(Text("\n"))
+        if phase == "parsing":
+            tasks_parts.append(Text("Snippets: парсинг / подготовка (сбор источников)…"))
+        else:
+            tasks_parts.append(
+                Text(f"Snippets: эмбеддинг + запись в Qdrant — {loaded}/{tot_sn} pts")
+            )
+            tasks_parts.append(ProgressBar(total=float(tot_sn), completed=float(loaded), width=50))
+            tasks_parts.append(Text("\n"))
     elif snippets_loading:
         tasks_parts.append(Text("Snippets: loading…"))
     elif snippets:
@@ -162,25 +196,48 @@ def render_dashboard(data: dict[str, Any]) -> Any:
     # --- Panel 3: Database ---
     index_status = data.get("index_status") or {}
     collections = data.get("collections") or []
+    standards_loading_db = data.get("standards_loading")
+    snippets_loading_db = data.get("snippets_loading")
+    loading_pts = (
+        (data.get("standards_loading_pts") or {})
+        if standards_loading_db
+        else (data.get("snippets_loading_pts") or {})
+        if snippets_loading_db
+        else {}
+    )
     if index_status.get("error"):
         db_content = f"Qdrant: [red]{index_status.get('error', 'error')}[/red]"
-    elif collections:
+    elif collections or loading_pts:
         db_table = Table(show_header=True, header_style="bold")
         db_table.add_column("Collection")
         db_table.add_column("Points")
         db_table.add_column("Indexed vectors")
         db_table.add_column("Segments")
+        seen_names = set()
         for c in collections:
+            name = c.get("name") or "—"
+            seen_names.add(name)
             pts = c.get("points_count")
             vecs = c.get("indexed_vectors_count")
             segs = c.get("segments_count")
             db_table.add_row(
-                c.get("name") or "—",
+                name,
                 str(pts) if pts is not None else "—",
                 str(vecs) if vecs is not None else "—",
                 str(segs) if segs is not None else "—",
             )
+        if (standards_loading_db or snippets_loading_db) and "onec_help_memory" not in seen_names:
+            loaded_ld = loading_pts.get("loaded", 0)
+            total_ld = loading_pts.get("total", 0)
+            db_table.add_row(
+                "onec_help_memory (загрузка…)",
+                f"~{loaded_ld}" + (f"/{total_ld}" if total_ld else ""),
+                "—",
+                "—",
+            )
         db_parts: list[Any] = [db_table]
+        if standards_loading_db or snippets_loading_db:
+            db_parts.append(Text("[dim]Обновление: standards/snippets → onec_help_memory[/dim]"))
         versions = index_status.get("versions") or []
         languages = index_status.get("languages") or []
         if versions:

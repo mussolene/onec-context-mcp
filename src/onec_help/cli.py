@@ -620,6 +620,12 @@ def cmd_load_snippets(args: argparse.Namespace) -> int:
         except OSError:
             pass
         try:
+            _load_operation_status_path("snippets").write_text(
+                json.dumps({"phase": "parsing"}, ensure_ascii=False), encoding="utf-8"
+            )
+        except OSError:
+            pass
+        try:
             if files_skipped > 0:
                 print(
                     f"load-snippets │ Cache hit: skip {files_skipped} unchanged; loading {len(to_load)}",
@@ -671,7 +677,10 @@ def cmd_load_snippets(args: argparse.Namespace) -> int:
             total_items = len(items)
             try:
                 status_path.write_text(
-                    json.dumps({"loaded": 0, "total": total_items}, ensure_ascii=False),
+                    json.dumps(
+                        {"loaded": 0, "total": total_items, "phase": "embedding"},
+                        ensure_ascii=False,
+                    ),
                     encoding="utf-8",
                 )
             except OSError:
@@ -687,7 +696,11 @@ def cmd_load_snippets(args: argparse.Namespace) -> int:
                 try:
                     status_path.write_text(
                         json.dumps(
-                            {"loaded": done_so_far[0], "total": total_items},
+                            {
+                                "loaded": done_so_far[0],
+                                "total": total_items,
+                                "phase": "embedding",
+                            },
                             ensure_ascii=False,
                         ),
                         encoding="utf-8",
@@ -838,6 +851,12 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
             _marker.write_text(str(_time.time()), encoding="utf-8")
         except OSError:
             pass
+        try:
+            _load_operation_status_path("standards").write_text(
+                json.dumps({"phase": "parsing"}, ensure_ascii=False), encoding="utf-8"
+            )
+        except OSError:
+            pass
 
         # Копировать загруженные репо в папку standards (если загрузка из репо, а не из path)
         if temp_dirs:
@@ -927,7 +946,10 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
         _status_path = _load_operation_status_path("standards")
         try:
             _status_path.write_text(
-                json.dumps({"loaded": 0, "total": len(items)}, ensure_ascii=False),
+                json.dumps(
+                    {"loaded": 0, "total": len(items), "phase": "embedding"},
+                    ensure_ascii=False,
+                ),
                 encoding="utf-8",
             )
         except OSError:
@@ -939,7 +961,10 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
             )
             try:
                 _status_path.write_text(
-                    json.dumps({"loaded": loaded, "total": tot}, ensure_ascii=False),
+                    json.dumps(
+                        {"loaded": loaded, "total": tot, "phase": "embedding"},
+                        ensure_ascii=False,
+                    ),
                     encoding="utf-8",
                 )
             except OSError:

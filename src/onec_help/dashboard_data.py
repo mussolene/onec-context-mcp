@@ -41,16 +41,24 @@ def _load_marker_exists(name: str) -> bool:
         return False
 
 
-def _read_load_status(name: str) -> dict[str, int] | None:
-    """Read load_<name>.status.json (loaded, total). Returns None if missing or invalid."""
+def _read_load_status(name: str) -> dict[str, Any] | None:
+    """Read load_<name>.status.json (loaded, total, phase?). phase: 'parsing' | 'embedding'."""
     try:
         cache_dir = Path(_ingest_cache_path()).parent
         path = cache_dir / f"load_{name}.status.json"
         if not path.exists():
             return None
         data = json.loads(path.read_text(encoding="utf-8"))
-        if isinstance(data, dict) and "loaded" in data and "total" in data:
-            return {"loaded": int(data["loaded"]), "total": int(data["total"])}
+        if not isinstance(data, dict):
+            return None
+        out: dict[str, Any] = {}
+        if "loaded" in data and "total" in data:
+            out["loaded"] = int(data["loaded"])
+            out["total"] = int(data["total"])
+        if "phase" in data and isinstance(data["phase"], str):
+            out["phase"] = data["phase"]
+        if out:
+            return out
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
         pass
     return None

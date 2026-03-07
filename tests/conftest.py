@@ -102,3 +102,15 @@ def isolate_bm25_vocab_for_indexer_tests(request, tmp_path):
             yield
     else:
         yield
+
+
+@pytest.fixture(autouse=True)
+def isolate_ingest_cache(tmp_path_factory):
+    """Redirect ingest cache to a separate temp dir so tests never create data/ingest_cache/ingest_cache.db.
+    Uses tmp_path_factory (not tmp_path) so the test's tmp_path is not polluted (e.g. discover_version_dirs)."""
+    base = tmp_path_factory.mktemp("ingest_cache_isolate")
+    cache_dir = base / "ingest_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = cache_dir / "ingest_cache.db"
+    with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_file)}, clear=False):
+        yield

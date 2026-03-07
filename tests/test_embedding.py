@@ -36,7 +36,8 @@ def test_get_embedding_dimension_openai_api() -> None:
 
 
 def test_get_embedding_dimension_local_auto_detect() -> None:
-    """Local backend: dimension is auto-detected from model encode (or DB/env on failure)."""
+    """Local backend: dimension is auto-detected from model encode (or DB/env on failure).
+    Mock _get_embedding_local to avoid loading the real sentence-transformers model (~20s)."""
     import importlib
 
     with patch.dict(
@@ -49,7 +50,12 @@ def test_get_embedding_dimension_local_auto_detect() -> None:
     ):
         importlib.reload(embedding_mod)
         embedding_mod._cached_local_dimension = None
-        dim = embedding_mod.get_embedding_dimension()
+        with patch.object(
+            embedding_mod,
+            "_get_embedding_local",
+            return_value=[0.0] * embedding_mod._DIMENSION_LAST_RESORT,
+        ):
+            dim = embedding_mod.get_embedding_dimension()
         assert dim > 0
         assert (
             dim == embedding_mod._DIMENSION_LAST_RESORT
@@ -806,17 +812,23 @@ def test_get_embedding_batch_openai_api_uses_parallel() -> None:
 
 
 def test_get_embedding_local_batch_import_error() -> None:
-    """_get_embedding_local_batch when sentence_transformers missing returns placeholders."""
+    """_get_embedding_local_batch when sentence_transformers missing returns placeholders.
+    Mock _get_embedding_local so get_embedding_dimension() does not load the real model (~20s)."""
     import importlib
 
     with patch.dict("os.environ", {"EMBEDDING_BACKEND": "local"}, clear=False):
         importlib.reload(embedding_mod)
-        with patch.dict("sys.modules", {"sentence_transformers": None}):
-            with patch("importlib.import_module") as mock_import:
-                mock_import.side_effect = ImportError
-                result = embedding_mod._get_embedding_local_batch(["a", "b"])
-        assert len(result) == 2
-        assert len(result[0]) == embedding_mod.get_embedding_dimension()
+        with patch.object(
+            embedding_mod,
+            "_get_embedding_local",
+            return_value=[0.0] * embedding_mod._DIMENSION_LAST_RESORT,
+        ):
+            with patch.dict("sys.modules", {"sentence_transformers": None}):
+                with patch("importlib.import_module") as mock_import:
+                    mock_import.side_effect = ImportError
+                    result = embedding_mod._get_embedding_local_batch(["a", "b"])
+            assert len(result) == 2
+            assert len(result[0]) == embedding_mod.get_embedding_dimension()
     importlib.reload(embedding_mod)
 
 
