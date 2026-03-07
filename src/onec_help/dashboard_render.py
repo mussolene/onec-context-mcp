@@ -52,6 +52,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                     tasks_parts.append(
                         ProgressBar(total=float(est), completed=float(pts), width=50)
                     )
+                    tasks_parts.append(Text("\n"))
                 else:
                     tasks_parts.append(
                         Text(f"  [{i + 1}] {version} / {lang} — {path} — {stage}")
@@ -66,6 +67,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 tasks_parts.append(
                     ProgressBar(total=float(est), completed=float(pts), width=50)
                 )
+                tasks_parts.append(Text("\n"))
     elif ingest_last:
         total = ingest_last.get("total_tasks") or 0
         done = ingest_last.get("done_tasks") or 0
@@ -93,6 +95,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
         tasks_parts.append(
             ProgressBar(total=float(tot_s), completed=float(loaded), width=50)
         )
+        tasks_parts.append(Text("\n"))
     elif standards_loading:
         tasks_parts.append(Text("Standards: loading…"))
     else:
@@ -111,6 +114,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
         tasks_parts.append(
             ProgressBar(total=float(tot_sn), completed=float(loaded), width=50)
         )
+        tasks_parts.append(Text("\n"))
     elif snippets_loading:
         tasks_parts.append(Text("Snippets: loading…"))
     elif snippets:
