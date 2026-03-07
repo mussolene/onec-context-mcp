@@ -9,10 +9,11 @@
 ## Команды и сценарии
 
 - **Единая точка входа:** **ingest** — загрузка/обновление индекса (поиск .hbk в HELP_SOURCE_BASE, распаковка, Markdown, Qdrant). **reinit --force** — полная перезагрузка: очистка коллекций и кэша, затем init (ingest + load-snippets + load-standards). Без миграций и отдельных шагов unpacked.
-- **Локально:** `python -m onec_help ingest|reinit|init|index-status|mcp|unpack|build-index|load-snippets|load-standards|watchdog ...`
+- **Локально:** `python -m onec_help ingest|reinit|init|index-status|dashboard|mcp|unpack|build-index|load-snippets|load-standards|watchdog ...`
 - **init** — ingest + load-snippets + load-standards (HELP_SOURCE_BASE, SNIPPETS_DIR, STANDARDS_REPOS). Не стирает данные.
 - **reinit --force** — очистка коллекций и cache, затем init. Для перезапуска «с нуля».
 - **Docker:** по умолчанию `make up` — только **qdrant** и **mcp**. Для индексации и watchdog: **`make ingest-up`** (поднимает ingest-worker с watchdog). Индексация вручную: `make ingest` (требует запущенный ingest-worker). Полная перезагрузка: `make reinit ARGS='--force'`. Cron в 3:00 — в full-режиме. BSL LS — `make bsl-start`.
+- **dashboard** — единый дашборд (Tasks, Errors, Qdrant) через Rich; `--once` для одного кадра, иначе Live с `--interval`. **index-status** — `--watch` и `--exit-when-done` для выхода по завершении ingest.
 - **read-hbk-container** — чтение .hbk как бинарного контейнера (alkoleft/hbk-viewer): сущности, извлечение в каталог, TOC в JSON (вспомогательная команда).
 - **Сниппеты:** ./data/snippets, parse-fastcode/parse-helpf пишут туда, `load-snippets` загружает. `make snippets` — оба сайта; `make parse-helpf` — только FAQ.
 - **Стандарты:** `make load-standards` — v8-code-style и v8std (STANDARDS_REPOS).
@@ -45,7 +46,7 @@
 
 ## Структура кода
 
-- `src/onec_help/`: пакет (unpack, categories, html2md, tree, indexer, memory, parse_fastcode, parse_helpf, parse_its_v8std, snippet_classifier, standards_loader, watchdog, mcp_server, cli, hbk_container, toc_parser).
+- `src/onec_help/`: пакет (unpack, categories, html2md, tree, indexer, memory, parse_fastcode, parse_helpf, parse_its_v8std, snippet_classifier, standards_loader, watchdog, mcp_server, cli, hbk_container, toc_parser, dashboard_data, dashboard_render).
 - `unpack` — 7z, zipfile, ZIP from offset, unzip, scan local headers, **HBK binary container** (источник: alkoleft/hbk-viewer); при контейнере пишет `.toc.json`; `unpack-diag` — диагностика при ошибке; `hbk_container` — чтение бинарного .hbk (FileStorage, PackBlock, Book); `toc_parser` — разбор текста PackBlock TOC в плоский список (path, title_ru/en, breadcrumb, entity_type); `categories` — парсинг `__categories__` и дерево TOC; `html2md` — HTML → Markdown; `tree` — дерево (build_tree_for_web и др.); `indexer` — Qdrant, при наличии `.toc.json` в source_dir подмешивает title/breadcrumb/section_path в payload; `memory` — тройная память; `watchdog` — мониторинг .hbk и pending embeddings; `mcp_server` — FastMCP (search_1c_help, get_1c_help_topic, get_1c_function_info, save_1c_snippet, get_1c_help_related, compare_1c_help и др.). Payload точек при TOC содержит `breadcrumb`, `entity_type`.
 - Тесты в `tests/`, покрытие ≥70% (pytest-cov, `--cov-fail-under=70`).
 - Фикстуры — минимальный срез справки в `tests/fixtures/help_sample/`.

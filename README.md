@@ -63,7 +63,8 @@ pip install -e ".[dev]"
 | **`ingest`** | Распаковать .hbk в data/unpacked (DATA_UNPACKED_DIR), построить Markdown, проиндексировать в Qdrant. Кэш по хэшу. INGEST_USE_TEMP=1 — временная папка с удалением. Опции: `--no-cache`, `--embedding-batch-size`, `--embedding-workers` |
 | **`reinit [--force]`** | init (ingest + load-snippets + load-standards). С `--force` — сначала очистить коллекции и кэш, затем init. |
 | **`init`** | ingest + load-snippets + load-standards (без очистки). |
-| **`index-status`** | Статус индекса: число тем, эмбеддинги, размер БД; при запущенном ingest — прогресс, ETA |
+| **`index-status`** | Статус индекса: число тем, эмбеддинги, размер БД; при запущенном ingest — прогресс, ETA. `--watch` — автообновление; `--exit-when-done` — выход по завершении ingest. |
+| **`dashboard`** | Дашборд (Tasks, Errors, Qdrant) — Rich-панели. `--once` — один кадр и выход; иначе обновление по `--interval` (по умолчанию 3 с). Остановка: Ctrl+C. Требует `rich`. |
 | **`mcp [directory]`** | MCP-сервер (stdio/HTTP; нужен fastmcp). Каталог по умолчанию: HELP_PATH или `data` |
 | **`unpack <archive> [--output-dir]`** | Распаковать один .hbk (для диагностики) |
 | **`unpack-diag <archive> [-o dir]`** | Диагностика распаковки при ошибках |

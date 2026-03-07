@@ -42,7 +42,7 @@ deps/mcp-bsl-lsp-bridge/.git/HEAD:
 
 fetch-bsl-bridge: deps/mcp-bsl-lsp-bridge/.git/HEAD
 .PHONY: init init-full reinit reinit-full ingest ingest-full build-index build-index-full add-bm25 add-bm25-full
-.PHONY: index-status index-status-full watch-index-status watch-index-status-done watch-index-status-full unpack-help help
+.PHONY: index-status index-status-full watch-index-status watch-index-status-done watch-index-status-full dashboard unpack-help help
 
 WATCH_INTERVAL ?= 2
 
@@ -127,6 +127,10 @@ watch-index-status:
 
 watch-index-status-done:
 	$(COMPOSE) exec -it $(INDEX_STATUS_SERVICE) python -m onec_help index-status --watch --interval $(WATCH_INTERVAL) --exit-when-done
+
+# Dashboard (Tasks, Errors, Qdrant). Use ARGS='--once' for single frame.
+dashboard:
+	$(COMPOSE) exec -it $(INDEX_STATUS_SERVICE) python -m onec_help dashboard --interval $(WATCH_INTERVAL) $(ARGS)
 
 watch-index-status-full:
 	$(COMPOSE_FULL) exec -it mcp python -m onec_help index-status --watch --interval $(WATCH_INTERVAL)
@@ -222,6 +226,7 @@ help:
 	@echo "  make index-status     Статус индекса"
 	@echo "  make watch-index-status       Статус в реальном времени (Ctrl+C — выход)"
 	@echo "  make watch-index-status-done  То же, выход когда индексация не идёт"
+	@echo "  make dashboard        Дашборд (Tasks, Errors, Qdrant). ARGS='--once' — один кадр"
 	@echo "  make fetch-bsl-bridge  Клонировать mcp-bsl-lsp-bridge (для Windows)"
 	@echo "  make up               Start qdrant + mcp (по умолчанию только эти два)"
 	@echo "  make ingest-up        Start + ingest-worker (watchdog, индексация)"
