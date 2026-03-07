@@ -65,6 +65,27 @@ def test_get_form_metadata_unicode_error(tmp_path: Path) -> None:
     assert data["commands"] == []
 
 
+def test_form_metadata_fallback_without_defusedxml() -> None:
+    """When defusedxml is not available, form_metadata uses xml.etree.ElementTree."""
+    import importlib
+    import sys
+    from unittest.mock import patch
+
+    import onec_help.form_metadata as fm
+
+    # Force the ImportError path (use standard ET)
+    with patch.dict(sys.modules, {"defusedxml": None, "defusedxml.ElementTree": None}):
+        importlib.reload(fm)
+        data = fm.parse_form_xml(
+            """<?xml version="1.0"?><Form xmlns="http://v8.1c.ru/8.3/xcf/logform">
+            <Attributes/><Commands/></Form>"""
+        )
+        assert "error" not in data
+        assert data["attributes"] == []
+        assert data["commands"] == []
+    importlib.reload(fm)
+
+
 def test_parse_form_xml_content() -> None:
     """Parse Form.xml from string content."""
     xml = """<?xml version="1.0" encoding="UTF-8"?>

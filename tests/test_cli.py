@@ -18,6 +18,7 @@ from onec_help.cli import (
     cmd_dashboard,
     cmd_ingest,
     cmd_ingest_from_unpacked,
+    cmd_init,
     cmd_load_snippets,
     cmd_load_standards,
     cmd_mcp,
@@ -1212,3 +1213,66 @@ def test_cmd_dashboard_without_rich_returns_one(capsys: pytest.CaptureFixture[st
         assert cmd_dashboard(args) == 1
     err = capsys.readouterr().err
     assert "rich" in err.lower()
+
+
+@patch("onec_help.cli.cmd_load_standards", return_value=0)
+@patch("onec_help.cli.cmd_load_snippets", return_value=0)
+@patch("onec_help.cli.cmd_ingest", return_value=0)
+def test_cmd_init_runs_three_tasks(
+    mock_ingest,
+    mock_snippets,
+    mock_standards,
+) -> None:
+    """cmd_init runs ingest, load_snippets, load_standards in parallel; returns 0 when all succeed."""
+    args = make_args()
+    assert cmd_init(args) == 0
+    assert mock_ingest.call_count == 1
+    assert mock_snippets.call_count == 1
+    assert mock_standards.call_count == 1
+
+
+@patch("onec_help.cli.cmd_init", return_value=0)
+@patch("onec_help.cli._collection_has_data", return_value=True)
+def test_cmd_reinit_skips_wipe_when_has_data_no_force(
+    mock_has_data,
+    mock_init,
+) -> None:
+    """cmd_reinit without --force when collection has data skips wipe and calls cmd_init."""
+    args = make_args(force=False)
+    assert cmd_reinit(args) == 0
+    mock_init.assert_called_once()
+    mock_has_data.assert_called()
+
+
+@patch("onec_help.cli.cmd_load_standards", return_value=0)
+@patch("onec_help.cli.cmd_load_snippets", return_value=0)
+@patch("onec_help.cli.cmd_ingest", return_value=1)
+def test_cmd_init_returns_one_when_any_task_fails(
+    mock_ingest,
+    mock_snippets,
+    mock_standards,
+) -> None:
+    """cmd_init returns 1 when any of ingest/snippets/standards returns non-zero."""
+    args = make_args()
+    assert cmd_init(args) == 1
+
+
+@patch("onec_help.cli.cmd_load_standards", return_value=0)
+@patch("onec_help.cli.cmd_load_snippets", return_value=0)
+@patch("onec_help.cli.cmd_ingest", return_value=0)
+@patch("onec_help.cli._clear_before_reinit")
+@patch("onec_help.cli._collection_has_data", return_value=False)
+def test_cmd_reinit_force_clears_and_runs_tasks(
+    mock_has_data,
+    mock_clear,
+    mock_ingest,
+    mock_snippets,
+    mock_standards,
+) -> None:
+    """cmd_reinit with --force calls _clear_before_reinit then runs ingest/snippets/standards."""
+    args = make_args(force=True)
+    assert cmd_reinit(args) == 0
+    mock_clear.assert_called_once()
+    assert mock_ingest.call_count == 1
+    assert mock_snippets.call_count == 1
+    assert mock_standards.call_count == 1

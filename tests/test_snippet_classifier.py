@@ -83,6 +83,13 @@ def test_snippet_code_share_over_45_but_not_dominant():
     assert classify_snippet_vs_reference("Тест", desc, code) == "snippet"
 
 
+def test_snippet_code_share_over_45_but_not_dominant_by_length() -> None:
+    """Code share > 45%% and BSL but code_len <= desc_len*1.2 → snippet via line 76-78."""
+    code = "Процедура Х()\nСообщить(1);\nКонецПроцедуры\n" * 4  # ~100 chars, BSL
+    desc = "A" * 100  # same length so code_len not > desc_len*1.2
+    assert classify_snippet_vs_reference("Test", desc, code) == "snippet"
+
+
 def test_snippet_code_share_over_45_balanced_desc():
     """Code share > 45% with BSL, but code not > desc*1.2 → snippet via line 76-78."""
     code = "Процедура Х()\nСообщить(1);\nКонецПроцедуры\n" * 8  # ~200 chars, BSL

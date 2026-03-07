@@ -55,6 +55,23 @@ def test_collect_empty(tmp_path: Path) -> None:
     assert collect_from_folder(tmp_path) == []
 
 
+def test_collect_skips_unreadable_file(tmp_path: Path) -> None:
+    """When read_text raises OSError, that file is skipped."""
+    (tmp_path / "a.md").write_text("# A\n\nContent", encoding="utf-8")
+    (tmp_path / "b.md").write_text("# B\n\nContent", encoding="utf-8")
+    orig = Path.read_text
+
+    def read_text_raise_for_a(self, *args, **kwargs):
+        if self.name == "a.md":
+            raise OSError("permission")
+        return orig(self, *args, **kwargs)
+
+    with patch.object(Path, "read_text", read_text_raise_for_a):
+        items = collect_from_folder(tmp_path)
+    assert len(items) == 1
+    assert items[0]["title"] == "B"
+
+
 def test_fetch_repo_archive(tmp_path: Path) -> None:
     """fetch_repo_archive extracts zip and returns (subpath_dir, temp_dir)."""
     # Create minimal zip: repo-master/docs/rule.md

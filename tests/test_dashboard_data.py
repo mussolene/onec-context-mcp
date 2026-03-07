@@ -181,6 +181,67 @@ def test_get_dashboard_data_fallback_ingest_failed_log(
 @patch("onec_help.dashboard_data.read_last_ingest_run", return_value=None)
 @patch("onec_help.dashboard_data.get_index_status", return_value={"exists": True})
 @patch("onec_help.dashboard_data.get_all_collections_status", return_value=[])
+def test_load_marker_exists_returns_false_when_cache_path_raises(
+    mock_collections,
+    mock_index,
+    mock_last_run,
+    mock_status,
+    mock_failed,
+    mock_snippets,
+    mock_mcp,
+) -> None:
+    """When _ingest_cache_path raises, _load_marker_exists returns False (standards_loading/snippets_loading False)."""
+    with (
+        patch(
+            "onec_help.dashboard_data._ingest_cache_path",
+            side_effect=RuntimeError("no cache"),
+        ),
+    ):
+        data = get_dashboard_data()
+    assert data["standards_loading"] is False
+    assert data["snippets_loading"] is False
+
+
+@patch("onec_help.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0})
+@patch("onec_help.dashboard_data.read_last_snippets_run", return_value=None)
+@patch("onec_help.dashboard_data.read_last_ingest_failed", return_value=[])
+@patch("onec_help.dashboard_data.read_ingest_status", return_value=None)
+@patch("onec_help.dashboard_data.read_last_ingest_run", return_value=None)
+@patch("onec_help.dashboard_data.get_index_status", return_value={"exists": True})
+@patch("onec_help.dashboard_data.get_all_collections_status", return_value=[])
+def test_read_load_status_none_when_status_file_not_dict_or_no_loaded_total(
+    mock_collections,
+    mock_index,
+    mock_last_run,
+    mock_status,
+    mock_failed,
+    mock_snippets,
+    mock_mcp,
+    tmp_path: Path,
+) -> None:
+    """standards_loading_pts is None when status file is not a dict or has no loaded/total."""
+    cache_dir = tmp_path / "var" / "ingest_cache"
+    cache_dir.mkdir(parents=True)
+    (cache_dir / "load_standards.running").write_text("1", encoding="utf-8")
+    (cache_dir / "load_standards.status.json").write_text("[]", encoding="utf-8")
+    with (
+        patch(
+            "onec_help.dashboard_data._ingest_cache_path",
+            return_value=str(cache_dir / "ingest_cache.db"),
+        ),
+    ):
+        data = get_dashboard_data()
+    assert data["standards_loading"] is True
+    assert data["standards_loading_pts"] is None
+
+
+@patch("onec_help.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0})
+@patch("onec_help.dashboard_data.read_last_snippets_run", return_value=None)
+@patch("onec_help.dashboard_data.read_last_ingest_failed", return_value=[])
+@patch("onec_help.dashboard_data.read_ingest_status", return_value=None)
+@patch("onec_help.dashboard_data.read_last_ingest_run", return_value=None)
+@patch("onec_help.dashboard_data.get_index_status", return_value={"exists": True})
+@patch("onec_help.dashboard_data.get_all_collections_status", return_value=[])
 def test_storage_path_mb_from_env(
     mock_collections,
     mock_index,
@@ -206,6 +267,86 @@ def test_storage_path_mb_from_env(
     ):
         data = get_dashboard_data()
     assert data["storage_path_mb"] == 2.0
+
+
+@patch("onec_help.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0})
+@patch("onec_help.dashboard_data.read_last_snippets_run", return_value=None)
+@patch("onec_help.dashboard_data.read_last_ingest_failed", return_value=[])
+@patch("onec_help.dashboard_data.read_ingest_status", return_value=None)
+@patch("onec_help.dashboard_data.read_last_ingest_run", return_value=None)
+@patch("onec_help.dashboard_data.get_index_status", return_value={"exists": True})
+@patch("onec_help.dashboard_data.get_all_collections_status", return_value=[])
+def test_read_load_status_with_phase(
+    mock_collections,
+    mock_index,
+    mock_last_run,
+    mock_status,
+    mock_failed,
+    mock_snippets,
+    mock_mcp,
+    tmp_path: Path,
+) -> None:
+    """When load_standards.running exists and load_standards.status.json has phase, standards_loading_pts has phase."""
+    cache_dir = tmp_path / "var" / "ingest_cache"
+    cache_dir.mkdir(parents=True)
+    (cache_dir / "load_standards.running").write_text("1", encoding="utf-8")
+    (cache_dir / "load_standards.status.json").write_text(
+        '{"loaded": 10, "total": 100, "phase": "embedding"}', encoding="utf-8"
+    )
+    with (
+        patch(
+            "onec_help.dashboard_data._ingest_cache_path",
+            return_value=str(cache_dir / "ingest_cache.db"),
+        ),
+        patch("onec_help.dashboard_data.get_index_status", return_value={"exists": True}),
+        patch("onec_help.dashboard_data.get_all_collections_status", return_value=[]),
+        patch("onec_help.dashboard_data.read_ingest_status", return_value=None),
+        patch("onec_help.dashboard_data.read_last_ingest_run", return_value=None),
+        patch("onec_help.dashboard_data.read_last_ingest_failed", return_value=[]),
+        patch("onec_help.dashboard_data.read_last_snippets_run", return_value=None),
+        patch(
+            "onec_help.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0}
+        ),
+    ):
+        data = get_dashboard_data()
+    assert data["standards_loading"] is True
+    assert data["standards_loading_pts"] == {"loaded": 10, "total": 100, "phase": "embedding"}
+
+
+@patch("onec_help.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0})
+@patch("onec_help.dashboard_data.read_last_snippets_run", return_value=None)
+@patch("onec_help.dashboard_data.read_last_ingest_failed", return_value=[])
+@patch("onec_help.dashboard_data.read_ingest_status", return_value=None)
+@patch("onec_help.dashboard_data.read_last_ingest_run", return_value=None)
+@patch("onec_help.dashboard_data.get_index_status", return_value={"exists": True})
+@patch("onec_help.dashboard_data.get_all_collections_status", return_value=[{"name": "c1"}])
+def test_bm25_vocab_stats_skips_bad_file(
+    mock_collections,
+    mock_index,
+    mock_last_run,
+    mock_status,
+    mock_failed,
+    mock_snippets,
+    mock_mcp,
+    tmp_path: Path,
+) -> None:
+    """When a BM25 vocab file exists but is invalid JSON, that collection is skipped (no crash)."""
+    vocab_dir = tmp_path / "bm25_vocab"
+    vocab_dir.mkdir(parents=True)
+    (vocab_dir / "c1.json").write_text("not json", encoding="utf-8")
+    with (
+        patch(
+            "onec_help.dashboard_data._ingest_cache_path",
+            return_value=str(tmp_path / "ingest_cache.db"),
+        ),
+        patch(
+            "onec_help.dashboard_data.bm25_vocab_path",
+            side_effect=lambda name: vocab_dir / f"{name}.json",
+        ),
+    ):
+        data = get_dashboard_data()
+    assert "bm25_vocab" in data
+    assert data["bm25_vocab"] == {}
 
 
 @patch("onec_help.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0})

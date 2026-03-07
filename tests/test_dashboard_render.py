@@ -103,6 +103,85 @@ def test_render_dashboard_ingest_in_progress_with_eta() -> None:
     assert "ETA" in out or "elapsed" in out
 
 
+def test_render_dashboard_ingest_with_workers_eta_and_loading_pts() -> None:
+    """Tasks panel with eta_sec_from_ingest, current_tasks (workers), last_batch_sec, standards/snippets loading pts."""
+    from rich.console import Console
+
+    data = {
+        "ingest": {
+            "status": "in_progress",
+            "done_tasks": 10,
+            "total_tasks": 100,
+            "elapsed_sec": 60.0,
+            "eta_sec_from_ingest": 540.0,
+            "last_batch_sec": 2.5,
+            "current_tasks": [
+                {
+                    "version": "8.3",
+                    "language": "ru",
+                    "path": "doc.hbk",
+                    "stage": "embedding",
+                    "points": 5,
+                    "estimated_total": 20,
+                },
+                {
+                    "version": "8.3",
+                    "language": "ru",
+                    "path": "other.hbk",
+                    "stage": "writing",
+                    "points": 10,
+                    "estimated_total": 10,
+                },
+            ],
+        },
+        "ingest_last_run": None,
+        "failed_tasks": [],
+        "index_status": {},
+        "collections": [],
+        "snippets": None,
+        "standards_loading": True,
+        "snippets_loading": True,
+        "standards_loading_pts": {"loaded": 50, "total": 200, "phase": "embedding"},
+        "snippets_loading_pts": {"loaded": 10, "total": 100, "phase": "embedding"},
+        "storage_path_mb": None,
+        "mcp_metrics": {},
+    }
+    result = render_dashboard(data)
+    console = Console(force_terminal=True, no_color=True)
+    with console.capture() as cap:
+        console.print(result)
+    out = cap.get()
+    assert "Workers" in out or "pts" in out
+    assert "ETA" in out or "batch" in out
+
+
+def test_render_dashboard_standards_snippets_loading_workers_no_ingest() -> None:
+    """When ingest not in progress but standards/snippets loading, workers_extra and ProgressBar are shown."""
+    from rich.console import Console
+
+    data = {
+        "ingest": None,
+        "ingest_last_run": None,
+        "failed_tasks": [],
+        "index_status": {},
+        "collections": [],
+        "snippets": None,
+        "standards_loading": True,
+        "snippets_loading": True,
+        "standards_loading_pts": {"loaded": 30, "total": 100, "phase": "embedding"},
+        "snippets_loading_pts": {"loaded": 5, "total": 50, "phase": "embedding"},
+        "storage_path_mb": None,
+        "mcp_metrics": {},
+    }
+    result = render_dashboard(data)
+    console = Console(force_terminal=True, no_color=True)
+    with console.capture() as cap:
+        console.print(result)
+    out = cap.get()
+    assert "Standards" in out and "Snippets" in out
+    assert "Workers" in out or "embed" in out or "Qdrant" in out
+
+
 def test_render_dashboard_ingest_in_progress_eta_zero_division_handled() -> None:
     """Tasks panel still renders when ETA would cause ZeroDivisionError (done=0)."""
     from rich.console import Console

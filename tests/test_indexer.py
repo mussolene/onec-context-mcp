@@ -597,6 +597,38 @@ def test_get_topic_from_index_fallback_scroll(
 @patch("onec_help.indexer.Filter")
 @patch("onec_help.indexer.FieldCondition")
 @patch("onec_help.indexer.MatchValue")
+def test_get_topic_from_index_outgoing_links_substitute(
+    mock_mv: MagicMock,
+    mock_fc: MagicMock,
+    mock_f: MagicMock,
+    mock_client: MagicMock,
+) -> None:
+    """get_topic_from_index returns text with outgoing_links applied (href substituted, Связанные темы)."""
+    mock_instance = MagicMock()
+    mock_client.return_value = mock_instance
+    mock_instance.scroll.return_value = (
+        [
+            MagicMock(
+                payload={
+                    "path": "topic.md",
+                    "text": "See [link](old.html) for more.",
+                    "outgoing_links": [
+                        {"href": "old.html", "resolved_path": "new.md", "target_title": "New"},
+                    ],
+                }
+            )
+        ],
+        None,
+    )
+    text = get_topic_from_index("topic.md", qdrant_host="localhost", qdrant_port=6333)
+    assert "new.md" in text or "Связанные" in text
+    assert "New" in text or "link" in text
+
+
+@patch("onec_help.indexer.QdrantClient")
+@patch("onec_help.indexer.Filter")
+@patch("onec_help.indexer.FieldCondition")
+@patch("onec_help.indexer.MatchValue")
 def test_get_topic_from_index_path_variants_tries_md_then_html(
     mock_mv: MagicMock,
     mock_fc: MagicMock,
