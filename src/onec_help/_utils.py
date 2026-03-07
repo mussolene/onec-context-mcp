@@ -26,8 +26,28 @@ def _is_tty() -> bool:
     return hasattr(sys.stderr, "isatty") and sys.stderr.isatty()
 
 
+def _rich_console():
+    """Return Rich Console for stderr, or None if rich not available."""
+    try:
+        from rich.console import Console
+
+        return Console(stderr=True, force_terminal=_is_tty())
+    except ImportError:
+        return None
+
+
 def progress_line(msg: str, *, overwrite: bool = True) -> None:
-    """Print compact progress line. Overwrites previous if TTY and overwrite=True."""
+    """Print compact progress line. Uses Rich when available and TTY; else stderr."""
+    console = _rich_console() if _is_tty() else None
+    if console is not None:
+        try:
+            if overwrite:
+                console.print(msg, end="\r")
+            else:
+                console.print(msg)
+            return
+        except Exception:
+            pass
     pad = msg.ljust(78) if overwrite and _is_tty() else msg
     term = "\r" if (overwrite and _is_tty()) else "\n"
     sys.stderr.write(pad + term)
@@ -35,7 +55,14 @@ def progress_line(msg: str, *, overwrite: bool = True) -> None:
 
 
 def progress_done(msg: str) -> None:
-    """Print final progress line (newline, no overwrite)."""
+    """Print final progress line (newline, no overwrite). Uses Rich when available and TTY."""
+    console = _rich_console() if _is_tty() else None
+    if console is not None:
+        try:
+            console.print(msg)
+            return
+        except Exception:
+            pass
     sys.stderr.write(f"{msg}\n")
     sys.stderr.flush()
 
