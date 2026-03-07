@@ -13,16 +13,22 @@ from .mcp_metrics import record_request as _record_mcp_request
 
 
 def _record_mcp_tool(f):
-    """Decorator: record MCP tool call (success/fail) for dashboard metrics."""
+    """Decorator: record MCP tool call (success/fail, duration, error) for dashboard metrics."""
 
     def wrapper(*args, **kwargs):
         name = f.__name__
+        t0 = time.monotonic()
         try:
             out = f(*args, **kwargs)
-            _record_mcp_request(name, True)
+            _record_mcp_request(name, True, duration_sec=time.monotonic() - t0)
             return out
-        except Exception:
-            _record_mcp_request(name, False)
+        except Exception as e:
+            _record_mcp_request(
+                name,
+                False,
+                duration_sec=time.monotonic() - t0,
+                error_msg=safe_error_message(e),
+            )
             raise
 
     wrapper.__name__ = f.__name__

@@ -2,7 +2,7 @@
 
 Keys: ingest:cache (hash), ingest:current, ingest:run:next_id, ingest:runs (list), ingest:run:{id}, ingest:failed:{id};
       snippets:cache (hash), snippets:last_run.
-REDIS_URL or REDIS_HOST required. Used by ingest.py and snippets_cache.py.
+When Redis is unavailable, get_redis() returns a no-op client: no writes, no errors, reads return empty/None until process restart.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import json
 import logging
 import os
 import time
-from typing import Any
+from typing import Any, Iterator
 
 _LOG = logging.getLogger(__name__)
 
@@ -30,39 +30,106 @@ _SNIPPETS_LAST_RUN = "snippets:last_run"
 
 _client: Any = None
 
+_DEFAULT_REDIS_URL = "redis://localhost:6379/0"
+
+
+class _NoOpRedis:
+    """No-op Redis client when Redis is unavailable. All reads return empty/None, writes do nothing. No exceptions."""
+
+    def ping(self) -> None:
+        pass
+
+    def get(self, key: str) -> None:
+        return None
+
+    def set(self, key: str, value: str, ex: int | None = None) -> None:
+        pass
+
+    def incr(self, key: str) -> int:
+        return 0
+
+    def hgetall(self, name: str) -> dict[str, str]:
+        return {}
+
+    def hset(self, name: str, key: str | None = None, value: str | None = None, mapping: dict | None = None) -> None:
+        pass
+
+    def delete(self, *keys: str) -> None:
+        pass
+
+    def lpush(self, key: str, *values: str) -> int:
+        return 0
+
+    def ltrim(self, key: str, start: int, end: int) -> None:
+        pass
+
+    def lrange(self, key: str, start: int, end: int) -> list:
+        return []
+
+    def rpush(self, key: str, *values: str) -> int:
+        return 0
+
+    def zadd(self, name: str, mapping: dict[str, float]) -> int:
+        return 0
+
+    def zremrangebyscore(self, name: str, min_: float | str, max_: float | str) -> int:
+        return 0
+
+    def zcount(self, name: str, min_: float | str, max_: float | str) -> int:
+        return 0
+
+    def scan_iter(self, match: str) -> Iterator[str]:
+        return iter([])
+
 
 def get_redis():
-    """Return Redis client. Uses REDIS_URL or REDIS_HOST+REDIS_PORT. Cached. Raises if Redis unavailable."""
+    """Return Redis client or no-op if unavailable. Uses REDIS_URL / REDIS_HOST / default localhost:6379. Cached; on first failure switches to no-op until process restart."""
     global _client
     if _client is not None:
         return _client
     try:
         import redis as redis_mod
     except ImportError as e:
-        raise RuntimeError(
-            "Redis required for ingest cache. Install: pip install redis. Set REDIS_URL or REDIS_HOST."
-        ) from e
+        _LOG.warning("redis_cache: redis not installed, using no-op: %s", e)
+        _client = _NoOpRedis()
+        return _client
     url = os.environ.get("REDIS_URL", "").strip()
     if url:
-        _client = redis_mod.from_url(url, decode_responses=True)
+        try:
+            _client = redis_mod.from_url(url, decode_responses=True)
+            _client.ping()
+        except Exception as e:
+            _LOG.warning("redis_cache: Redis unavailable (%s), no writes until restart", e)
+            _client = _NoOpRedis()
     else:
         host = os.environ.get("REDIS_HOST", "").strip()
-        if not host:
-            raise RuntimeError("REDIS_URL or REDIS_HOST required for ingest cache.")
-        port = int(os.environ.get("REDIS_PORT", "6379"))
-        _client = redis_mod.Redis(host=host, port=port, decode_responses=True)
-    _client.ping()
+        if host:
+            port = int(os.environ.get("REDIS_PORT", "6379"))
+            try:
+                _client = redis_mod.Redis(host=host, port=port, decode_responses=True)
+                _client.ping()
+            except Exception as e:
+                _LOG.warning("redis_cache: Redis unavailable (%s), no writes until restart", e)
+                _client = _NoOpRedis()
+        else:
+            try:
+                _client = redis_mod.from_url(_DEFAULT_REDIS_URL, decode_responses=True)
+                _client.ping()
+            except Exception as e:
+                _LOG.warning("redis_cache: Redis unavailable (%s), no writes until restart", e)
+                _client = _NoOpRedis()
     return _client
 
 
 def clear_all() -> bool:
-    """Delete all ingest, snippets and watchdog keys. Returns True on success."""
+    """Delete all ingest, snippets, watchdog and MCP metrics keys. Returns True on success."""
     try:
         r = get_redis()
         keys = (
             list(r.scan_iter(match="ingest:*"))
             + list(r.scan_iter(match="snippets:*"))
             + list(r.scan_iter(match="watchdog:*"))
+            + list(r.scan_iter(match="mcp:*"))
         )
         if keys:
             r.delete(*keys)
@@ -539,3 +606,88 @@ def snippets_items_total() -> int:
     except Exception as e:
         _LOG.debug("snippets_items_total: %s", e)
         return 0
+
+
+# --- MCP request metrics (dashboard: total, last hour, max response time, errors) ---
+
+_MCP_TOTAL = "mcp:total"
+_MCP_TS_ZSET = "mcp:requests_ts"
+_MCP_LAST_HOUR = 3600
+_MCP_MAX_RESPONSE_SEC = "mcp:max_response_sec"
+_MCP_ERRORS_TOTAL = "mcp:errors_total"
+_MCP_ERRORS_RECENT = "mcp:errors_recent"
+_MCP_ERRORS_RECENT_MAX = 20
+
+
+def mcp_request_record(
+    tool_name: str = "",
+    success: bool = True,
+    duration_sec: float | None = None,
+    error_msg: str | None = None,
+) -> None:
+    """Record one MCP tool call. Dashboard reads via mcp_metrics_get."""
+    try:
+        r = get_redis()
+        now = time.time()
+        r.incr(_MCP_TOTAL)
+        r.zadd(_MCP_TS_ZSET, {str(now): now})
+        r.zremrangebyscore(_MCP_TS_ZSET, "-inf", now - _MCP_LAST_HOUR)
+        if duration_sec is not None and duration_sec > 0:
+            cur = r.get(_MCP_MAX_RESPONSE_SEC)
+            if cur is None or float(cur) < duration_sec:
+                r.set(_MCP_MAX_RESPONSE_SEC, str(round(duration_sec, 3)))
+        if not success:
+            r.incr(_MCP_ERRORS_TOTAL)
+            item = json.dumps(
+                {
+                    "ts": now,
+                    "tool": (tool_name or "?")[:64],
+                    "error": (error_msg or "error")[:200],
+                },
+                ensure_ascii=False,
+            )
+            r.lpush(_MCP_ERRORS_RECENT, item)
+            r.ltrim(_MCP_ERRORS_RECENT, 0, _MCP_ERRORS_RECENT_MAX - 1)
+    except Exception as e:
+        _LOG.debug("mcp_request_record: %s", e)
+
+
+def mcp_metrics_get() -> dict[str, Any]:
+    """Return total, last_hour, max_response_sec, errors_total, errors_recent for dashboard."""
+    out: dict[str, Any] = {
+        "total": 0,
+        "last_hour": 0,
+        "max_response_sec": None,
+        "errors_total": 0,
+        "errors_recent": [],
+    }
+    try:
+        r = get_redis()
+        total = r.get(_MCP_TOTAL)
+        out["total"] = int(total) if total else 0
+        now = time.time()
+        out["last_hour"] = r.zcount(_MCP_TS_ZSET, now - _MCP_LAST_HOUR, "+inf")
+        max_sec = r.get(_MCP_MAX_RESPONSE_SEC)
+        if max_sec is not None:
+            try:
+                out["max_response_sec"] = round(float(max_sec), 2)
+            except (TypeError, ValueError):
+                pass
+        err_total = r.get(_MCP_ERRORS_TOTAL)
+        out["errors_total"] = int(err_total) if err_total else 0
+        raw_list = r.lrange(_MCP_ERRORS_RECENT, 0, 9) or []
+        for raw in raw_list:
+            try:
+                obj = json.loads(raw)
+                out["errors_recent"].append(
+                    {
+                        "tool": obj.get("tool", "?"),
+                        "error": (obj.get("error") or "")[:100],
+                        "ts": obj.get("ts"),
+                    }
+                )
+            except (TypeError, ValueError, json.JSONDecodeError):
+                pass
+    except Exception as e:
+        _LOG.debug("mcp_metrics_get: %s", e)
+    return out

@@ -414,12 +414,24 @@ def build_index(
                     pass
 
         texts_for_embedding = [it[1][:max_input_chars] for it in items]
+        _t0 = time.monotonic()
         vectors = embedding.get_embedding_batch(
             texts_for_embedding,
             batch_size=embedding_batch_size,
             workers=embedding_workers,
             progress_callback=_embed_progress,
         )
+        _batch_sec = round(time.monotonic() - _t0, 2)
+        if progress_callback and callable(progress_callback):
+            try:
+                progress_callback(
+                    total + len(items),
+                    "embedding",
+                    total_estimated,
+                    batch_sec=_batch_sec,
+                )
+            except (TypeError, Exception):
+                pass
         if len(vectors) != len(items):
             # Retry once with same batch (transient API/parsing issue); same batch is sent twice to API
             logging.getLogger(__name__).debug(

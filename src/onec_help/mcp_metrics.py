@@ -1,4 +1,4 @@
-"""MCP request metrics: SQLite store for dashboard (total and per-hour counts)."""
+"""MCP request metrics: Redis (preferred) or SQLite for dashboard (total and per-hour counts)."""
 
 import os
 import sqlite3
@@ -9,6 +9,37 @@ _TABLE = "requests"
 _DEFAULT_DB = "mcp_metrics.db"
 
 
+def _use_redis() -> bool:
+    """True if Redis should be used for MCP metrics. False only when MCP_METRICS_DB is set (force SQLite)."""
+    if os.environ.get("MCP_METRICS_DB", "").strip():
+        return False  # explicit SQLite path
+    # Default: use Redis (get_redis() uses redis://localhost:6379/0 when REDIS_URL/REDIS_HOST unset)
+    return True
+
+
+def record_request(
+    tool_name: str,
+    success: bool,
+    duration_sec: float | None = None,
+    error_msg: str | None = None,
+) -> None:
+    """Append one MCP tool call. Writes to Redis (with duration/errors) or SQLite. Safe from any thread."""
+    if _use_redis():
+        try:
+            from . import redis_cache
+            redis_cache.mcp_request_record(
+                tool_name=tool_name,
+                success=success,
+                duration_sec=duration_sec,
+                error_msg=error_msg if not success else None,
+            )
+            return
+        except Exception as e:
+            _log = __import__("logging").getLogger(__name__)
+            _log.debug("mcp_metrics Redis record_request failed: %s", e)
+    _record_request_sqlite(tool_name, success)
+
+
 def _metrics_db_path() -> str:
     """Path to SQLite DB. MCP_METRICS_DB or next to ingest cache."""
     path = os.environ.get("MCP_METRICS_DB", "").strip()
@@ -16,7 +47,6 @@ def _metrics_db_path() -> str:
         return path
     try:
         from .ingest import _ingest_cache_path
-
         parent = os.path.dirname(_ingest_cache_path())
         return os.path.join(parent, _DEFAULT_DB)
     except Exception:
@@ -32,8 +62,7 @@ def _init_db(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def record_request(tool_name: str, success: bool) -> None:
-    """Append one MCP tool call. Safe to call from any thread."""
+def _record_request_sqlite(tool_name: str, success: bool = True) -> None:
     path = _metrics_db_path()
     try:
         conn = sqlite3.connect(path, timeout=5)
@@ -50,9 +79,21 @@ def record_request(tool_name: str, success: bool) -> None:
 
 
 def get_metrics() -> dict[str, Any]:
-    """Return total count and count in last hour. For dashboard."""
+    """Return total count and count in last hour. For dashboard. Reads from Redis when available."""
+    if _use_redis():
+        try:
+            from . import redis_cache
+            return redis_cache.mcp_metrics_get()
+        except Exception:
+            pass
     path = _metrics_db_path()
-    out: dict[str, Any] = {"total": 0, "last_hour": 0}
+    out: dict[str, Any] = {
+        "total": 0,
+        "last_hour": 0,
+        "max_response_sec": None,
+        "errors_total": 0,
+        "errors_recent": [],
+    }
     if not path or not os.path.isfile(path):
         return out
     try:

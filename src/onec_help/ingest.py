@@ -179,6 +179,7 @@ def _persist_ingest_status_sqlite(
     max_workers: int | None = None,
     embedding_workers: int | None = None,
     run_id: int | None = None,
+    last_batch_sec: float | None = None,
 ) -> None:
     """Persist ingest status to Redis (ingest:current). On completion update run and trim old runs."""
     elapsed = time.time() - started_at
@@ -227,6 +228,8 @@ def _persist_ingest_status_sqlite(
     if finished_at is not None:
         payload["finished_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(finished_at))
         payload["total_elapsed_sec"] = round(finished_at - started_at, 1)
+    if last_batch_sec is not None and last_batch_sec > 0:
+        payload["last_batch_sec"] = round(last_batch_sec, 2)
 
     payload_with_ts = {**payload, "started_at_ts": started_at}
     try:
@@ -266,6 +269,7 @@ def _flush_ingest_status(state_lock: threading.Lock, state: dict[str, Any]) -> N
         completed_files = list(state.get("completed_files", []))
         current_task_points = state.get("current_task_points", 0) or 0
         current_task_estimated = state.get("current_task_estimated_total")
+        last_batch_sec = state.get("last_batch_sec")
     _write_ingest_status(
         started_at=state["started_at"],
         embedding_backend=state["embedding_backend"],
@@ -281,6 +285,7 @@ def _flush_ingest_status(state_lock: threading.Lock, state: dict[str, Any]) -> N
         completed_files=completed_files,
         max_workers=state.get("max_workers"),
         embedding_workers=state.get("embedding_workers"),
+        last_batch_sec=last_batch_sec,
     )
 
 
@@ -303,6 +308,7 @@ def _status_writer_loop(
             completed_files = list(state.get("completed_files", []))
             current_task_points = state.get("current_task_points", 0) or 0
             current_task_estimated = state.get("current_task_estimated_total")
+            last_batch_sec = state.get("last_batch_sec")
         _write_ingest_status(
             started_at=state["started_at"],
             embedding_backend=state["embedding_backend"],
@@ -318,6 +324,7 @@ def _status_writer_loop(
             completed_files=completed_files,
             max_workers=state.get("max_workers"),
             embedding_workers=state.get("embedding_workers"),
+            last_batch_sec=last_batch_sec,
         )
 
 
@@ -343,6 +350,7 @@ def _write_ingest_status(
     max_workers: int | None = None,
     embedding_workers: int | None = None,
     run_id: int | None = None,
+    last_batch_sec: float | None = None,
 ) -> None:
     """Write ingest status to Redis for dashboard."""
     _persist_ingest_status_sqlite(
@@ -362,6 +370,7 @@ def _write_ingest_status(
         max_workers=max_workers,
         embedding_workers=embedding_workers,
         run_id=run_id,
+        last_batch_sec=last_batch_sec,
     )
 
 
@@ -589,6 +598,7 @@ def _unpack_build_and_index(
             pts: int,
             phase: str | None = None,
             total_estimated: int | None = None,
+            **kwargs: Any,
         ) -> None:
             with state_lock:
                 state["current_task_points"] = pts
@@ -600,6 +610,9 @@ def _unpack_build_and_index(
                         current_work[ident]["estimated_total"] = total_estimated
                     if phase:
                         current_work[ident]["stage"] = phase
+                batch_sec = kwargs.get("batch_sec")
+                if batch_sec is not None and isinstance(batch_sec, (int, float)):
+                    state["last_batch_sec"] = round(float(batch_sec), 2)
             _flush_ingest_status(state_lock, state)
 
         n = build_index_fn(
@@ -1320,6 +1333,7 @@ def _index_one_unpacked_task(
             pts: int,
             phase: str | None = None,
             total_estimated: int | None = None,
+            **kwargs: Any,
         ) -> None:
             with state_lock:
                 state["current_task_points"] = pts
@@ -1331,6 +1345,9 @@ def _index_one_unpacked_task(
                         current_work[ident]["estimated_total"] = total_estimated
                     if phase:
                         current_work[ident]["stage"] = phase
+                batch_sec = kwargs.get("batch_sec")
+                if batch_sec is not None and isinstance(batch_sec, (int, float)):
+                    state["last_batch_sec"] = round(float(batch_sec), 2)
             _flush_ingest_status(state_lock, state)
 
         n = build_index_fn(

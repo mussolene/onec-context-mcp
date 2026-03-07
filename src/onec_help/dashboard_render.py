@@ -44,11 +44,11 @@ def render_dashboard(data: dict[str, Any]) -> Any:
             pts_str = f", {pts_so_far} pts" if pts_so_far > 0 else ""
             if est_pts is not None and est_pts > 0:
                 pts_str += f" (est. ~{est_pts})"
-        tasks_parts.append(
-            Text(
-                f"Ingest: in progress {done}/{total}{pts_str}{eta} ({format_duration(elapsed)} elapsed)\n"
-            )
-        )
+        ingest_line = f"Ingest: in progress {done}/{total}{pts_str}{eta} ({format_duration(elapsed)} elapsed)"
+        last_batch = ingest.get("last_batch_sec")
+        if last_batch is not None and isinstance(last_batch, (int, float)) and last_batch > 0:
+            ingest_line += f"  │  Last batch: {last_batch}s"
+        tasks_parts.append(Text(ingest_line + "\n"))
         workers: list[dict[str, Any]] = []
         for cur in (current_tasks or [])[:10]:
             version = (cur.get("version") or "—")[:12]
@@ -101,21 +101,24 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 i = idx + 1
                 pts_val = w.get("pts")
                 total_val = w.get("total")
-                if pts_val is not None and total_val is not None and total_val > 0:
-                    tasks_parts.append(Text(f"  [{i}] {w['label']} {pts_val}/{total_val}\n"))
+                if total_val is not None and total_val > 0:
+                    tasks_parts.append(Text(f"  [{i}] {w['label']} {(pts_val or 0)}/{total_val}\n"))
                 else:
                     tasks_parts.append(Text(f"  [{i}] {w['label']}\n"))
-            tasks_parts.append(Text("\n"))
+            bar_table = Table(show_header=False, box=None, padding=(0, 1))
+            bar_table.add_column(style="dim", width=5)  # [1]..[10]
+            bar_table.add_column(min_width=24, max_width=40)  # progress bar
             for idx, w in enumerate(workers):
                 i = idx + 1
                 pts_val = w.get("pts")
                 total_val = w.get("total")
-                if pts_val is not None and total_val is not None and total_val > 0:
-                    tasks_parts.append(Text(f"  [{i}] "))
-                    tasks_parts.append(
-                        ProgressBar(total=float(total_val), completed=float(pts_val), width=32)
+                if total_val is not None and total_val > 0:
+                    bar_table.add_row(
+                        Text(f"[{i}]"),
+                        ProgressBar(total=float(total_val), completed=float(pts_val or 0), width=28),
                     )
-                    tasks_parts.append(Text("\n"))
+            if bar_table.row_count > 0:
+                tasks_parts.append(bar_table)
             if current_tasks and len(current_tasks) > 10:
                 tasks_parts.append(Text(f"  … and {len(current_tasks) - 10} more ingest tasks\n"))
     elif ingest_last:
@@ -169,21 +172,24 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 i = idx + 1
                 pts_val = w.get("pts")
                 total_val = w.get("total")
-                if pts_val is not None and total_val is not None and total_val > 0:
-                    tasks_parts.append(Text(f"  [{i}] {w['label']} {pts_val}/{total_val}\n"))
+                if total_val is not None and total_val > 0:
+                    tasks_parts.append(Text(f"  [{i}] {w['label']} {(pts_val or 0)}/{total_val}\n"))
                 else:
                     tasks_parts.append(Text(f"  [{i}] {w['label']}\n"))
-            tasks_parts.append(Text("\n"))
+            bar_table_extra = Table(show_header=False, box=None, padding=(0, 1))
+            bar_table_extra.add_column(style="dim", width=5)
+            bar_table_extra.add_column(min_width=24, max_width=40)
             for idx, w in enumerate(workers_extra):
                 i = idx + 1
                 pts_val = w.get("pts")
                 total_val = w.get("total")
-                if pts_val is not None and total_val is not None and total_val > 0:
-                    tasks_parts.append(Text(f"  [{i}] "))
-                    tasks_parts.append(
-                        ProgressBar(total=float(total_val), completed=float(pts_val), width=32)
+                if total_val is not None and total_val > 0:
+                    bar_table_extra.add_row(
+                        Text(f"[{i}]"),
+                        ProgressBar(total=float(total_val), completed=float(pts_val or 0), width=28),
                     )
-                    tasks_parts.append(Text("\n"))
+            if bar_table_extra.row_count > 0:
+                tasks_parts.append(bar_table_extra)
     if not (ingest and ingest.get("status") == "in_progress"):
         if not standards_loading:
             tasks_parts.append(Text("\nStandards: no data (watchdog or load-standards)"))
@@ -303,8 +309,26 @@ def render_dashboard(data: dict[str, Any]) -> Any:
     mcp = data.get("mcp_metrics") or {}
     total = mcp.get("total", 0) or 0
     last_hour = mcp.get("last_hour", 0) or 0
-    mcp_text = f"Total: {total}  │  Last hour: {last_hour}"
-    panels.append(Panel(mcp_text, title="[bold]MCP requests[/bold]", border_style="cyan"))
+    max_sec = mcp.get("max_response_sec")
+    errors_total = mcp.get("errors_total", 0) or 0
+    errors_recent = mcp.get("errors_recent") or []
+    mcp_line = f"Total: {total}  │  Last hour: {last_hour}"
+    if max_sec is not None and isinstance(max_sec, (int, float)) and max_sec > 0:
+        mcp_line += f"  │  Max response: {format_duration(max_sec)}"
+    if errors_total > 0:
+        mcp_line += f"  │  Errors: {errors_total}"
+    mcp_content: Any = Text(mcp_line)
+    if errors_recent:
+        mcp_content = Group(
+            mcp_content,
+            Text(""),
+            Text("[dim]Last errors:[/dim]"),
+            *[
+                Text(f"  {e.get('tool', '?')}: {(e.get('error') or '')[:80]}")
+                for e in errors_recent[:5]
+            ],
+        )
+    panels.append(Panel(mcp_content, title="[bold]MCP requests[/bold]", border_style="cyan"))
 
     return Group(*panels)
 

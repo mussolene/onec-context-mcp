@@ -11,7 +11,6 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "beautifulsoup4>=4.12",
-    "markdown>=3.5",
     "qdrant-client>=1.7",
     "redis>=4.5",
     "rich>=13.0",

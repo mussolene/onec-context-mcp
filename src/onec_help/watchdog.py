@@ -289,13 +289,23 @@ def _append_ingest_run_log(returncode: int, stdout: bytes, stderr: bytes) -> Non
         pass
 
 
+def _ingest_subprocess_timeout() -> int:
+    """Timeout in seconds for one ingest run. 0 = no timeout. Default 10800 (3h). Set INGEST_WATCHDOG_TIMEOUT for long runs."""
+    try:
+        v = os.environ.get("INGEST_WATCHDOG_TIMEOUT", "10800").strip()
+        return max(0, int(v))
+    except (ValueError, TypeError):
+        return 10800
+
+
 def _run_ingest() -> bool:
     """Run full ingest (python -m onec_help ingest). Returns True if exit code was 0, False otherwise."""
+    timeout_sec = _ingest_subprocess_timeout()
     try:
         result = subprocess.run(
             [sys.executable, "-m", "onec_help", "ingest"],
             capture_output=True,
-            timeout=3600,
+            timeout=timeout_sec if timeout_sec > 0 else None,
             env=os.environ.copy(),
         )
         # Persist full stderr (and stdout) to cache dir for diagnostics (e.g. exit -7, OOM)
@@ -329,10 +339,10 @@ def _run_ingest() -> bool:
         _append_ingest_run_log(
             -1,
             b"",
-            b"[watchdog] ingest timeout (3600s)\n",
+            f"[watchdog] ingest timeout ({timeout_sec}s)\n".encode("utf-8"),
         )
         print(
-            "[watchdog] ingest failed: timeout, will retry on next poll",
+            f"[watchdog] ingest failed: timeout ({timeout_sec}s), will retry on next poll",
             file=sys.stderr,
             flush=True,
         )
