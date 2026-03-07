@@ -32,6 +32,31 @@ def render_dashboard(data: dict[str, Any]) -> Any:
         tasks_lines.append(
             f"Ingest: in progress {done}/{total}{eta} ({format_duration(elapsed)} elapsed)"
         )
+        # Show active tasks (one per worker in multi-threaded ingest, or single in from_unpacked)
+        current_tasks = ingest.get("current") or []
+        if current_tasks:
+            workers = len(current_tasks)
+            tasks_lines.append(
+                f"  Active: {workers} task{'s' if workers != 1 else ''}"
+            )
+            for i, cur in enumerate(current_tasks[:10]):  # cap for display
+                version = (cur.get("version") or "—")[:12]
+                lang = (cur.get("language") or "—")[:8]
+                path = (cur.get("path") or "—")[:36]
+                stage = cur.get("stage") or "—"
+                pts = cur.get("points")
+                est = cur.get("estimated_total")
+                if pts is not None and est is not None and est > 0:
+                    progress = f" {pts}/{est} pts"
+                elif pts is not None:
+                    progress = f" {pts} pts"
+                else:
+                    progress = ""
+                tasks_lines.append(
+                    f"    [{i + 1}] {version} / {lang} — {path} — {stage}{progress}"
+                )
+            if len(current_tasks) > 10:
+                tasks_lines.append(f"    … and {len(current_tasks) - 10} more")
     elif ingest_last:
         total = ingest_last.get("total_tasks") or 0
         done = ingest_last.get("done_tasks") or 0
