@@ -18,6 +18,7 @@ from onec_help.cli import (
     cmd_add_bm25,
     cmd_build_docs,
     cmd_build_index,
+    cmd_dashboard,
     cmd_index_status,
     cmd_ingest,
     cmd_ingest_from_unpacked,
@@ -1804,3 +1805,28 @@ def test_cmd_index_status_watch_interrupt() -> None:
         with patch("time.sleep", side_effect=KeyboardInterrupt):
             args = make_args(watch=True, interval=1)
             assert cmd_index_status(args) == 0
+
+
+def test_cmd_dashboard_once_returns_zero_and_prints(capsys: pytest.CaptureFixture[str]) -> None:
+    """cmd_dashboard --once prints dashboard and returns 0."""
+    args = make_args(once=True, interval=3)
+    assert cmd_dashboard(args) == 0
+    out = capsys.readouterr().out
+    assert "Tasks" in out
+    assert "Errors" in out or "Database" in out
+
+
+def test_cmd_dashboard_without_rich_returns_one(capsys: pytest.CaptureFixture[str]) -> None:
+    """When rich cannot be imported, cmd_dashboard returns 1 and prints install message."""
+    real_import = __import__
+
+    def mock_import(name, *args, **kwargs):
+        if name == "rich.console" or name == "rich.live":
+            raise ImportError("No module named 'rich'")
+        return real_import(name, *args, **kwargs)
+
+    with patch("builtins.__import__", side_effect=mock_import):
+        args = make_args(once=True)
+        assert cmd_dashboard(args) == 1
+    err = capsys.readouterr().err
+    assert "rich" in err.lower()
