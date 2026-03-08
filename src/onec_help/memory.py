@@ -6,7 +6,6 @@ Triple-write on each event; long uses embedding or pending queue when unavailabl
 import hashlib
 import json
 import logging
-import os
 import threading
 import time
 import uuid
@@ -25,20 +24,23 @@ def get_memory_store(base_path: Path | None = None) -> "MemoryStore":
     global _store
     with _store_lock:
         if _store is None:
+            from . import env_config
+
             path = base_path
             if path is None:
-                p = os.environ.get("MEMORY_BASE_PATH", "").strip()
+                p = env_config.get_memory_base_path()
                 path = Path(p).expanduser() if p else Path.home() / ".onec_help"
-            short = int(os.environ.get("MEMORY_SHORT_LIMIT", "50"))
-            medium = int(os.environ.get("MEMORY_MEDIUM_LIMIT", "500"))
-            ttl = int(os.environ.get("MEMORY_MEDIUM_TTL_DAYS", "7"))
+            short = env_config.get_memory_short_limit()
+            medium = env_config.get_memory_medium_limit()
+            ttl = env_config.get_memory_medium_ttl_days()
             _store = MemoryStore(path, short_limit=short, medium_limit=medium, medium_ttl_days=ttl)
         return _store
 
 
 def _is_memory_enabled() -> bool:
-    v = (os.environ.get("MEMORY_ENABLED") or "0").strip().lower()
-    return v in ("1", "true", "yes", "on")
+    from . import env_config
+
+    return env_config.get_memory_enabled()
 
 
 class MemoryStore:

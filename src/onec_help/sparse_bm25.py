@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import re
 from collections import Counter
 from pathlib import Path
@@ -26,7 +25,9 @@ def _stemmer():
     """Lazy Snowball stemmer (Russian). Latin tokens pass through unchanged."""
     global _USE_STEMMING, _STEMMER
     if _USE_STEMMING is None:
-        _USE_STEMMING = os.environ.get("BM25_STEMMING", "1").strip().lower() in ("1", "true", "yes")
+        from . import env_config
+
+        _USE_STEMMING = env_config.get_bm25_stemming()
     if _USE_STEMMING and _STEMMER is None:
         try:
             import snowballstemmer

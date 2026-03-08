@@ -22,7 +22,7 @@ _INGEST_STDERR_LOG_MAX_BYTES = 2 * 1024 * 1024  # 2 MiB; rotate to .old when exc
 
 
 def _parse_languages() -> list[str] | None:
-    raw = os.environ.get("HELP_LANGUAGES", "").strip()
+    raw = env_config.get_help_languages()
     if not raw or raw.lower() == "all":
         return None
     return [x.strip().lower() for x in raw.split(",") if x.strip()]
@@ -139,10 +139,10 @@ def run_watchdog(
         print(f"[watchdog] HELP_SOURCE_BASE not a directory: {base}", file=sys.stderr, flush=True)
         return
     last_hbk = _load_watchdog_state("hbk")
-    standards_dir_str = (os.environ.get("STANDARDS_DIR") or "data/standards").strip()
+    standards_dir_str = env_config.get_standards_dir()
     standards_dir = Path(standards_dir_str).resolve()
     last_standards = _load_watchdog_state("standards")
-    snippets_dir_str = (os.environ.get("SNIPPETS_DIR") or "data/snippets").strip()
+    snippets_dir_str = env_config.get_snippets_dir()
     snippets_dir = Path(snippets_dir_str).resolve()
     last_snippets = _load_watchdog_state("snippets")
 
@@ -290,12 +290,8 @@ def _append_ingest_run_log(returncode: int, stdout: bytes, stderr: bytes) -> Non
 
 
 def _ingest_subprocess_timeout() -> int:
-    """Timeout in seconds for one ingest run. 0 = no timeout. Default 10800 (3h). Set WATCHDOG_INGEST_TIMEOUT for long runs."""
-    try:
-        v = (os.environ.get("WATCHDOG_INGEST_TIMEOUT") or "10800").strip()
-        return max(0, int(v))
-    except (ValueError, TypeError):
-        return 10800
+    """Timeout in seconds for one ingest run. 0 = no timeout. From env_config."""
+    return env_config.get_watchdog_ingest_timeout()
 
 
 def _run_ingest() -> bool:

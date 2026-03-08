@@ -282,19 +282,30 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                     workers_extra_table.add_row(Text(f"[{i}]"), Text(short), Text("—"))
             tasks_parts.append(Text(f"  Tasks: {len(workers_extra)}\n"))
             tasks_parts.append(workers_extra_table)
+    standards_last = data.get("standards_last_run")
     if not (ingest and ingest.get("status") == "in_progress"):
         if not standards_loading:
-            tasks_parts.append(Text("\nStandards: no data (watchdog or load-standards)"))
+            if standards_last:
+                items_s = standards_last.get("items_loaded")
+                elapsed_s = standards_last.get("total_elapsed_sec")
+                parts = [f"\nStandards: last run"]
+                if items_s is not None:
+                    parts.append(f", {items_s} items")
+                if elapsed_s is not None:
+                    parts.append(f", {format_duration(elapsed_s)}")
+                tasks_parts.append(Text("".join(parts)))
+            else:
+                tasks_parts.append(Text("\nStandards: no data (watchdog or load-standards)"))
         if not snippets_loading:
             if snippets:
                 items = snippets.get("items_loaded")
-                tasks_parts.append(
-                    Text(
-                        f"\nSnippets: last run, {items} items"
-                        if items is not None
-                        else "\nSnippets: last run"
-                    )
-                )
+                elapsed = snippets.get("total_elapsed_sec")
+                parts = ["\nSnippets: last run"]
+                if items is not None:
+                    parts.append(f", {items} items")
+                if elapsed is not None:
+                    parts.append(f", {format_duration(elapsed)}")
+                tasks_parts.append(Text("".join(parts)))
             else:
                 tasks_parts.append(Text("\nSnippets: no data (watchdog or load-snippets)"))
 

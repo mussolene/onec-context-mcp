@@ -202,7 +202,6 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
 
 def cmd_unpack_dir(args: argparse.Namespace) -> int:
     """Unpack all .hbk from source dir(s) into output_dir (no indexing)."""
-    import os
     from pathlib import Path
 
     from .ingest import (
@@ -227,7 +226,7 @@ def cmd_unpack_dir(args: argparse.Namespace) -> int:
             discovered = discover_version_dirs(base)
             sources = [(str(p), v) for p, v in discovered]
         if not sources:
-            sources = parse_source_dirs_env(os.environ.get("HELP_SOURCE_DIRS"))
+            sources = parse_source_dirs_env(env_config.get_help_source_dirs())
     if not sources:
         # Single directory as version
         src = getattr(args, "source_dir", None) or ""
@@ -241,7 +240,7 @@ def cmd_unpack_dir(args: argparse.Namespace) -> int:
         return 1
     raw_lang = getattr(args, "languages", None)
     languages = parse_languages_env(
-        raw_lang if raw_lang is not None and raw_lang.strip() else os.environ.get("HELP_LANGUAGES")
+        raw_lang if raw_lang is not None and raw_lang.strip() else env_config.get_help_languages()
     )
     out = Path(args.output_dir or "./unpacked").resolve()
     try:
@@ -261,7 +260,6 @@ def cmd_unpack_dir(args: argparse.Namespace) -> int:
 
 def cmd_unpack_sync(args: argparse.Namespace) -> int:
     """Unpack .hbk to data/unpacked with .hbk_info.json, skip unchanged by hash."""
-    import os
     from pathlib import Path
 
     from .ingest import (
@@ -286,7 +284,7 @@ def cmd_unpack_sync(args: argparse.Namespace) -> int:
             discovered = discover_version_dirs(base)
             sources = [(str(p), v) for p, v in discovered]
         if not sources:
-            sources = parse_source_dirs_env(os.environ.get("HELP_SOURCE_DIRS"))
+            sources = parse_source_dirs_env(env_config.get_help_source_dirs())
     if not sources:
         src = getattr(args, "source_dir", None) or ""
         if src and Path(src).is_dir():
@@ -304,7 +302,7 @@ def cmd_unpack_sync(args: argparse.Namespace) -> int:
         return 1
     raw_lang = getattr(args, "languages", None)
     languages = parse_languages_env(
-        raw_lang if raw_lang is not None and raw_lang.strip() else os.environ.get("HELP_LANGUAGES")
+        raw_lang if raw_lang is not None and raw_lang.strip() else env_config.get_help_languages()
     )
     out = getattr(args, "output_dir", None) or env_config.get_data_unpacked_dir()
     out = Path(out).resolve()
@@ -416,7 +414,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
             discovered = discover_version_dirs(base)
             sources = [(str(p), v) for p, v in discovered]
         if not sources:
-            sources = parse_source_dirs_env(os.environ.get("HELP_SOURCE_DIRS"))
+            sources = parse_source_dirs_env(env_config.get_help_source_dirs())
     if not sources:
         print(
             "Error: no source directories. Set HELP_SOURCE_BASE (path to folder with version subdirs) or use --sources / --sources-file",
@@ -427,13 +425,13 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     if raw_lang is not None:
         languages = parse_languages_env(raw_lang if raw_lang.strip() else "all")
     else:
-        languages = parse_languages_env(os.environ.get("HELP_LANGUAGES"))
+        languages = parse_languages_env(env_config.get_help_languages())
     if getattr(args, "no_cache", False):
         os.environ["INGEST_SKIP_CACHE"] = "1"
     try:
         # По умолчанию: распаковка в data/unpacked, индексация из неё (одна папка, без удаления).
         # INGEST_USE_TEMP=1 — старый режим: временная папка с удалением после индексации.
-        use_temp = os.environ.get("INGEST_USE_TEMP", "").strip().lower() in ("1", "true", "yes")
+        use_temp = env_config.get_ingest_use_temp()
         if not use_temp and not getattr(args, "dry_run", False):
             from .ingest import run_ingest_from_unpacked, run_unpack_sync
 
@@ -463,7 +461,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
             n = run_ingest(
                 source_dirs_with_versions=sources,
                 languages=languages,
-                temp_base=args.temp_base or os.environ.get("INGEST_TEMP_DIR") or _default_temp,
+                temp_base=args.temp_base or env_config.get_ingest_temp_dir() or _default_temp,
                 qdrant_host=env_config.get_qdrant_host(),
                 qdrant_port=env_config.get_qdrant_port(),
                 collection=env_config.get_qdrant_collection(),
@@ -520,8 +518,8 @@ def cmd_ingest_from_unpacked(args: argparse.Namespace) -> int:
 
 def _build_snippets_sources(args: argparse.Namespace) -> list[tuple[Path, str]]:
     """Build list of (path, type) for snippets sources. type: 'json' | 'folder'."""
-    path_arg = getattr(args, "snippets_file", None) or os.environ.get("SNIPPETS_JSON_PATH", "")
-    snippets_dir = os.environ.get("SNIPPETS_DIR", "")
+    path_arg = getattr(args, "snippets_file", None) or env_config.get_snippets_json_path()
+    snippets_dir = env_config.get_snippets_dir()
     from_project = getattr(args, "from_project", None)
     sources: list[tuple[Path, str]] = []
 
@@ -564,7 +562,7 @@ def _load_folder_items(d: Path, per_func: bool = False) -> list[dict]:
 
 def cmd_load_snippets(args: argparse.Namespace) -> int:
     """Load curated snippets from JSON and/or folder into onec_help_memory (domain=snippets).
-    Uses cache: only loads sources that changed. --no-cache or SNIPPETS_SKIP_CACHE=1 to force reload."""
+    By default (explicit run) always loads; use --use-cache or SNIPPETS_SKIP_CACHE=0 to only load changed sources."""
     import time
 
     from ._utils import progress_done, progress_line
@@ -577,22 +575,20 @@ def cmd_load_snippets(args: argparse.Namespace) -> int:
         update_snippets_cache,
     )
 
-    skip_cache = getattr(args, "no_cache", False) or (
-        os.environ.get("SNIPPETS_SKIP_CACHE") or ""
-    ).strip().lower() in ("1", "true", "yes")
+    # Explicit run: default force load. Use cache only when --use-cache or init passes use_cache=True.
+    use_cache = getattr(args, "use_cache", False)
+    skip_cache = (not use_cache) or env_config.get_snippets_skip_cache()
 
     try:
         sources = _build_snippets_sources(args)
         if not sources:
-            path_arg = getattr(args, "snippets_file", None) or os.environ.get(
-                "SNIPPETS_JSON_PATH", ""
-            )
+            path_arg = getattr(args, "snippets_file", None) or env_config.get_snippets_json_path()
             if path_arg:
                 p = Path(path_arg.strip())
                 if not p.exists():
                     print(f"Error: path not found: {p}", file=sys.stderr)
                     return 1
-            elif not os.environ.get("SNIPPETS_DIR") and not getattr(args, "from_project", None):
+            elif not env_config.get_snippets_dir() and not getattr(args, "from_project", None):
                 print(
                     "No source: set SNIPPETS_DIR, pass path, or use --from-project.",
                     file=sys.stderr,
@@ -772,12 +768,12 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
     Sources: path arg, STANDARDS_DIR (only when no repos set), STANDARDS_REPOS (comma-separated).
     By default loads both v8-code-style and v8std. When STANDARDS_REPOS is set, STANDARDS_DIR is used only as copy destination."""
     path_arg = (getattr(args, "standards_path", None) or "").strip()
-    standards_repos = (os.environ.get("STANDARDS_REPOS") or "").strip()
-    standards_subpath = os.environ.get("STANDARDS_SUBPATH", "docs").strip() or "docs"
-    default_branch = os.environ.get("STANDARDS_BRANCH", "master").strip() or "master"
+    standards_repos = env_config.get_standards_repos()
+    standards_subpath = env_config.get_standards_subpath()
+    default_branch = env_config.get_standards_branch()
     # Use STANDARDS_DIR as source only when no repo is configured (else it's the copy destination)
     if not path_arg and not standards_repos:
-        path_arg = (os.environ.get("STANDARDS_DIR") or "").strip()
+        path_arg = env_config.get_standards_dir()
     if not path_arg and not standards_repos:
         standards_repos = _DEFAULT_STANDARDS_REPOS
     temp_dirs: list[Path] = []
@@ -810,9 +806,7 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
                     shutil.rmtree(t, ignore_errors=True)
                 return 1
     else:
-        its_only = getattr(args, "its_v8std", False) or os.environ.get(
-            "STANDARDS_ITS_V8STD", ""
-        ).strip().lower() in ("1", "true", "yes")
+        its_only = getattr(args, "its_v8std", False) or env_config.get_standards_its_v8std()
         if not its_only:
             print(
                 "No source: set STANDARDS_REPOS (e.g. 1C-Company/v8-code-style:master,zeegin/v8std:main) "
@@ -826,13 +820,15 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
         import shutil as _shutil
         import time as _time
 
+        from . import redis_cache
         from ._utils import progress_done, progress_line
         from .memory import get_memory_store
         from .standards_loader import collect_from_folder
 
+        started_at = _time.time()
         _marker = _load_operation_running_path("standards")
         try:
-            _marker.write_text(str(_time.time()), encoding="utf-8")
+            _marker.write_text(str(started_at), encoding="utf-8")
         except OSError:
             pass
         try:
@@ -844,7 +840,7 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
 
         # Копировать загруженные репо в папку standards (если загрузка из репо, а не из path)
         if temp_dirs:
-            standards_out = Path(os.environ.get("STANDARDS_DIR") or "data/standards").resolve()
+            standards_out = Path(env_config.get_standards_dir()).resolve()
             standards_out.mkdir(parents=True, exist_ok=True)
             for d in dirs_to_load:
                 subdir = d.parent.name
@@ -857,17 +853,13 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
             items.extend(collect_from_folder(d))
 
         # Optional: load from ITS v8std (https://its.1c.ru/db/v8std) if enabled
-        its_v8std = os.environ.get("STANDARDS_ITS_V8STD", "").strip().lower() in (
-            "1",
-            "true",
-            "yes",
-        ) or getattr(args, "its_v8std", False)
+        its_v8std = env_config.get_standards_its_v8std() or getattr(args, "its_v8std", False)
         if its_v8std:
             try:
                 from .parse_its_v8std import fetch_its_v8std_items
 
                 progress_line("load-standards │ fetching ITS v8std (its.1c.ru)...")
-                max_content_env = os.environ.get("ITS_V8STD_MAX_CONTENT", "").strip()
+                max_content_env = env_config.get_its_v8std_max_content_raw()
                 max_content = int(max_content_env) if max_content_env else None
                 its_items = fetch_its_v8std_items(max_content=max_content)
                 items.extend(its_items)
@@ -875,9 +867,7 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
                     # Сохранить статьи ITS в папки по разделам: its-v8std/Раздел1/Подраздел/791_Название.md
                     from .parse_its_v8std import _safe_folder_name
 
-                    standards_out = Path(
-                        os.environ.get("STANDARDS_DIR") or "data/standards"
-                    ).resolve()
+                    standards_out = Path(env_config.get_standards_dir()).resolve()
                     its_dir = standards_out / "its-v8std"
                     its_dir.mkdir(parents=True, exist_ok=True)
                     for item in its_items:
@@ -904,7 +894,7 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
                 print(f"Warning: ITS v8std fetch failed: {e}", file=sys.stderr)
         else:
             # Подгрузить ITS с диска, если папка уже есть (без повторного fetch)
-            standards_out = Path(os.environ.get("STANDARDS_DIR") or "data/standards").resolve()
+            standards_out = Path(env_config.get_standards_dir()).resolve()
             its_dir = standards_out / "its-v8std"
             if its_dir.exists():
                 its_from_disk = collect_from_folder(its_dir)
@@ -956,6 +946,7 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
 
         store = get_memory_store()
         n = store.upsert_curated_snippets(items, progress_callback=_progress, domain="standards")
+        redis_cache.standards_run_record(n, started_at)
         progress_done(f"load-standards │ ✓ {n} loaded → onec_help_memory (domain=standards)")
         return 0
     except Exception as e:
@@ -984,7 +975,7 @@ def cmd_parse_fastcode(args: argparse.Namespace) -> int:
 
     out_path = args.out
     if not out_path:
-        snippets_dir = os.environ.get("SNIPPETS_DIR", "")
+        snippets_dir = env_config.get_snippets_dir()
         if snippets_dir:
             out_path = str(Path(snippets_dir) / "fastcode_snippets.json")
         else:
@@ -1008,7 +999,7 @@ def cmd_parse_helpf(args: argparse.Namespace) -> int:
 
     out_path = args.out
     if not out_path:
-        snippets_dir = os.environ.get("SNIPPETS_DIR", "")
+        snippets_dir = env_config.get_snippets_dir()
         if snippets_dir:
             out_path = str(Path(snippets_dir) / "helpf_snippets.json")
         else:
@@ -1050,10 +1041,10 @@ def cmd_mcp(args: argparse.Namespace) -> int:
     except ImportError:
         print("MCP requires fastmcp (Python 3.10+): pip install fastmcp", file=sys.stderr)
         return 1
-    transport = getattr(args, "transport", None) or os.environ.get("MCP_TRANSPORT", "stdio")
-    host = getattr(args, "host", None) or os.environ.get("MCP_HOST", "127.0.0.1")
-    port = int(getattr(args, "port", None) or os.environ.get("MCP_PORT", "8050"))
-    path = getattr(args, "path", None) or os.environ.get("MCP_PATH", "/mcp")
+    transport = getattr(args, "transport", None) or env_config.get_mcp_transport()
+    host = getattr(args, "host", None) or env_config.get_mcp_host()
+    port = int(getattr(args, "port", None) or env_config.get_mcp_port())
+    path = getattr(args, "path", None) or env_config.get_mcp_path()
     try:
         run_mcp(
             help_path=Path(args.directory or "data").resolve(),
@@ -1113,8 +1104,8 @@ def cmd_init(args: argparse.Namespace) -> int:
     ingest_args = _make_args(
         sources=getattr(args, "sources", None),
         sources_file=getattr(args, "sources_file", None),
-        languages=getattr(args, "languages", None) or os.environ.get("HELP_LANGUAGES"),
-        temp_base=os.environ.get("INGEST_TEMP_DIR") or None,
+        languages=getattr(args, "languages", None) or env_config.get_help_languages(),
+        temp_base=env_config.get_ingest_temp_dir() or None,
         workers=None,
         max_tasks=None,
         quiet=getattr(args, "quiet", False),
@@ -1126,11 +1117,12 @@ def cmd_init(args: argparse.Namespace) -> int:
         embedding_workers=None,
     )
     snippets_args = _make_args(
-        snippets_file=os.environ.get("SNIPPETS_JSON_PATH", ""),
+        snippets_file=env_config.get_snippets_json_path(),
         per_function=getattr(args, "per_function", False),
         from_project=getattr(args, "from_project", None),
+        use_cache=True,  # init: only load changed to avoid redundant work
     )
-    standards_args = _make_args(standards_path=os.environ.get("STANDARDS_DIR", ""))
+    standards_args = _make_args(standards_path=env_config.get_standards_dir())
 
     with ThreadPoolExecutor(max_workers=3) as executor:
         f_ingest = executor.submit(cmd_ingest, ingest_args)
@@ -1157,8 +1149,8 @@ def cmd_reinit(args: argparse.Namespace) -> int:
     reinit_args = _make_args(
         sources=getattr(args, "sources", None),
         sources_file=getattr(args, "sources_file", None),
-        languages=getattr(args, "languages", None) or os.environ.get("HELP_LANGUAGES"),
-        temp_base=os.environ.get("INGEST_TEMP_DIR") or None,
+        languages=getattr(args, "languages", None) or env_config.get_help_languages(),
+        temp_base=env_config.get_ingest_temp_dir() or None,
         workers=None,
         max_tasks=None,
         quiet=getattr(args, "quiet", False),
@@ -1170,11 +1162,12 @@ def cmd_reinit(args: argparse.Namespace) -> int:
         embedding_workers=None,
     )
     snippets_args = _make_args(
-        snippets_file=os.environ.get("SNIPPETS_JSON_PATH", ""),
+        snippets_file=env_config.get_snippets_json_path(),
         per_function=getattr(args, "per_function", False),
         from_project=getattr(args, "from_project", None),
+        use_cache=False,  # reinit: force full reload
     )
-    standards_args = _make_args(standards_path=os.environ.get("STANDARDS_DIR", ""))
+    standards_args = _make_args(standards_path=env_config.get_standards_dir())
 
     with ThreadPoolExecutor(max_workers=3) as executor:
         f_ingest = executor.submit(cmd_ingest, reinit_args)
@@ -1647,10 +1640,10 @@ def main() -> int:
         help="Load snippets from 1C project path (e.g. src). Uses collect_from_folder on **/*.bsl.",
     )
     p_load_snippets.add_argument(
-        "--no-cache",
+        "--use-cache",
         action="store_true",
-        dest="no_cache",
-        help="Ignore cache; re-embed all sources (env SNIPPETS_SKIP_CACHE=1)",
+        dest="use_cache",
+        help="Only load sources that changed (by default explicit run loads all)",
     )
     p_load_snippets.set_defaults(func=cmd_load_snippets)
 
@@ -1810,13 +1803,13 @@ def main() -> int:
     p_watchdog.add_argument(
         "--poll-interval",
         type=int,
-        default=int(os.environ.get("WATCHDOG_POLL_INTERVAL", "600")),
+        default=env_config.get_watchdog_poll_interval(),
         help="Seconds between .hbk checks (default: 600)",
     )
     p_watchdog.add_argument(
         "--pending-interval",
         type=int,
-        default=int(os.environ.get("WATCHDOG_PENDING_INTERVAL", "600")),
+        default=env_config.get_watchdog_pending_interval(),
         help="Seconds between pending memory processing (default: 600)",
     )
     p_watchdog.set_defaults(func=cmd_watchdog)

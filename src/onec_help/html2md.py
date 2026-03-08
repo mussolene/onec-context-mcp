@@ -158,12 +158,11 @@ def _legacy_body_to_md(body) -> str:
 _ENCODINGS_UTF8_FIRST = ("utf-8", "cp1251", "cp866", "latin-1")
 
 
-# Макс. размер HTML (байты). HELP_HTML_MAX_BYTES env; файлы больше — пропускаются (BeautifulSoup может виснуть).
+# Макс. размер HTML (байты). From env_config.
 def _html_max_bytes() -> int:
-    try:
-        return max(1024 * 100, int(os.environ.get("HELP_HTML_MAX_BYTES", "10485760")))
-    except (TypeError, ValueError):
-        return 10 * 1024 * 1024
+    from . import env_config
+
+    return env_config.get_help_html_max_bytes()
 
 
 def _looks_like_utf8_mojibake(text: str) -> bool:
@@ -185,7 +184,9 @@ def _looks_like_utf8_mojibake(text: str) -> bool:
 
 
 def _file_encodings() -> tuple[str, ...]:
-    order = (os.environ.get("HELP_FILE_ENCODING") or "").strip().lower()
+    from . import env_config
+
+    order = env_config.get_help_file_encoding()
     # HELP_FILE_ENCODING=cp1251 — сначала CP1251 (если точно знаете, что все файлы в 1251)
     if order == "cp1251":
         return ("cp1251", "utf-8", "cp866", "latin-1")

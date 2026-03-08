@@ -9,13 +9,11 @@ from io import BytesIO
 from pathlib import Path
 
 
-# Таймаут 7z/unzip (секунды). UNPACK_TIMEOUT env; по умолчанию 1800 (30 мин)
+# Таймаут 7z/unzip (секунды). From env_config.
 def _unpack_timeout() -> int:
-    try:
-        v = (os.environ.get("UNPACK_TIMEOUT") or "1800").strip()
-        return max(60, int(v))
-    except (TypeError, ValueError):
-        return 1800
+    from . import env_config
+
+    return env_config.get_unpack_timeout()
 
 
 def ensure_dir(path) -> None:

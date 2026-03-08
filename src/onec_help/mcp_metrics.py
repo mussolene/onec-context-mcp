@@ -11,9 +11,10 @@ _DEFAULT_DB = "mcp_metrics.db"
 
 def _use_redis() -> bool:
     """True if Redis should be used for MCP metrics. False only when MCP_METRICS_DB is set (force SQLite)."""
-    if os.environ.get("MCP_METRICS_DB", "").strip():
+    from . import env_config
+
+    if env_config.get_mcp_metrics_db():
         return False  # explicit SQLite path
-    # Default: use Redis (get_redis() uses redis://localhost:6379/0 when REDIS_URL/REDIS_HOST unset)
     return True
 
 
@@ -42,8 +43,10 @@ def record_request(
 
 
 def _metrics_db_path() -> str:
-    """Path to SQLite DB. MCP_METRICS_DB or next to ingest cache."""
-    path = os.environ.get("MCP_METRICS_DB", "").strip()
+    """Path to SQLite DB. From env_config or next to ingest cache."""
+    from . import env_config
+
+    path = env_config.get_mcp_metrics_db()
     if path:
         return path
     try:

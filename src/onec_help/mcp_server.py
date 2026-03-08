@@ -43,26 +43,21 @@ def _record_mcp_tool(f):
 
 
 def _snippet_max_chars() -> int:
-    """Snippet length for search results. env MCP_SNIPPET_MAX_CHARS (default 1200)."""
-    try:
-        v = os.environ.get("MCP_SNIPPET_MAX_CHARS", "1200")
-        return max(100, min(5000, int(v)))
-    except (TypeError, ValueError):
-        return 1200
+    """Snippet length for search results. From env_config."""
+    from . import env_config
+
+    return env_config.get_mcp_snippet_max_chars()
 
 
 def _max_topic_content_chars() -> int:
-    """Max chars per topic in get_1c_code_answer/search_with_content. env MCP_MAX_TOPIC_CHARS (default 4000)."""
-    try:
-        v = os.environ.get("MCP_MAX_TOPIC_CHARS", "4000")
-        return max(500, min(50000, int(v)))
-    except (TypeError, ValueError):
-        return 4000
+    """Max chars per topic in get_1c_code_answer/search_with_content. From env_config."""
+    from . import env_config
+
+    return env_config.get_mcp_max_topic_chars()
 
 
 MAX_QUERY_CHARS = 65536  # 64 KB
 MAX_CODE_SNIPPET_CHARS = 65536  # 64 KB
-_RATE_LIMIT_REQUESTS = 120
 _RATE_LIMIT_WINDOW_SEC = 60
 _rate_timestamps: list[float] = []
 _rate_lock = threading.Lock()
@@ -70,11 +65,9 @@ _rate_lock = threading.Lock()
 
 def _check_rate_limit() -> str | None:
     """Return error message if over rate limit, else None. MCP_RATE_LIMIT_PER_MIN=0 disables."""
-    limit = 0
-    try:
-        limit = int(os.environ.get("MCP_RATE_LIMIT_PER_MIN", str(_RATE_LIMIT_REQUESTS)))
-    except ValueError:
-        limit = _RATE_LIMIT_REQUESTS
+    from . import env_config
+
+    limit = env_config.get_mcp_rate_limit_per_min()
     if limit <= 0:
         return None
     now = time.monotonic()
@@ -653,6 +646,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         if err:
             return err
         try:
+            from . import env_config
             from .memory import get_memory_store
 
             payload: dict[str, Any] = {
@@ -669,13 +663,9 @@ def _build_mcp_app(help_path: Path) -> Any:
 
             do_write_files = write_to_files
             if do_write_files is None:
-                do_write_files = os.environ.get("SAVE_SNIPPET_TO_FILES", "").lower() in (
-                    "1",
-                    "true",
-                    "yes",
-                )
+                do_write_files = env_config.get_save_snippet_to_files()
             if do_write_files:
-                snippets_dir = os.environ.get("SNIPPETS_DIR", "").strip()
+                snippets_dir = env_config.get_snippets_dir()
                 if snippets_dir:
                     out_path = _write_snippet_to_file(
                         Path(snippets_dir),
@@ -1066,10 +1056,12 @@ def _main() -> None:
     p.add_argument("--port", type=int, default=None, help="Port (default: env MCP_PORT or 8050)")
     p.add_argument("--path", default=None, help="URL path (default: env MCP_PATH or /mcp)")
     args = p.parse_args()
-    transport = (args.transport or os.environ.get("MCP_TRANSPORT", "streamable-http")).strip()
-    host = (args.host or os.environ.get("MCP_HOST", "0.0.0.0")).strip()
-    port = args.port if args.port is not None else int(os.environ.get("MCP_PORT", "8050"))
-    path = (args.path or os.environ.get("MCP_PATH", "/mcp")).strip()
+    from . import env_config
+
+    transport = (args.transport or env_config.get_mcp_transport()).strip()
+    host = (args.host or env_config.get_mcp_host()).strip()
+    port = args.port if args.port is not None else env_config.get_mcp_port()
+    path = (args.path or env_config.get_mcp_path()).strip()
     run_mcp(
         help_path=Path(args.directory).resolve(),
         transport=transport,

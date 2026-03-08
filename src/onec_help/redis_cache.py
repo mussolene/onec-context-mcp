@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import time
 from collections.abc import Iterator
 from typing import Any
+
+from . import env_config
 
 _LOG = logging.getLogger(__name__)
 
@@ -28,10 +29,9 @@ _INGEST_RUNS_LIMIT = 20
 
 _SNIPPETS_CACHE = "snippets:cache"
 _SNIPPETS_LAST_RUN = "snippets:last_run"
+_STANDARDS_LAST_RUN = "standards:last_run"
 
 _client: Any = None
-
-_DEFAULT_REDIS_URL = "redis://localhost:6379/0"
 
 
 class _NoOpRedis:
@@ -100,7 +100,7 @@ def get_redis():
         _LOG.warning("redis_cache: redis not installed, using no-op: %s", e)
         _client = _NoOpRedis()
         return _client
-    url = os.environ.get("REDIS_URL", "").strip()
+    url = env_config.get_redis_url()
     if url:
         try:
             _client = redis_mod.from_url(url, decode_responses=True)
@@ -109,9 +109,9 @@ def get_redis():
             _LOG.warning("redis_cache: Redis unavailable (%s), no writes until restart", e)
             _client = _NoOpRedis()
     else:
-        host = os.environ.get("REDIS_HOST", "").strip()
+        host = env_config.get_redis_host()
         if host:
-            port = int(os.environ.get("REDIS_PORT", "6379"))
+            port = env_config.get_redis_port()
             try:
                 _client = redis_mod.Redis(host=host, port=port, decode_responses=True)
                 _client.ping()
@@ -120,7 +120,9 @@ def get_redis():
                 _client = _NoOpRedis()
         else:
             try:
-                _client = redis_mod.from_url(_DEFAULT_REDIS_URL, decode_responses=True)
+                _client = redis_mod.from_url(
+                    env_config.get_redis_url_fallback(), decode_responses=True
+                )
                 _client.ping()
             except Exception as e:
                 _LOG.warning("redis_cache: Redis unavailable (%s), no writes until restart", e)
@@ -537,6 +539,41 @@ def snippets_last_run() -> dict[str, Any] | None:
         }
     except Exception as e:
         _LOG.debug("snippets_last_run: %s", e)
+        return None
+
+
+def standards_run_record(items_loaded: int, started_at: float) -> None:
+    """Record last standards load run (for dashboard)."""
+    try:
+        r = get_redis()
+        row = {
+            "started_at": started_at,
+            "finished_at": time.time(),
+            "items_loaded": items_loaded,
+        }
+        r.set(_STANDARDS_LAST_RUN, json.dumps(row))
+    except Exception as e:
+        _LOG.debug("standards_run_record: %s", e)
+
+
+def standards_last_run() -> dict[str, Any] | None:
+    """Last standards load run for dashboard."""
+    try:
+        r = get_redis()
+        raw = r.get(_STANDARDS_LAST_RUN)
+        if not raw:
+            return None
+        row = json.loads(raw)
+        return {
+            "started_at": row.get("started_at"),
+            "finished_at": row.get("finished_at"),
+            "items_loaded": row.get("items_loaded", 0),
+            "total_elapsed_sec": (row.get("finished_at") or 0) - (row.get("started_at") or 0)
+            if row.get("finished_at") and row.get("started_at")
+            else None,
+        }
+    except Exception as e:
+        _LOG.debug("standards_last_run: %s", e)
         return None
 
 

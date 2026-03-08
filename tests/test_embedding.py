@@ -4,6 +4,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 from onec_help import embedding as embedding_mod
+from onec_help import env_config
 
 
 def test_get_embedding_dimension_default() -> None:
@@ -203,7 +204,7 @@ def test_embedding_batch_timeout() -> None:
 
 
 def test_embedding_timeout_default() -> None:
-    """_embedding_timeout returns int from env or default."""
+    """_embedding_timeout returns int from env or default (from env_config)."""
     import importlib
 
     with patch.dict("os.environ", {"EMBEDDING_TIMEOUT": "90"}, clear=False):
@@ -211,7 +212,7 @@ def test_embedding_timeout_default() -> None:
         assert embedding_mod._embedding_timeout() == 90
     with patch.dict("os.environ", {"EMBEDDING_TIMEOUT": "invalid"}, clear=False):
         importlib.reload(embedding_mod)
-        assert embedding_mod._embedding_timeout() == embedding_mod.DEFAULT_EMBEDDING_TIMEOUT
+        assert embedding_mod._embedding_timeout() == env_config.EMBEDDING_TIMEOUT_DEFAULT
     importlib.reload(embedding_mod)
 
 
@@ -230,7 +231,7 @@ def test_embedding_batch_size_clamp() -> None:
         assert embedding_mod._embedding_batch_size() == 256
     with patch.dict("os.environ", {"EMBEDDING_BATCH_SIZE": "x"}, clear=False):
         importlib.reload(embedding_mod)
-        assert embedding_mod._embedding_batch_size() == embedding_mod.DEFAULT_EMBEDDING_BATCH_SIZE
+        assert embedding_mod._embedding_batch_size() == env_config.EMBEDDING_BATCH_SIZE_DEFAULT
     importlib.reload(embedding_mod)
 
 
@@ -252,7 +253,7 @@ def test_embedding_workers_clamp() -> None:
         assert embedding_mod._embedding_workers() == embedding_mod.MAX_EMBEDDING_WORKERS
     with patch.dict("os.environ", {"EMBEDDING_WORKERS": "nope"}, clear=False):
         importlib.reload(embedding_mod)
-        assert embedding_mod._embedding_workers() == embedding_mod.DEFAULT_EMBEDDING_WORKERS
+        assert embedding_mod._embedding_workers() == env_config.EMBEDDING_WORKERS_DEFAULT
 
 
 def test_embedding_force_batch() -> None:

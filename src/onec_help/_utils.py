@@ -8,7 +8,9 @@ from pathlib import Path
 def safe_error_message(e: BaseException, *, production: bool | None = None) -> str:
     """Return error message safe for API/logs: no stack trace or sensitive detail in production."""
     if production is None:
-        production = (os.environ.get("PRODUCTION") or "").strip().lower() in ("1", "true", "yes")
+        from . import env_config
+
+        production = env_config.get_production()
     return type(e).__name__ if production else f"{type(e).__name__}: {e}"
 
 

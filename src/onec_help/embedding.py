@@ -6,7 +6,6 @@ Retry, timeout and batch support for indexing. Lazy import of sentence-transform
 import hashlib
 import json
 import logging
-import os
 import re
 import sys
 import threading
@@ -31,36 +30,27 @@ def sanitize_text_for_embedding(text: str) -> str:
 # 768 matches default model nomic-embed-text-v2-moe.
 _DIMENSION_LAST_RESORT = 768
 MAX_EMBEDDING_INPUT_CHARS = 2000
-# Defaults: Ollama-friendly; batch 32 + 6 workers = best pts/s in benchmarks
-DEFAULT_EMBEDDING_BATCH_SIZE = 32
-DEFAULT_EMBEDDING_WORKERS = 6
 # When EMBEDDING_FORCE_BATCH=1: use max batch and workers for maximum throughput (any backend)
 MAX_EMBEDDING_BATCH_SIZE = 256
 # Max concurrent HTTP requests (each = one batch). LM Studio/Ollama "queue" = this many requests in flight.
 MAX_EMBEDDING_WORKERS = 150
-DEFAULT_EMBEDDING_TIMEOUT = 90
 RETRY_ATTEMPTS = 3
 RETRY_BASE_DELAY = 1.0
 
 _embedding_model = None
 
-# Default must match env_config.EMBEDDING_BACKEND_DEFAULT and docker-compose default
-_EMBEDDING_BACKEND = (
-    os.environ.get("EMBEDDING_BACKEND", _env_config.EMBEDDING_BACKEND_DEFAULT).strip().lower()
-)
-# Must match at ingest and at MCP search. Default: nomic-embed (Ollama); for local use HuggingFace id.
-_EMBEDDING_MODEL = (os.environ.get("EMBEDDING_MODEL") or "nomic-embed-text-v2-moe").strip()
+# All defaults from env_config (single source for env and docker-compose)
+_EMBEDDING_BACKEND = _env_config.get_embedding_backend()
+_EMBEDDING_MODEL = _env_config.get_embedding_model()
 _LMSTUDIO_PREFERRED_EMBEDDING_MODELS = (
     "nomic-embed",  # nomic-embed-text-v2-moe (multilingual, 768), nomic-embed-text
     "paraphrase-multilingual",
     "all-MiniLM-L6-v2",
     "text-embedding-3-small",
 )
-# Empty string means "no API"; only use default when env var is absent
-if "EMBEDDING_API_URL" in os.environ:
-    _EMBEDDING_API_URL = (os.environ.get("EMBEDDING_API_URL") or "").strip().rstrip("/")
-else:
-    _EMBEDDING_API_URL = "http://localhost:11434/v1"
+_EMBEDDING_API_URL = _env_config.get_embedding_api_url()
+_EMBEDDING_API_KEY = _env_config.get_embedding_api_key()
+_EMBEDDING_DIMENSION = _env_config.get_embedding_dimension_env()
 
 
 def _is_safe_embedding_url(url: str) -> bool:
@@ -69,20 +59,13 @@ def _is_safe_embedding_url(url: str) -> bool:
     return u.startswith("http://") or u.startswith("https://")
 
 
-_EMBEDDING_API_KEY = (os.environ.get("EMBEDDING_API_KEY") or "").strip()
-_EMBEDDING_DIMENSION = (os.environ.get("EMBEDDING_DIMENSION") or "").strip()
-
-
 def _embedding_timeout() -> int:
-    try:
-        return max(5, int(os.environ.get("EMBEDDING_TIMEOUT", DEFAULT_EMBEDDING_TIMEOUT)))
-    except ValueError:
-        return DEFAULT_EMBEDDING_TIMEOUT
+    return _env_config.get_embedding_timeout()
 
 
 def _embedding_batch_timeout(batch_size: int) -> int:
     """Timeout for batch request. EMBEDDING_BATCH_TIMEOUT overrides formula when set."""
-    v = (os.environ.get("EMBEDDING_BATCH_TIMEOUT") or "").strip()
+    v = _env_config.get_embedding_batch_timeout_raw()
     if v:
         try:
             return max(10, int(v))
@@ -92,44 +75,24 @@ def _embedding_batch_timeout(batch_size: int) -> int:
 
 
 def _embedding_force_batch() -> bool:
-    """True if EMBEDDING_FORCE_BATCH is set (1, true, yes) — use max batch size and workers."""
-    v = (os.environ.get("EMBEDDING_FORCE_BATCH") or "").strip().lower()
-    return v in ("1", "true", "yes", "on")
+    return _env_config.get_embedding_force_batch()
 
 
 def _embedding_batch_size() -> int:
     if _embedding_force_batch():
         return MAX_EMBEDDING_BATCH_SIZE
-    try:
-        return max(
-            1,
-            min(
-                MAX_EMBEDDING_BATCH_SIZE,
-                int(os.environ.get("EMBEDDING_BATCH_SIZE", DEFAULT_EMBEDDING_BATCH_SIZE)),
-            ),
-        )
-    except ValueError:
-        return DEFAULT_EMBEDDING_BATCH_SIZE
+    return _env_config.get_embedding_batch_size_default()
 
 
 def _embedding_workers() -> int:
     if _embedding_force_batch():
         return MAX_EMBEDDING_WORKERS
-    try:
-        return max(
-            1,
-            min(
-                MAX_EMBEDDING_WORKERS,
-                int(os.environ.get("EMBEDDING_WORKERS", DEFAULT_EMBEDDING_WORKERS)),
-            ),
-        )
-    except ValueError:
-        return DEFAULT_EMBEDDING_WORKERS
+    return _env_config.get_embedding_workers_default()
 
 
 def _embedding_max_concurrent() -> int | None:
     """Max concurrent API batch requests (global). None = no limit. Use to avoid overloading LM Studio."""
-    v = (os.environ.get("EMBEDDING_MAX_CONCURRENT") or "").strip()
+    v = _env_config.get_embedding_max_concurrent_raw()
     if not v:
         return None
     try:
@@ -190,8 +153,8 @@ def _embedding_cache_max_size() -> int:
     global _EMBEDDING_CACHE_MAX
     if _EMBEDDING_CACHE_MAX is None:
         try:
-            v = (os.environ.get("EMBEDDING_CACHE_SIZE") or "10000").strip()
-            _EMBEDDING_CACHE_MAX = max(0, int(v))
+            v = _env_config.get_embedding_cache_size()
+            _EMBEDDING_CACHE_MAX = max(0, int(v)) if v else 10000
         except ValueError:
             _EMBEDDING_CACHE_MAX = 10000
     return _EMBEDDING_CACHE_MAX
@@ -269,8 +232,11 @@ def _warn_local_fallback_once() -> None:
     if _local_fallback_warned:
         return
     _local_fallback_warned = True
+    # Show actual env value so user can see where "local" comes from (e.g. .env overrides compose default)
+    actual = _env_config.get_embedding_backend()
     print(
-        "[embedding] EMBEDDING_BACKEND=local but sentence-transformers not installed; using API (Ollama) instead.",
+        f"[embedding] EMBEDDING_BACKEND is '{actual}' (from env) but sentence-transformers not installed; using API (Ollama) instead. "
+        "For Docker/Ollama set EMBEDDING_BACKEND=openai_api in .env or remove it to use compose default.",
         file=sys.stderr,
         flush=True,
     )
@@ -404,7 +370,7 @@ def get_embedding_dimension() -> int:
             finally:
                 _dimension_detecting = False
         # When API URL is empty or API failed: use env at call time (so tests can patch and reload)
-        env_dim = (os.environ.get("EMBEDDING_DIMENSION") or "").strip()
+        env_dim = _env_config.get_embedding_dimension_env()
         if env_dim:
             try:
                 return int(env_dim)
@@ -500,7 +466,7 @@ def _embedding_fallback_dim() -> int:
     dim = _get_fallback_dim_from_qdrant()
     if dim is not None:
         return dim
-    env_dim = (os.environ.get("EMBEDDING_DIMENSION") or "").strip()
+    env_dim = _env_config.get_embedding_dimension_env()
     if env_dim:
         try:
             return int(env_dim)

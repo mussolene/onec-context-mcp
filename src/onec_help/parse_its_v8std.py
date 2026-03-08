@@ -7,7 +7,6 @@ Encoding: detects charset from Content-Type or HTML meta, falls back to windows-
 
 from __future__ import annotations
 
-import os
 import re
 import time
 import unicodedata
@@ -22,9 +21,21 @@ _V8STD_MAIN = _BASE + "/db/v8std"
 _V8STD_BROWSE = _BASE + "/db/v8std/browse/13/-1"
 _CONTENT_RE = re.compile(r"/db/v8std/content/(\d+)/hdoc")
 _BROWSE_RE = re.compile(r"/db/v8std/browse/13/-1(?:/\d+)*")
+
+
 # 0 = без лимита (все страницы оглавления и все статьи)
-_MAX_BROWSE_PAGES = int(os.environ.get("ITS_V8STD_MAX_BROWSE_PAGES", "0"))
-_DELAY_SEC = float(os.environ.get("ITS_V8STD_DELAY", "0.5"))
+def _get_its_max_browse_pages() -> int:
+    from . import env_config
+
+    return env_config.get_its_v8std_max_browse_pages()
+
+
+def _get_its_delay_sec() -> float:
+    from . import env_config
+
+    return env_config.get_its_v8std_delay()
+
+
 _USER_AGENT = "Mozilla/5.0 (compatible; 1c-help-its-v8std-parser/1.0)"
 # Строки навигации/футера ITS — выкидываем из контента
 _NAV_NOISE = re.compile(
@@ -45,7 +56,9 @@ _MIN_REAL_CONTENT_CHARS = 150
 
 
 def _make_opener() -> urllib.request.OpenerDirector:
-    cookie = (os.environ.get("ITS_AUTH_COOKIE") or "").strip()
+    from . import env_config
+
+    cookie = env_config.get_its_auth_cookie()
     opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=get_ssl_context()))
     if cookie:
         opener.addheaders.append(("Cookie", cookie))
@@ -183,7 +196,7 @@ def _crawl_content_with_paths(
     from bs4 import BeautifulSoup
 
     if max_pages is None:
-        max_pages = _MAX_BROWSE_PAGES
+        max_pages = _get_its_max_browse_pages()
     path_title_cache: dict[str, str] = {}
     result: list[tuple[str, list[str]]] = []
     to_visit: set[str] = {_V8STD_MAIN, start_url}
@@ -193,7 +206,7 @@ def _crawl_content_with_paths(
         if url in visited:
             continue
         visited.add(url)
-        time.sleep(_DELAY_SEC)
+        time.sleep(_get_its_delay_sec())
         try:
             html = _fetch(url, opener)
         except Exception:
@@ -392,7 +405,7 @@ def fetch_its_v8std_items(
         deduped = deduped[:max_content]
     items: list[dict[str, Any]] = []
     for url, path_titles in deduped:
-        time.sleep(_DELAY_SEC)
+        time.sleep(_get_its_delay_sec())
         try:
             html = _fetch(url, op)
         except Exception:
@@ -419,7 +432,7 @@ def fetch_its_v8std_items(
         iframe_url = _get_iframe_doc_url(html, url)
         body_text: str | None = None
         if iframe_url:
-            time.sleep(_DELAY_SEC)
+            time.sleep(_get_its_delay_sec())
             try:
                 _, html_print = _fetch_bytes(iframe_url, op)
                 body_text = _parse_print_page(html_print, iframe_url, title_from_hdoc)

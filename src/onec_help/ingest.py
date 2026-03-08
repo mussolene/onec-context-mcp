@@ -407,7 +407,7 @@ def read_ingest_errors_log(limit: int = 50) -> list[dict[str, str]]:
 
 def read_ingest_failed_log(limit: int = 30) -> list[dict[str, str]]:
     """Read INGEST_FAILED_LOG if set and exists. Returns list of {version, language, path, error}."""
-    path = os.environ.get("INGEST_FAILED_LOG", "").strip()
+    path = env_config.get_ingest_failed_log()
     if not path:
         return []
     result: list[dict[str, str]] = []
@@ -701,12 +701,7 @@ def run_ingest(
     if not all_tasks:
         return 0
 
-    skip_cache = (os.environ.get("INGEST_SKIP_CACHE") or "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
+    skip_cache = env_config.get_ingest_skip_cache()
     cache_entries = _load_ingest_cache()
     to_process: list[tuple[Path, str, str]] = []
     task_hashes: dict[tuple[str, str, str], str] = {}
@@ -766,11 +761,7 @@ def run_ingest(
     if verbose:
         _log(f"[ingest] Found {len(tasks)} .hbk task(s); workers={max_workers}")
 
-    embedding_backend = (
-        (os.environ.get("EMBEDDING_BACKEND") or env_config.EMBEDDING_BACKEND_DEFAULT)
-        .strip()
-        .lower()
-    )
+    embedding_backend = env_config.get_embedding_backend().strip().lower()
     if embedding_backend not in ("local", "openai_api", "deterministic"):
         embedding_backend = "none"
     started_at = time.time()
@@ -827,9 +818,7 @@ def run_ingest(
         "embedding_workers": embedding_workers,
         "run_id": run_id,
     }
-    interval_sec = float(
-        os.environ.get("INDEX_STATUS_INTERVAL_SEC", str(STATUS_UPDATE_INTERVAL_SEC))
-    )
+    interval_sec = float(env_config.get_index_status_interval_sec())
     stop_event = threading.Event()
     writer = threading.Thread(
         target=_status_writer_loop,
@@ -1022,7 +1011,7 @@ def run_ingest(
         for path_hbk, version, language, err in failed:
             short_err = (err or "").split("\n")[0].strip()[:150]
             _log(f"[ingest]   — {version}/{language} {path_hbk.name}: {short_err}")
-        fail_log = os.environ.get("INGEST_FAILED_LOG")
+        fail_log = env_config.get_ingest_failed_log() or None
         if fail_log:
             try:
                 with open(fail_log, "w", encoding="utf-8") as f:
@@ -1039,7 +1028,7 @@ def run_ingest(
 
 def _hbk_label_from_stem(stem: str) -> str:
     """Human-readable label from stem (e.g. 1cv8_ru → 'Справка 1С:Предприятие 8')."""
-    raw = os.environ.get("HBK_LABELS", "").strip()
+    raw = env_config.get_hbk_labels()
     if raw:
         for part in raw.split(","):
             part = part.strip()
@@ -1411,12 +1400,7 @@ def run_ingest_from_unpacked(
     if not tasks:
         return 0
 
-    skip_cache = (os.environ.get("INGEST_SKIP_CACHE") or "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
+    skip_cache = env_config.get_ingest_skip_cache()
     cache_indexed: set[tuple[str, str, str]] = set()
     if not skip_cache:
         cache_indexed = _load_ingest_cache_indexed_set()
@@ -1456,19 +1440,11 @@ def run_ingest_from_unpacked(
         return 0
 
     if max_workers is None:
-        raw = (os.environ.get("INGEST_MAX_WORKERS") or "").strip()
-        if raw.isdigit():
-            max_workers = max(1, int(raw))
-        else:
-            max_workers = 4
+        max_workers = env_config.get_ingest_max_workers()
     else:
         max_workers = max(1, max_workers)
 
-    embedding_backend = (
-        (os.environ.get("EMBEDDING_BACKEND") or env_config.EMBEDDING_BACKEND_DEFAULT)
-        .strip()
-        .lower()
-    )
+    embedding_backend = env_config.get_embedding_backend().strip().lower()
     if embedding_backend not in ("local", "openai_api", "deterministic"):
         embedding_backend = "none"
     started_at = time.time()
@@ -1495,9 +1471,7 @@ def run_ingest_from_unpacked(
         "run_id": run_id,
         "failed": [],
     }
-    interval_sec = float(
-        os.environ.get("INDEX_STATUS_INTERVAL_SEC", str(STATUS_UPDATE_INTERVAL_SEC))
-    )
+    interval_sec = float(env_config.get_index_status_interval_sec())
     stop_event = threading.Event()
     writer = threading.Thread(
         target=_status_writer_loop_from_unpacked,

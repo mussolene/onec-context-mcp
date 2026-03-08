@@ -1,7 +1,6 @@
 """Build and query Qdrant index from Markdown help."""
 
 import logging
-import os
 import re
 import sys
 import time
@@ -178,9 +177,8 @@ def _build_path_to_section(
 
 
 def _bm25_enabled() -> bool:
-    """BM25 enabled by default (env BM25_ENABLED=1). Set to 0 to disable."""
-    v = (os.environ.get("BM25_ENABLED", "1") or "1").strip().lower()
-    return v not in ("0", "false", "no", "off")
+    """BM25 enabled by default (env_config)."""
+    return env_config.get_bm25_enabled()
 
 
 def _is_qdrant_500(err: BaseException) -> bool:
@@ -563,12 +561,8 @@ def build_index(
 
 
 def _index_status_sample_size() -> int:
-    """Sample size for version/language sampling in get_index_status. env INDEX_STATUS_SAMPLE_SIZE (default 100)."""
-    try:
-        v = os.environ.get("INDEX_STATUS_SAMPLE_SIZE", "100")
-        return max(50, min(2000, int(v)))
-    except (TypeError, ValueError):
-        return 100
+    """Sample size for version/language sampling in get_index_status. From env_config."""
+    return env_config.get_index_status_sample_size()
 
 
 def get_index_status(

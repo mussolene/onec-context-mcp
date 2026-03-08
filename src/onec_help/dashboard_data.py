@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from . import env_config
+from . import env_config, redis_cache
 from .indexer import get_all_collections_status, get_index_status
 from .ingest import (
     _ingest_cache_path,
@@ -86,6 +86,14 @@ def _bm25_vocab_stats_for_collections(
     return out
 
 
+def _read_last_standards_run() -> dict[str, Any] | None:
+    """Last standards load run for dashboard."""
+    try:
+        return redis_cache.standards_last_run()
+    except Exception:
+        return None
+
+
 def _storage_path_mb() -> float | None:
     """DB size in MB from QDRANT_STORAGE_PATH if set and dir exists."""
     path = env_config.get_qdrant_storage_path()
@@ -121,6 +129,7 @@ def get_dashboard_data(
     collection_names = [c.get("name") for c in (collections or []) if c.get("name")]
     bm25_vocab = _bm25_vocab_stats_for_collections(collection_names)
     snippets_last = read_last_snippets_run()
+    standards_last = _read_last_standards_run()
     standards_loading = _load_marker_exists("standards")
     snippets_loading = _load_marker_exists("snippets")
     standards_loading_pts = _read_load_status("standards") if standards_loading else None
@@ -135,6 +144,7 @@ def get_dashboard_data(
         "index_status": index_status,
         "collections": collections,
         "snippets": snippets_last,
+        "standards_last_run": standards_last,
         "standards_loading": standards_loading,
         "snippets_loading": snippets_loading,
         "standards_loading_pts": standards_loading_pts,
