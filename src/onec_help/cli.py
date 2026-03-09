@@ -1044,7 +1044,7 @@ def cmd_mcp(args: argparse.Namespace) -> int:
     try:
         from .mcp_server import run_mcp
     except ImportError:
-        print("MCP requires fastmcp (Python 3.10+): pip install fastmcp", file=sys.stderr)
+        print("MCP requires fastmcp (Python 3.11+): pip install fastmcp", file=sys.stderr)
         return 1
     transport = getattr(args, "transport", None) or env_config.get_mcp_transport()
     host = getattr(args, "host", None) or env_config.get_mcp_host()
@@ -1060,7 +1060,7 @@ def cmd_mcp(args: argparse.Namespace) -> int:
         )
     except RuntimeError as e:
         if "fastmcp" in str(e).lower():
-            print("MCP requires fastmcp (Python 3.10+): pip install fastmcp", file=sys.stderr)
+            print("MCP requires fastmcp (Python 3.11+): pip install fastmcp", file=sys.stderr)
             return 1
         raise
     return 0

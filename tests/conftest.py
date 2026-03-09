@@ -7,9 +7,9 @@ from unittest.mock import patch
 import pytest
 
 
-# Pre-import submodules so patch("onec_help.<sub>.attr") works (CI Python 3.10 editable install)
+# Pre-import submodules so patch("onec_help.<sub>.attr") works (CI editable install)
 def _ensure_onec_help_submodules():
-    """Bind submodules to onec_help package (Python 3.10 editable install quirk)."""
+    """Bind submodules to onec_help package (editable install quirk)."""
     import onec_help
 
     for _name in (
@@ -34,7 +34,7 @@ _ensure_onec_help_submodules()
 
 @pytest.fixture(autouse=True)
 def _ensure_onec_help_refs():
-    """Re-bind submodules before each test (Python 3.10 patch target lookup)."""
+    """Re-bind submodules before each test (patch target lookup)."""
     _ensure_onec_help_submodules()
     yield
 

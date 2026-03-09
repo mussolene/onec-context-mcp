@@ -8,7 +8,7 @@ version = "1.0.3"
 description = "1C Help: unpack .hbk, convert to Markdown, index in Qdrant, MCP server"
 license = { text = "MIT" }
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "beautifulsoup4>=4.12",
     "qdrant-client>=1.7",

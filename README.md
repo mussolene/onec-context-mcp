@@ -31,7 +31,7 @@
 
 ## Требования
 
-- Python 3.10+ (локально); Docker-образ — python:3.14-slim
+- Python 3.11+ (локально); Docker-образ — python:3.14-slim
 - Docker и docker compose (для контейнерного запуска)
 - 7z (p7zip-full) — для распаковки .hbk внутри контейнера
 
@@ -39,7 +39,7 @@
 
 ```bash
 pip install -e .
-# С поддержкой MCP (Python 3.10+):
+# С поддержкой MCP (Python 3.11+):
 pip install -e ".[mcp]"
 # Локальные эмбеддинги (EMBEDDING_BACKEND=local): добавьте extra [embed]
 pip install -e ".[mcp,embed]"
@@ -318,7 +318,7 @@ ruff check src tests && ruff format --check src tests
 
 ## CI
 
-- **test** — pytest, покрытие ≥70%, матрица Python 3.10–3.14; Codecov (`CODECOV_TOKEN` в secrets).
+- **test** — pytest, покрытие ≥70%, матрица Python 3.11–3.14; Codecov (`CODECOV_TOKEN` в secrets).
 - **lint** — ruff check, ruff format.
 - **commitlint** — conventional commits.
 - **release** — при push тега `v*`: changelog (git-cliff), sdist, GitHub Release.
