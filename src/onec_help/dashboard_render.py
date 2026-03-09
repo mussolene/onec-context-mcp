@@ -288,7 +288,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
             if standards_last:
                 items_s = standards_last.get("items_loaded")
                 elapsed_s = standards_last.get("total_elapsed_sec")
-                parts = [f"\nStandards: last run"]
+                parts = ["\nStandards: last run"]
                 if items_s is not None:
                     parts.append(f", {items_s} items")
                 if elapsed_s is not None:

@@ -40,7 +40,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Целевое покрытие 90% (AGENTS.md). Сейчас порог 77% (фактическое покрытие ~77%). Поднять при добавлении тестов.
+# Целевое покрытие 90% (AGENTS.md). Порог 77%.
 addopts = "-v --cov=src/onec_help --cov-report=term-missing --cov-fail-under=77"
 filterwarnings = ["ignore::DeprecationWarning"]
 

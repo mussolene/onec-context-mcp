@@ -91,13 +91,25 @@ def test_record_request_failure_recorded(tmp_path: Path) -> None:
     assert m["total"] == 1
 
 
-def test_metrics_db_path_fallback_when_ingest_raises() -> None:
-    """_metrics_db_path returns _DEFAULT_DB when ingest._ingest_cache_path raises."""
+def test_metrics_db_path_returns_env_path_when_set() -> None:
+    """_metrics_db_path returns MCP_METRICS_DB when set (line 51: if path return path)."""
     from onec_help.mcp_metrics import _metrics_db_path
 
+    with patch.dict("os.environ", {"MCP_METRICS_DB": "/custom/mcp.db"}, clear=False):
+        path = _metrics_db_path()
+    assert path == "/custom/mcp.db"
+
+
+def test_metrics_db_path_fallback_when_ingest_raises() -> None:
+    """_metrics_db_path returns _DEFAULT_DB when ingest._ingest_cache_path raises (covers except at 56-58)."""
+    import sys
+
+    from onec_help.mcp_metrics import _metrics_db_path
+
+    ingest_mod = sys.modules["onec_help.ingest"]
     with (
-        patch.dict("os.environ", {"MCP_METRICS_DB": ""}, clear=False),
-        patch("onec_help.ingest._ingest_cache_path", side_effect=RuntimeError),
+        patch("onec_help.env_config.get_mcp_metrics_db", return_value=""),
+        patch.object(ingest_mod, "_ingest_cache_path", side_effect=RuntimeError("no cache path")),
     ):
         path = _metrics_db_path()
     assert path == "mcp_metrics.db"

@@ -3,7 +3,9 @@
 import io
 import zipfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from onec_help.standards_loader import (
     _first_heading,
@@ -70,6 +72,39 @@ def test_collect_skips_unreadable_file(tmp_path: Path) -> None:
         items = collect_from_folder(tmp_path)
     assert len(items) == 1
     assert items[0]["title"] == "B"
+
+
+def test_fetch_repo_archive_non_github_url_raises() -> None:
+    """Non-GitHub URL hits else branch; invalid owner/repo pattern raises (lines 59, 66-68)."""
+    with patch("onec_help.standards_loader.urlopen"):
+        with pytest.raises(ValueError) as exc_info:
+            fetch_repo_archive("https://example.com/foo/bar", branch="main")
+    msg = str(exc_info.value).lower()
+    assert "invalid" in msg or "owner" in msg or "alphanumeric" in msg
+
+
+def test_fetch_repo_archive_non_github_url_with_dot_git() -> None:
+    """Non-GitHub URL ending with .git hits line 61 (base = base[:-4])."""
+    with patch("onec_help.standards_loader.urlopen"):
+        with pytest.raises(ValueError) as exc_info:
+            fetch_repo_archive("https://example.com/foo/repo.git", branch="main")
+    assert "invalid" in str(exc_info.value).lower() or "owner" in str(exc_info.value).lower()
+
+
+def test_fetch_repo_archive_extract_fails_cleans_up() -> None:
+    """When ZipFile.extractall raises, temp dir is cleaned up and exception re-raised (lines 91-93)."""
+    with patch("onec_help.standards_loader.urlopen") as mock_urlopen:
+        resp = MagicMock()
+        resp.read.return_value = b"fake"
+        mock_urlopen.return_value.__enter__.return_value = resp
+        mock_urlopen.return_value.__exit__.return_value = None
+        with patch("onec_help.standards_loader.zipfile.ZipFile") as mock_zip:
+            zf = MagicMock()
+            zf.extractall.side_effect = OSError("disk full")
+            mock_zip.return_value.__enter__.return_value = zf
+            mock_zip.return_value.__exit__.return_value = None
+            with pytest.raises(OSError, match="disk full"):
+                fetch_repo_archive("https://github.com/owner/repo", subpath="docs")
 
 
 def test_fetch_repo_archive(tmp_path: Path) -> None:

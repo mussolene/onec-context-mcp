@@ -95,3 +95,10 @@ def test_snippet_code_share_over_45_balanced_desc():
     code = "Процедура Х()\nСообщить(1);\nКонецПроцедуры\n" * 8  # ~200 chars, BSL
     desc = "Описание " * 25  # ~200 chars, balanced
     assert classify_snippet_vs_reference("Тест", desc, code) == "snippet"
+
+
+def test_snippet_via_code_share_over_45_not_dominant():
+    """Hit line 78: code_len/total > 0.45, BSL, but code_len <= desc_len*1.2 (skip line 73)."""
+    code = "Процедура Х()\nВозврат;\nКонецПроцедуры\n" * 5  # ~120 chars, BSL, >= 80
+    desc = "A" * 100  # desc_len 100, code_len 120 <= 120, total 220, 120/220 > 0.45
+    assert classify_snippet_vs_reference("Тест", desc, code) == "snippet"

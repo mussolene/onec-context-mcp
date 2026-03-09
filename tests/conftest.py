@@ -117,12 +117,16 @@ def isolate_ingest_cache(tmp_path_factory):
 
 @pytest.fixture(autouse=True)
 def redis_mock_for_ingest(request):
-    """Use fakeredis (or in-memory mock) so ingest/watchdog/snippets_cache tests run without real Redis."""
+    """Use fakeredis (or in-memory mock) so no test ever touches real Redis.
+    Real Redis may be shared with Docker (e.g. localhost:6379 = same as container). If a test called
+    clear_all() or any code that writes watchdog:* keys, the container's watchdog would see empty
+    state and trigger load-snippets/load-standards. Therefore Redis is mocked for ALL tests."""
     try:
         path = str(request.node.fspath) if hasattr(request.node, "fspath") else ""
     except Exception:
         path = ""
-    if "test_ingest" not in path and "test_watchdog" not in path and "snippets_cache" not in path:
+    # Apply to all test files (any path under tests/) so Docker/watchdog is never affected
+    if "tests" not in path.replace("\\", "/"):
         yield
         return
     try:

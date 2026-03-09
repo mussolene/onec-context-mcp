@@ -684,8 +684,13 @@ def test_cmd_load_snippets_file_not_found() -> None:
 
 def test_cmd_load_snippets_no_source(capsys) -> None:
     """cmd_load_snippets returns 0 with message when no path and no SNIPPETS_DIR."""
-    with patch.dict("os.environ", {"SNIPPETS_JSON_PATH": "", "SNIPPETS_DIR": ""}, clear=False):
-        args = make_args(snippets_file=None)
+    # Unset defaults: env_config uses data/snippets when SNIPPETS_DIR is empty
+    with (
+        patch.dict("os.environ", {"SNIPPETS_JSON_PATH": "", "SNIPPETS_DIR": ""}, clear=False),
+        patch("onec_help.env_config.get_snippets_dir", return_value=""),
+        patch("onec_help.env_config.get_snippets_json_path", return_value=""),
+    ):
+        args = make_args(snippets_file=None, from_project=False)
         assert cmd_load_snippets(args) == 0
     out = capsys.readouterr().err
     assert "No source" in out or "examples only" in out
@@ -707,7 +712,7 @@ def test_cmd_load_snippets_not_array(tmp_path: Path) -> None:
     assert cmd_load_snippets(args) == 1
 
 
-@patch("onec_help.memory.get_memory_store")
+@patch("onec_help.cli._get_memory_store")
 def test_cmd_load_snippets_success(mock_get_store, tmp_path: Path) -> None:
     """cmd_load_snippets loads snippets and prints count."""
     snippet_file = tmp_path / "snippets.json"
@@ -730,7 +735,7 @@ def test_main_load_snippets(tmp_path: Path) -> None:
     """main() parses load-snippets and invokes cmd_load_snippets."""
     snippet_file = tmp_path / "snippets.json"
     snippet_file.write_text('[{"title": "X", "code_snippet": "x"}]', encoding="utf-8")
-    with patch("onec_help.memory.get_memory_store") as mock_get:
+    with patch("onec_help.cli._get_memory_store") as mock_get:
         mock_store = MagicMock()
         mock_store.upsert_curated_snippets.return_value = 1
         mock_get.return_value = mock_store
@@ -743,12 +748,12 @@ def test_cmd_load_snippets_exception(tmp_path: Path) -> None:
     """cmd_load_snippets returns 1 when get_memory_store raises."""
     snippet_file = tmp_path / "snippets.json"
     snippet_file.write_text('[{"title": "X", "code_snippet": "x"}]', encoding="utf-8")
-    with patch("onec_help.memory.get_memory_store", side_effect=RuntimeError("no qdrant")):
+    with patch("onec_help.cli._get_memory_store", side_effect=RuntimeError("no qdrant")):
         args = make_args(snippets_file=str(snippet_file))
         assert cmd_load_snippets(args) == 1
 
 
-@patch("onec_help.memory.get_memory_store")
+@patch("onec_help.cli._get_memory_store")
 def test_cmd_load_snippets_from_folder(mock_get_store, tmp_path: Path) -> None:
     """cmd_load_snippets loads from folder (*.bsl, *.1c, *.json) when path is directory."""
     (tmp_path / "example.bsl").write_text("Сообщить(1);", encoding="utf-8")
@@ -768,7 +773,7 @@ def test_cmd_load_snippets_from_folder(mock_get_store, tmp_path: Path) -> None:
     assert titles == {"example", "other", "FromJSON"}
 
 
-@patch("onec_help.memory.get_memory_store")
+@patch("onec_help.cli._get_memory_store")
 def test_cmd_load_snippets_type_split(mock_get_store, tmp_path: Path) -> None:
     """cmd_load_snippets splits items by type into snippets and community_help domains."""
     mixed = tmp_path / "mixed.json"
@@ -964,6 +969,7 @@ def test_cmd_load_standards_no_source(capsys) -> None:
     import onec_help.cli as cli_mod
 
     args = make_args(standards_path=None)
+    # Unset defaults: env_config uses data/standards when STANDARDS_DIR is empty
     with (
         patch.dict(
             "os.environ",
@@ -971,13 +977,15 @@ def test_cmd_load_standards_no_source(capsys) -> None:
             clear=False,
         ),
         patch.object(cli_mod, "_DEFAULT_STANDARDS_REPOS", ""),
+        patch("onec_help.env_config.get_standards_dir", return_value=""),
+        patch("onec_help.env_config.get_standards_repos", return_value=""),
     ):
         assert cmd_load_standards(args) == 0
     err = capsys.readouterr().err
     assert "No source" in err and ("STANDARDS_REPOS" in err or "STANDARDS_DIR" in err)
 
 
-@patch("onec_help.memory.get_memory_store")
+@patch("onec_help.cli._get_memory_store")
 def test_cmd_load_standards_success(mock_get_store, tmp_path: Path) -> None:
     """cmd_load_standards loads markdown and upserts with domain=standards."""
     (tmp_path / "rule.md").write_text("# Проверка\n\nОписание правила.", encoding="utf-8")
@@ -991,7 +999,7 @@ def test_cmd_load_standards_success(mock_get_store, tmp_path: Path) -> None:
     assert call_kw.get("domain") == "standards"
 
 
-@patch("onec_help.memory.get_memory_store")
+@patch("onec_help.cli._get_memory_store")
 @patch("onec_help.standards_loader.fetch_repo_archive")
 def test_cmd_load_standards_from_repo(mock_fetch, mock_get_store, tmp_path: Path) -> None:
     """cmd_load_standards fetches from STANDARDS_REPOS (single repo) when no path given.
@@ -1029,7 +1037,7 @@ def test_cmd_load_standards_from_repo(mock_fetch, mock_get_store, tmp_path: Path
     mock_store.upsert_curated_snippets.assert_called_once()
 
 
-@patch("onec_help.memory.get_memory_store")
+@patch("onec_help.cli._get_memory_store")
 @patch("onec_help.standards_loader.fetch_repo_archive")
 def test_cmd_load_standards_from_repos(mock_fetch, mock_get_store, tmp_path: Path) -> None:
     """cmd_load_standards fetches from STANDARDS_REPOS (multiple repos) when set.

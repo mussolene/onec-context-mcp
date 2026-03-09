@@ -52,3 +52,33 @@ def test_get_help_path_from_env() -> None:
     """get_help_path returns HELP_PATH when set."""
     with patch.dict(os.environ, {"HELP_PATH": "/custom/help"}, clear=False):
         assert env_config.get_help_path() == "/custom/help"
+
+
+def test_get_help_html_max_bytes_invalid_returns_default() -> None:
+    """get_help_html_max_bytes returns default when value is not a number."""
+    with patch.dict(os.environ, {"HELP_HTML_MAX_BYTES": "not_a_number"}, clear=False):
+        assert env_config.get_help_html_max_bytes() == 10 * 1024 * 1024
+
+
+def test_get_redis_port_invalid_returns_default() -> None:
+    """get_redis_port returns default when REDIS_PORT is not a number."""
+    with patch.dict(os.environ, {"REDIS_PORT": "abc"}, clear=False):
+        assert env_config.get_redis_port() == 6379
+
+
+def test_get_redis_url_from_env() -> None:
+    """get_redis_url returns REDIS_URL when set."""
+    with patch.dict(os.environ, {"REDIS_URL": "redis://host:6379/1"}, clear=False):
+        assert env_config.get_redis_url() == "redis://host:6379/1"
+
+
+def test_get_redis_host_from_env() -> None:
+    """get_redis_host returns REDIS_HOST when set."""
+    with patch.dict(os.environ, {"REDIS_HOST": "redis.example.com"}, clear=False):
+        assert env_config.get_redis_host() == "redis.example.com"
+
+
+def test_get_redis_url_fallback() -> None:
+    """get_redis_url_fallback returns default fallback URL."""
+    assert "localhost" in env_config.get_redis_url_fallback()
+    assert "6379" in env_config.get_redis_url_fallback()

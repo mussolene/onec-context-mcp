@@ -1104,8 +1104,10 @@ def _build_mcp_app(help_path: Path) -> Any:
         """Returns all three guides in one block (workflow, tips, summary). Use for onboarding or to restore IDE config. Needs MCP_CURSOR_DOCS_PATH or run from repo with docs/."""
         parts = [
             "=== workflow ===\n" + _read_cursor_doc("cursor-examples/rules/1c-mcp-workflow.mdc"),
-            "=== tools_tips ===\n" + _read_cursor_doc("cursor-examples/rules/1c-mcp-tools-report.mdc"),
-            "=== tools_summary ===\n" + _read_cursor_doc("cursor-examples/1c-mcp-tools-report/SKILL.md"),
+            "=== tools_tips ===\n"
+            + _read_cursor_doc("cursor-examples/rules/1c-mcp-tools-report.mdc"),
+            "=== tools_summary ===\n"
+            + _read_cursor_doc("cursor-examples/1c-mcp-tools-report/SKILL.md"),
         ]
         return "\n\n".join(parts)
 

@@ -36,6 +36,13 @@ def _load_operation_status_path(name: str) -> Path:
     return _load_operation_running_path(name).with_suffix(".status.json")
 
 
+def _get_memory_store():
+    """Return MemoryStore singleton. Wrapper so tests can patch onec_help.cli._get_memory_store and never touch real Qdrant."""
+    from .memory import get_memory_store
+
+    return get_memory_store()
+
+
 def cmd_unpack(args: argparse.Namespace) -> int:
     """Unpack .hbk with 7z."""
     from .unpack import unpack_hbk
@@ -566,7 +573,6 @@ def cmd_load_snippets(args: argparse.Namespace) -> int:
     import time
 
     from ._utils import progress_done, progress_line
-    from .memory import get_memory_store
     from .snippets_cache import (
         _file_signature,
         _folder_signature,
@@ -702,7 +708,7 @@ def cmd_load_snippets(args: argparse.Namespace) -> int:
                 except OSError:
                     pass
 
-            store = get_memory_store()
+            store = _get_memory_store()
             total_loaded = 0
             domain_counts: list[str] = []
             for domain, domain_items in by_domain.items():
@@ -822,7 +828,6 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
 
         from . import redis_cache
         from ._utils import progress_done, progress_line
-        from .memory import get_memory_store
         from .standards_loader import collect_from_folder
 
         started_at = _time.time()
@@ -944,7 +949,7 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
             except OSError:
                 pass
 
-        store = get_memory_store()
+        store = _get_memory_store()
         n = store.upsert_curated_snippets(items, progress_callback=_progress, domain="standards")
         redis_cache.standards_run_record(n, started_at)
         progress_done(f"load-standards │ ✓ {n} loaded → onec_help_memory (domain=standards)")

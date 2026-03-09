@@ -80,6 +80,23 @@ def test_progress_done_uses_rich_when_tty() -> None:
     fake_console.print.assert_called_once_with("done")
 
 
+def test_rich_console_returns_none_when_import_error() -> None:
+    """_rich_console returns None when rich.console is not available (line 36-37)."""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "rich.console":
+            raise ImportError("No module named 'rich.console'")
+        return real_import(name, *args, **kwargs)
+
+    with patch("builtins.__import__", side_effect=fake_import):
+        from onec_help._utils import _rich_console as _rc
+
+        assert _rc() is None
+
+
 def test_rich_console_returns_none_when_rich_not_available() -> None:
     """When rich.console cannot be imported, _rich_console returns None; progress_line uses stderr."""
     real_import = __import__

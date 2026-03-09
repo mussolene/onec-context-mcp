@@ -14,8 +14,8 @@ from onec_help.indexer import (
     _extract_keywords,
     _infer_entity_type,
     _path_to_point_id,
-    _upsert_batch_with_retry,
     _pick_best_path_for_compare,
+    _upsert_batch_with_retry,
     _version_sort_key,
     add_bm25_to_collection,
     build_index,
@@ -892,9 +892,22 @@ def test_get_all_collections_status_get_collection_raises(mock_client: MagicMock
 def test_pick_best_path_for_compare_prefers_non_untitled() -> None:
     """_pick_best_path_for_compare skips Untitled and prefers path with .html/.md."""
     assert _pick_best_path_for_compare([]) is None
-    assert _pick_best_path_for_compare([{"path": "8.3/a/b/CryptoManager.html", "title": "CryptoManager"}]) == "8.3/a/b/CryptoManager.html"
-    assert _pick_best_path_for_compare([{"path": "x", "title": "Untitled"}, {"path": "8.3/a.html", "title": "Topic"}]) == "8.3/a.html"
-    assert _pick_best_path_for_compare([{"path": "only_untitled.html", "title": "Untitled"}]) == "only_untitled.html"  # fallback when only option
+    assert (
+        _pick_best_path_for_compare(
+            [{"path": "8.3/a/b/CryptoManager.html", "title": "CryptoManager"}]
+        )
+        == "8.3/a/b/CryptoManager.html"
+    )
+    assert (
+        _pick_best_path_for_compare(
+            [{"path": "x", "title": "Untitled"}, {"path": "8.3/a.html", "title": "Topic"}]
+        )
+        == "8.3/a.html"
+    )
+    assert (
+        _pick_best_path_for_compare([{"path": "only_untitled.html", "title": "Untitled"}])
+        == "only_untitled.html"
+    )  # fallback when only option
 
 
 @patch("onec_help.indexer.get_topic_content")
@@ -939,7 +952,9 @@ def test_compare_1c_help_path_with_version_prefix_stripped(
     assert "8.2.19.130" in out and "8.3.27.1859" in out
     calls = mock_get_content.call_args_list
     assert calls[0][0][1] == "8.2.19.130/shcntx_ru/objects/catalog63/catalog1925/CryptoManager.html"
-    assert calls[1][0][1] == "8.3.27.1859/shcntx_ru/objects/catalog63/catalog1925/CryptoManager.html"
+    assert (
+        calls[1][0][1] == "8.3.27.1859/shcntx_ru/objects/catalog63/catalog1925/CryptoManager.html"
+    )
 
 
 @patch("onec_help.indexer.get_topic_content")
