@@ -57,7 +57,7 @@
 
 ## MCP и конфиг Cursor
 
-- MCP работает **в контейнере** по протоколу **streamable-http** (порт 8050). Рабочий конфиг: **`.cursor/mcp.json`** с полем `url: "http://localhost:8050/mcp"` (без command/stdio). Пример — `docs/mcp.json.example`. Полный справочник инструментов (параметры, лимиты): `docs/mcp-tools-reference.md`.
+- MCP работает **в контейнере** по протоколу **streamable-http** (порт 8050). Рабочий конфиг: **`.cursor/mcp.json`** с полем `url: "http://localhost:8050/mcp"` (без command/stdio). Пример — `docs/mcp.json.example`. Полный справочник инструментов (параметры, лимиты): `docs/mcp-tools-reference.md`. Исчерпывающий отчёт по полноте 1c-help и lsp-bsl-bridge, результаты прогонов и рекомендации: **`docs/mcp-1c-help-tools-report.md`**. Промпт MCP `how_to_use_1c_help_and_bsl_bridge` — готовая инструкция для вставки в чат (вызвать из клиента MCP). При `MCP_CURSOR_DOCS_PATH` (в Docker по умолчанию `/app/docs`) MCP отдаёт руководства через промпты `get_mcp_workflow_guide`, `get_mcp_tools_tips`, `get_mcp_tools_summary`, `get_mcp_guides_bundle` (самодокументируемый MCP).
 - **Skill и Rules:** примеры для индексации и синхронизации — `docs/cursor-examples/`. Папка `.cursor/` исключена из git; при настройке Cursor скопируйте содержимое `docs/cursor-examples/` в `.cursor/skills/` и `.cursor/rules/`. При доработке MCP или workflow — обновляйте `docs/cursor-examples/` как зависимость.
 - **Рекомендуемый порядок вызовов:**
   1. Ответ с кодом — `get_1c_code_answer` (при необходимости `code_only=True`).

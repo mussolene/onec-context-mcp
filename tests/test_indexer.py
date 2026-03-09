@@ -15,6 +15,7 @@ from onec_help.indexer import (
     _infer_entity_type,
     _path_to_point_id,
     _upsert_batch_with_retry,
+    _pick_best_path_for_compare,
     _version_sort_key,
     add_bm25_to_collection,
     build_index,
@@ -888,6 +889,14 @@ def test_get_all_collections_status_get_collection_raises(mock_client: MagicMock
     assert result[0]["indexed_vectors_count"] is None
 
 
+def test_pick_best_path_for_compare_prefers_non_untitled() -> None:
+    """_pick_best_path_for_compare skips Untitled and prefers path with .html/.md."""
+    assert _pick_best_path_for_compare([]) is None
+    assert _pick_best_path_for_compare([{"path": "8.3/a/b/CryptoManager.html", "title": "CryptoManager"}]) == "8.3/a/b/CryptoManager.html"
+    assert _pick_best_path_for_compare([{"path": "x", "title": "Untitled"}, {"path": "8.3/a.html", "title": "Topic"}]) == "8.3/a.html"
+    assert _pick_best_path_for_compare([{"path": "only_untitled.html", "title": "Untitled"}]) == "only_untitled.html"  # fallback when only option
+
+
 @patch("onec_help.indexer.get_topic_content")
 @patch("onec_help.indexer.QdrantClient")
 def test_compare_1c_help_with_path(mock_client: MagicMock, mock_get_content: MagicMock) -> None:
@@ -907,15 +916,42 @@ def test_compare_1c_help_with_path(mock_client: MagicMock, mock_get_content: Mag
     assert "Right version" in out
     assert "Diff" in out
     assert mock_get_content.call_count == 2
+    # Path is normalized: version_left/version_right prepended for each side
+    calls = mock_get_content.call_args_list
+    assert calls[0][0][1] == "8.3/Format.md"
+    assert calls[1][0][1] == "8.3.27/Format.md"
+
+
+@patch("onec_help.indexer.get_topic_content")
+@patch("onec_help.indexer.QdrantClient")
+def test_compare_1c_help_path_with_version_prefix_stripped(
+    mock_client: MagicMock, mock_get_content: MagicMock
+) -> None:
+    """compare_1c_help strips leading version from path and prepends version_left/version_right."""
+    mock_get_content.side_effect = ["Left", "Right"]
+    out = compare_1c_help(
+        "8.3.13.1513/shcntx_ru/objects/catalog63/catalog1925/CryptoManager.html",
+        version_left="8.2.19.130",
+        version_right="8.3.27.1859",
+        qdrant_host="localhost",
+        qdrant_port=6333,
+    )
+    assert "8.2.19.130" in out and "8.3.27.1859" in out
+    calls = mock_get_content.call_args_list
+    assert calls[0][0][1] == "8.2.19.130/shcntx_ru/objects/catalog63/catalog1925/CryptoManager.html"
+    assert calls[1][0][1] == "8.3.27.1859/shcntx_ru/objects/catalog63/catalog1925/CryptoManager.html"
 
 
 @patch("onec_help.indexer.get_topic_content")
 @patch("onec_help.indexer.search_index")
+@patch("onec_help.indexer.search_index_keyword")
 def test_compare_1c_help_query_resolves_path_then_compares(
-    mock_search: MagicMock, mock_get_content: MagicMock
+    mock_keyword: MagicMock,
+    mock_search: MagicMock,
+    mock_get_content: MagicMock,
 ) -> None:
-    """compare_1c_help with query (no .md/.html) resolves path via search_index then compares."""
-    mock_search.return_value = [{"path": "Format.md", "title": "Format"}]
+    """compare_1c_help with query (no .md/.html) resolves path via keyword then semantic; prefers non-Untitled."""
+    mock_keyword.return_value = [{"path": "Format.md", "title": "Format"}]
     mock_get_content.side_effect = ["Left", "Right"]
     out = compare_1c_help(
         "Format",
@@ -926,7 +962,7 @@ def test_compare_1c_help_query_resolves_path_then_compares(
     )
     assert "8.3" in out and "8.3.27" in out
     assert "Left" in out and "Right" in out
-    mock_search.assert_called()
+    mock_keyword.assert_called()
     assert mock_get_content.call_count == 2
 
 
@@ -945,8 +981,12 @@ def test_compare_1c_help_topic_not_found_returns_message(mock_get_content: Magic
 
 
 @patch("onec_help.indexer.search_index")
-def test_compare_1c_help_query_no_results_returns_not_found(mock_search: MagicMock) -> None:
-    """compare_1c_help when query has no .md/.html and search returns empty."""
+@patch("onec_help.indexer.search_index_keyword")
+def test_compare_1c_help_query_no_results_returns_not_found(
+    mock_keyword: MagicMock, mock_search: MagicMock
+) -> None:
+    """compare_1c_help when query has no .md/.html and both keyword and semantic return empty."""
+    mock_keyword.return_value = []
     mock_search.return_value = []
     out = compare_1c_help(
         "NonexistentTopic",

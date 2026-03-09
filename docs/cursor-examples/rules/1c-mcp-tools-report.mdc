@@ -1,0 +1,28 @@
+---
+description: Дополнения по отчёту о полноте MCP: пустые ответы, URI, координаты. Основной порядок вызовов — в правиле 1c-mcp-workflow.
+globs: "**/*.bsl,**/Form.xml"
+alwaysApply: false
+---
+
+# MCP по отчёту (только отличия и дополнения)
+
+Основной порядок вызовов и чек-лист — в правиле **1c-mcp-workflow**. Полный отчёт и шпаргалка — в репозитории 1c_hbk_helper (docs/) или через промпты MCP **get_mcp_guides_bundle** / **get_mcp_tools_summary** (при использовании вне этого репозитория).
+
+## Пустые или нерелевантные ответы 1c-help
+
+1. `get_1c_help_index_status` — проверить индекс и версии.
+2. `search_1c_help_keyword` с **точным** именем API (`Тип.Метод`).
+3. По `path` из выдачи — `get_1c_help_topic(topic_path)` (параметр **topic_path**, не `path`).
+
+## URI для lsp-bsl-bridge (единый формат)
+
+- **Docker:** `file:///projects/<путь>` (volume `.:/projects`). Пути с кириллицей — в URL-encoding (например из выдачи project_analysis URI уже с %D0%9C...).
+- **Локально:** полный file URI. При пустом ответе document_diagnostics/definition — попробовать URI с URL-encoded путём.
+
+## Навигация и позиционные инструменты
+
+**Основной способ:** `project_analysis` → `symbol_explore` или `get_range_content`. Инструменты `definition`, `hover`, `call_graph`, `call_hierarchy` часто возвращают пустой результат даже при корректных координатах — считать опциональными; при необходимости координаты брать из выдачи project_analysis (Recommended hover coordinate), 0-based.
+
+## После массовых правок
+
+`did_change_watched_files(language="bsl", changes_json=[{"uri":"file:///...", "type":2}])`.

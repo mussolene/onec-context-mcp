@@ -13,12 +13,15 @@
 ```
 docs/cursor-examples/
 ├── README.md                 # Этот файл
-├── 1c-mcp-development/       # Skill
+├── 1c-mcp-development/       # Skill: разработка 1С с MCP
 │   ├── SKILL.md
 │   └── reference.md
+├── 1c-mcp-tools-report/     # Skill: отчёт о полноте инструментов MCP
+│   └── SKILL.md
 └── rules/                    # Rules (.mdc)
     ├── 1c-bsl-standards.mdc
     ├── 1c-mcp-workflow.mdc
+    ├── 1c-mcp-tools-report.mdc   # Рекомендации по отчёту (пустые ответы, URI, координаты)
     ├── 1c-project-conventions.mdc
     └── 1c-testing-workflow.mdc
 ```
@@ -27,14 +30,23 @@ docs/cursor-examples/
 
 1. **Копирование в .cursor:** при первом клонировании или настройке Cursor скопируйте:
    - `docs/cursor-examples/1c-mcp-development/` → `.cursor/skills/1c-mcp-development/`
+   - `docs/cursor-examples/1c-mcp-tools-report/` → `.cursor/skills/1c-mcp-tools-report/`
    - `docs/cursor-examples/rules/*.mdc` → `.cursor/rules/`
 
 2. **Обновление после изменений:** если вы изменили skill или rules в `.cursor/` и хотите зафиксировать их в репозитории — скопируйте обратно в `docs/cursor-examples/` и закоммитьте.
+
+3. **Инструкция по умолчанию и промпт MCP:** при открытии/редактировании `.bsl` правило **1c-mcp-workflow** подставляет краткий порядок вызовов в контекст. **В новом чате по 1С:** вызвать промпт **how_to_use_1c_help_and_bsl_bridge** сервера 1c-help и вставить возвращённый текст в первое сообщение (меньше токенов: вызвать с параметром `task=develop`, `task=refactor` или `task=test` — вернётся только релевантный блок). Подробнее: [mcp-1c-help-tools-report.md](../mcp-1c-help-tools-report.md) § «Как получить инструкцию по умолчанию и когда вызывать промпт».
+
+4. **Самодокументируемый MCP:** если MCP запущен с путём к docs (в Docker по умолчанию `MCP_CURSOR_DOCS_PATH=/app/docs`), руководства можно получить из самого MCP — промпты **get_mcp_workflow_guide**, **get_mcp_tools_tips**, **get_mcp_tools_summary**, **get_mcp_guides_bundle**. Вернётся актуальный текст для вставки в чат или копирования в `.cursor/rules/` и `.cursor/skills/`. См. отчёт § «Самодокументируемый MCP».
+
+5. **Использование в другом проекте (вне 1c_hbk_helper):** правила и скилл не привязаны к путям этого репозитория. В своём проекте 1С/BSL: подключите 1c-help и lsp-bsl-bridge по URL; скопируйте правила и скилл из этого каталога в свой `.cursor/` или получите их через промпты MCP (get_mcp_guides_bundle и др.). URI для LSP — `file:///projects/<ваш_путь>` (Docker) или полный file URI. Подробнее: отчёт § «Использование вне репозитория 1c_hbk_helper».
 
 ## Связь с проектом
 
 - См. [AGENTS.md](../../AGENTS.md) — workflow разработки 1С с BSL LS, embedding и индексация.
 - См. [1c-testing-guide.md](../1c-testing-guide.md) — тестирование 1С: YaxUnit (unit), Vanessa-Automation (BDD, xdd, UI), где искать тесты, что применять.
 - См. [embedding.md](../embedding.md) — пайплайн embedding (batch/single, retry, 429), точки интеграции.
+- См. [mcp-tools-cheatsheet.md](../mcp-tools-cheatsheet.md) — одностраничная шпаргалка по инструментам и промптам.
 - См. [mcp-tools-reference.md](../mcp-tools-reference.md) — справочник MCP-инструментов 1c-help (параметры, лимиты, порядок вызовов).
+- См. [mcp-1c-help-tools-report.md](../mcp-1c-help-tools-report.md) — отчёт о полноте 1c-help и lsp-bsl-bridge, результаты прогона, рекомендации; оформлен как skill и правило в 1c-mcp-tools-report.
 - См. [bsl-ls-mcp-setup.md](../bsl-ls-mcp-setup.md) — подключение BSL LS как MCP.

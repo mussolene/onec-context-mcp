@@ -16,9 +16,9 @@ htmlcov/
 .ruff_cache/
 .mypy_cache/
 
-# Docs and scripts — not needed at runtime
-docs/
+# Scripts — not needed in image
 scripts/
+# docs/ нужен в образе для самодокументируемого MCP (get_mcp_workflow_guide и др.), не игнорируем
 *.ipynb
 
 # Data and local state — mounted as volumes, never copy into image

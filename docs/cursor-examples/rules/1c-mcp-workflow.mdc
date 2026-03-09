@@ -1,12 +1,33 @@
 ---
-description: MCP workflow при редактировании кода 1С (1c-help + lsp-bsl-bridge). Циклические проверки с diagnostics.
+description: MCP workflow при редактировании кода 1С (1c-help + lsp-bsl-bridge). Циклические проверки с diagnostics. При открытии .bsl эта инструкция подставляется в контекст по умолчанию.
 globs: "**/*.bsl"
 alwaysApply: false
 ---
 
-# 1C MCP Workflow
+# 1C MCP Workflow (инструкция по умолчанию при работе с .bsl)
 
-- Использовать оба MCP: 1c-help (справка, сниппеты), lsp-bsl-bridge (диагностика, навигация)
-- **Написание кода:** `get_1c_code_answer` / `search_1c_help_keyword` → реализация → `document_diagnostics` → при ERROR/WARNING: исправить и повторить до чистоты → `save_1c_snippet` при переиспользовании
-- **Рефакторинг:** сначала `call_graph` + `project_analysis` → правка одного файла → `document_diagnostics` → при ERROR: исправить и повторить → после batch: `did_change_watched_files`
-- URI для BSL LS в Docker: `file:///projects/<путь>` (volume `.:/projects`, код обычно в `src`)
+При редактировании `.bsl` этот rule даёт агенту инструкцию по двум MCP.
+
+**Новый чат по 1С:** в клиенте MCP вызвать промпт **how_to_use_1c_help_and_bsl_bridge** сервера 1c-help и вставить возвращённый текст в первое сообщение (или задать параметр `task`: develop / refactor / test для короткого блока).
+
+**URI (единый формат):** Docker — `file:///projects/<путь>` (volume `.:/projects`). Локально — полный file URI. Пути с кириллицей в URI передавать в URL-encoding (например `%D0%9C%D0%B5%D0%BD%D0%B5%D0%B4%D0%B6%D0%B5%D1%80` для «Менеджер»); иначе LSP может не найти файл.
+
+## Краткий порядок вызовов
+
+**1c-help (справка, примеры):**
+1. Примеры кода: `get_1c_code_answer(query)` → при нерелевантности: `search_1c_help_keyword("Тип.Метод")` → `get_1c_help_topic(topic_path)` (параметр **topic_path**, не path).
+2. Пустые ответы: `get_1c_help_index_status` → затем `search_1c_help_keyword` с точным именем API.
+3. После рабочего кода: `save_1c_snippet(code_snippet, description, title)`.
+
+**lsp-bsl-bridge (проверка, навигация):**
+1. После правок: `document_diagnostics(uri)` → исправлять до отсутствия ERROR/WARNING.
+2. **Навигация (основной способ):** `project_analysis(analysis_type="workspace_symbols", query="Имя")` → `symbol_explore(query="Имя")` или `get_range_content(uri, start_line, ...)`. Инструменты definition, hover, call_graph, call_hierarchy часто возвращают пустой результат — считать их опциональными; не полагаться на них как основной способ.
+3. После массовых правок: `did_change_watched_files(language="bsl", changes_json=[...])`.
+
+- **Рефакторинг:** `project_analysis` → правка по одному файлу → `document_diagnostics` → после batch: `did_change_watched_files`.
+
+## Чек-лист перед коммитом / ревью
+
+- [ ] При необходимости использованы `get_1c_code_answer` или `search_1c_help_keyword` (справка/примеры)?
+- [ ] Вызван `document_diagnostics(uri)` по изменённым модулям — нет ERROR и WARNING?
+- [ ] После добавления переиспользуемого кода вызван `save_1c_snippet`?

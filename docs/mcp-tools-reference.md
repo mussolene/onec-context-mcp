@@ -42,7 +42,7 @@
 
 | Инструмент | Параметры | Описание | Лимиты / примечания |
 |------------|-----------|----------|---------------------|
-| **compare_1c_help** | `topic_path_or_query`, `version_left`, `version_right`, `language`, `include_diff=False` | Сравнение топика между двумя версиями платформы. | Предпочтительно передавать **topic_path** из поиска; по query семантика может вернуть другой топик в разных версиях. |
+| **compare_1c_help** | `topic_path_or_query`, `version_left`, `version_right`, `language`, `include_diff=False` | Сравнение топика между двумя версиями платформы. | Путь из поиска можно передать «как есть» (8.3.13.1513/shcntx_ru/...) или без префикса версии (shcntx_ru/...); сервер сам подставляет version_left/version_right. По query семантика может вернуть другой топик. |
 | **get_1c_help_index_status** | — | Статус индекса (число топиков, коллекция, версии, языки) и прогресс ingest. | При запущенном ingest: текущий файл, ETA, скорость, ошибки. |
 
 ---
@@ -59,6 +59,7 @@
 
 ## См. также
 
+- [docs/mcp-1c-help-tools-report.md](mcp-1c-help-tools-report.md) — исчерпывающий отчёт по всем инструментам 1c-help и lsp-bsl-bridge, результаты прогона, полнота знаний для проекта 1С.
 - [AGENTS.md](../AGENTS.md) — порядок вызовов, два MCP (1c-help + lsp-bsl-bridge), workflow.
 - [docs/cursor-examples/](cursor-examples/README.md) — Skill и Rules для Cursor.
 - [docs/mcp-analysis.md](mcp-analysis.md) — анализ использования и типовые просадки.

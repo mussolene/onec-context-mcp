@@ -1818,6 +1818,39 @@ def get_1c_help_related(
     return result
 
 
+# Version prefix at start of path (e.g. 8.2.19.130 or 8.3.27.1859) as stored in index
+_VERSION_PREFIX_RE = re.compile(r"^8\.\d+\.\d+\.\d+/")
+
+
+def _path_without_version_prefix(path: str) -> str:
+    """Strip leading version segment so path can be used with any version. E.g. 8.3.13.1513/shcntx_ru/... -> shcntx_ru/..."""
+    return _VERSION_PREFIX_RE.sub("", path, count=1).lstrip("/") or path
+
+
+def _pick_best_path_for_compare(results: list[dict[str, Any]]) -> str | None:
+    """From search results, pick path of a topic with a meaningful title (not Untitled). Prefer path with .html/.md."""
+    if not results:
+        return None
+    untitled_lower = "untitled"
+    for r in results:
+        p = (r.get("path") or "").strip()
+        if not p:
+            continue
+        title = (r.get("title") or "").strip()
+        if title.lower() == untitled_lower:
+            continue
+        if ".html" in p or ".md" in p:
+            return p
+    for r in results:
+        p = (r.get("path") or "").strip()
+        if not p:
+            continue
+        title = (r.get("title") or "").strip()
+        if title.lower() != untitled_lower:
+            return p
+    return (results[0].get("path") or "").strip() or None
+
+
 def compare_1c_help(
     topic_path_or_query: str,
     version_left: str,
@@ -1831,30 +1864,56 @@ def compare_1c_help(
     """Compare topic content between two versions. Returns formatted comparison or diff."""
     path = topic_path_or_query.strip()
     if ".md" not in path and ".html" not in path:
-        results = search_index(
+        # Prefer keyword search: matches path/title (e.g. "CryptoManager" -> CryptoManager.html), avoids semantic "Untitled"
+        results = search_index_keyword(
             path,
             qdrant_host=qdrant_host,
             qdrant_port=qdrant_port,
             collection=collection,
-            limit=1,
+            limit=5,
             version=version_left,
             language=language,
         )
         if not results:
+            results = search_index_keyword(
+                path,
+                qdrant_host=qdrant_host,
+                qdrant_port=qdrant_port,
+                collection=collection,
+                limit=5,
+                language=language,
+            )
+        chosen = _pick_best_path_for_compare(results) if results else None
+        if not chosen:
             results = search_index(
                 path,
                 qdrant_host=qdrant_host,
                 qdrant_port=qdrant_port,
                 collection=collection,
-                limit=1,
+                limit=5,
+                version=version_left,
                 language=language,
             )
-        if not results:
+            if not results:
+                results = search_index(
+                    path,
+                    qdrant_host=qdrant_host,
+                    qdrant_port=qdrant_port,
+                    collection=collection,
+                    limit=5,
+                    language=language,
+                )
+            chosen = _pick_best_path_for_compare(results) if results else None
+        if not chosen:
             return f"Topic not found for query: {path}"
-        path = results[0].get("path", "")
+        path = chosen
+    # In index, path is stored with version prefix (e.g. 8.2.19.130/shcntx_ru/...). If user passed path from search (8.3.13/...), strip version and prepend requested version so both versions are found.
+    rel_path = _path_without_version_prefix(path)
+    path_left = f"{version_left}/{rel_path}" if rel_path else path
+    path_right = f"{version_right}/{rel_path}" if rel_path else path
     content_left = get_topic_content(
         "",
-        path,
+        path_left,
         qdrant_host=qdrant_host,
         qdrant_port=qdrant_port,
         collection=collection,
@@ -1864,7 +1923,7 @@ def compare_1c_help(
     )
     content_right = get_topic_content(
         "",
-        path,
+        path_right,
         qdrant_host=qdrant_host,
         qdrant_port=qdrant_port,
         collection=collection,
@@ -1873,7 +1932,7 @@ def compare_1c_help(
         prefer_index=True,
     )
     if not content_left and not content_right:
-        return f"Topic not found in either version for path: {path}"
+        return f"Topic not found in either version for path: {rel_path!r} (versions {version_left}, {version_right})"
     out = f"## Версия {version_left}\n\n{content_left or '(нет контента)'}\n\n---\n\n## Версия {version_right}\n\n{content_right or '(нет контента)'}"
     if include_diff and content_left and content_right:
         import difflib

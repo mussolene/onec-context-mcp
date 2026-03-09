@@ -106,6 +106,37 @@ except ImportError:
 _HELP_PATH = None  # Path | None
 
 
+def _get_cursor_docs_path() -> Path | None:
+    """Root of cursor-examples docs for self-documenting MCP. MCP_CURSOR_DOCS_PATH or repo docs/."""
+    env_path = os.environ.get("MCP_CURSOR_DOCS_PATH")
+    if env_path:
+        p = Path(env_path).resolve()
+        if p.exists():
+            return p
+    # Development: src/onec_help/mcp_server.py -> repo root = parents[2]
+    try:
+        repo_docs = Path(__file__).resolve().parents[2] / "docs"
+        if repo_docs.exists():
+            return repo_docs
+    except (IndexError, OSError):
+        pass
+    return None
+
+
+def _read_cursor_doc(relative: str) -> str:
+    """Read file from cursor-examples. relative like 'cursor-examples/rules/1c-mcp-workflow.mdc'."""
+    root = _get_cursor_docs_path()
+    if not root:
+        return "Cursor docs path not set. Set MCP_CURSOR_DOCS_PATH to repo docs/ (e.g. /app/docs in Docker)."
+    path = (root / relative).resolve()
+    if not path.is_file() or not path.is_relative_to(root.resolve()):
+        return f"File not found: {relative}"
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError as e:
+        return f"Read error: {e}"
+
+
 def _get_help_path() -> Path:
     if _HELP_PATH is None:
         from . import env_config
@@ -792,10 +823,9 @@ def _build_mcp_app(help_path: Path) -> Any:
         include_diff: bool = False,
     ) -> str:
         """Compare a help topic between two platform versions.
-        Prefer topic_path (e.g. 'objects/.../CryptoManager.md') from search results —
-        using a query can return a different topic due to semantic search.
-        topic_path_or_query: path or search query. version_left, version_right: e.g. '8.3.27.1859'.
-        include_diff: if True, append unified diff of the two versions."""
+        topic_path_or_query: path from search (with or without version prefix) or short query (e.g. 'CryptoManager'). For short queries server uses keyword search first (path/title match) and prefers results with a meaningful title (not Untitled); then semantic fallback.
+        version_left, version_right: platform versions, e.g. '8.2.19.130', '8.3.27.1859'.
+        For best predictability pass exact path from search_1c_help_keyword. include_diff: if True, append unified diff."""
         from .indexer import compare_1c_help as _compare
 
         return _compare(
@@ -1005,6 +1035,79 @@ def _build_mcp_app(help_path: Path) -> Any:
             if content:
                 return content
         return "No topic found for this name. Try search_1c_help or search_1c_help_keyword first."
+
+    @mcp.prompt
+    def how_to_use_1c_help_and_bsl_bridge(task: str = "all") -> str:
+        """Returns instructions for using 1c-help and lsp-bsl-bridge MCP. task: 'all' (default) = full text; 'develop' | 'refactor' | 'test' = only the relevant block (fewer tokens). Call in a new 1C chat and paste the result into the first message."""
+        block_develop = """1c-HELP + LSP — DEVELOP (code examples, API, snippets)
+- get_1c_code_answer(query) first. If weak → search_1c_help_keyword("Тип.Метод") → get_1c_help_topic(topic_path). Parameter is topic_path, not path.
+- Empty results: get_1c_help_index_status → search_1c_help_keyword with exact API name.
+- After working code: save_1c_snippet(code_snippet, description, title).
+- get_form_metadata(xml_content): full Form.xml with xmlns. get_module_info(uri_or_path): path to Module.bsl or ObjectModule.bsl.
+- URI (lsp): Docker → file:///projects/<path>; Cyrillic paths → URL-encoding. After edit: document_diagnostics(uri) until no ERROR/WARNING."""
+        block_refactor = """LSP-BSL-BRIDGE — REFACTOR (navigation, rename)
+- URI: file:///projects/<path> (Docker). Cyrillic → URL-encoding. Main navigation: project_analysis(analysis_type="workspace_symbols", query="Name") → symbol_explore(query="Name") or get_range_content(uri, start_line, ...). definition/hover/call_graph often empty — use as optional.
+- Flow: project_analysis → edit one file → document_diagnostics(uri) → after batch: did_change_watched_files(language="bsl", changes_json=[{"uri":"file:///...", "type":2}]).
+- Rename: prepare_rename(uri, line, character) then rename(..., new_name, apply=True). Coordinates 0-based from project_analysis."""
+        block_test = """LSP-BSL-BRIDGE — TEST (diagnostics)
+- After any code edit: document_diagnostics(uri) → fix until no ERROR/WARNING. URI: file:///projects/<path> (Docker) or full file URI locally; Cyrillic paths → URL-encoding.
+- Checklist before commit: get_1c_code_answer/search_1c_help_keyword used if needed? document_diagnostics clean? save_1c_snippet after new reusable code?"""
+        if task == "develop":
+            return block_develop
+        if task == "refactor":
+            return block_refactor
+        if task == "test":
+            return block_test
+        return """Use the following when working with 1C/BSL and the two MCPs (1c-help and lsp-bsl-bridge). For a shorter block pass task=develop|refactor|test.
+
+---
+1) WHEN TO USE WHICH MCP
+- Only 1c-help: API reference, code examples, form/module metadata (get_module_info, get_form_metadata), version comparison (compare_1c_help), saving snippets (save_1c_snippet).
+- Also use lsp-bsl-bridge: after editing code (document_diagnostics), navigation (project_analysis, symbol_explore), refactoring (prepare_rename, rename), after batch edits (did_change_watched_files).
+
+---
+2) 1c-HELP — ORDER OF CALLS
+- Code examples: get_1c_code_answer(query) first. If irrelevant or weak → search_1c_help_keyword with exact API name (e.g. "МенеджерКриптографии.Подписать") → get_1c_help_topic(topic_path) using the path from results. Important: parameter is topic_path, not path.
+- Empty or poor results: get_1c_help_index_status (check index and versions) → then search_1c_help_keyword with exact Тип.Метод.
+- After working code: save_1c_snippet(code_snippet, description, title).
+- get_form_metadata(xml_content): pass full Form.xml with all xmlns; truncated XML fails. get_module_info(uri_or_path): path to Module.bsl or ObjectModule.bsl.
+- For methods always use full Тип.Метод in search_1c_help_keyword and get_1c_function_info.
+
+---
+3) LSP-BSL-BRIDGE — ORDER OF CALLS
+- After any code edit: document_diagnostics(uri) → fix until no ERROR/WARNING.
+- URI (single format): Docker (volume .:/projects) → file:///projects/<path>; locally → full file URI. Paths with Cyrillic must be URL-encoded in URI.
+- Navigation (primary): project_analysis(analysis_type="workspace_symbols", query="SymbolName") → symbol_explore(query="SymbolName") or get_range_content(uri, start_line, start_character, end_line, end_character). definition, hover, call_graph, call_hierarchy often return empty — treat as optional; do not rely on them as the main way to navigate.
+- Refactoring: project_analysis first → edit one file → document_diagnostics → after batch: did_change_watched_files(language="bsl", changes_json=[{"uri":"file:///...", "type":2}]).
+
+---
+4) LIMITS (1c-help)
+- query and xml_content: up to 64 KB. Topic content in get_1c_code_answer: MCP_MAX_TOPIC_CHARS (default 4000). Full report: docs/mcp-1c-help-tools-report.md."""
+
+    @mcp.prompt
+    def get_mcp_workflow_guide() -> str:
+        """Returns workflow guide: order of calls for 1c-help and lsp-bsl-bridge when editing .bsl. Paste into chat or IDE rules. Needs MCP_CURSOR_DOCS_PATH or run from repo with docs/."""
+        return _read_cursor_doc("cursor-examples/rules/1c-mcp-workflow.mdc")
+
+    @mcp.prompt
+    def get_mcp_tools_tips() -> str:
+        """Returns tools tips: empty responses, URI format, LSP coordinates. Paste into chat or IDE rules. Needs MCP_CURSOR_DOCS_PATH or run from repo with docs/."""
+        return _read_cursor_doc("cursor-examples/rules/1c-mcp-tools-report.mdc")
+
+    @mcp.prompt
+    def get_mcp_tools_summary() -> str:
+        """Returns tools report summary: when to use which MCP, limits, pitfalls. Paste into chat or IDE skills. Needs MCP_CURSOR_DOCS_PATH or run from repo with docs/."""
+        return _read_cursor_doc("cursor-examples/1c-mcp-tools-report/SKILL.md")
+
+    @mcp.prompt
+    def get_mcp_guides_bundle() -> str:
+        """Returns all three guides in one block (workflow, tips, summary). Use for onboarding or to restore IDE config. Needs MCP_CURSOR_DOCS_PATH or run from repo with docs/."""
+        parts = [
+            "=== workflow ===\n" + _read_cursor_doc("cursor-examples/rules/1c-mcp-workflow.mdc"),
+            "=== tools_tips ===\n" + _read_cursor_doc("cursor-examples/rules/1c-mcp-tools-report.mdc"),
+            "=== tools_summary ===\n" + _read_cursor_doc("cursor-examples/1c-mcp-tools-report/SKILL.md"),
+        ]
+        return "\n\n".join(parts)
 
     return mcp
 

@@ -40,14 +40,16 @@ RUN groupadd -r app --gid=1000 && useradd -r -g app --uid=1000 --create-home app
 
 WORKDIR /app
 
-# Только установленные пакеты и скрипты — без tests, docs, .git, data
+# Установленные пакеты, скрипты, docs для самодокументируемого MCP (правила и скилл)
 COPY --from=builder /usr/local/lib/python3.14/site-packages /usr/local/lib/python3.14/site-packages
 COPY entrypoint.sh entrypoint-mcp-only.sh crontab ./
+COPY docs/ /app/docs/
 RUN chmod +x /app/entrypoint.sh /app/entrypoint-mcp-only.sh \
     && mkdir -p /app/var/log \
     && chown -R app:app /app
 
 ENV PORT=5000
+ENV MCP_CURSOR_DOCS_PATH=/app/docs
 EXPOSE 5000
 
 ENV HELP_PATH=/data
