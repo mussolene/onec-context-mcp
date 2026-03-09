@@ -1009,7 +1009,9 @@ def test_cmd_load_standards_success(mock_get_store, _mock_embed_avail, tmp_path:
 @patch("onec_help.embedding.is_embedding_available", return_value=True)
 @patch("onec_help.cli._get_memory_store")
 @patch("onec_help.standards_loader.fetch_repo_archive")
-def test_cmd_load_standards_from_repo(mock_fetch, mock_get_store, _mock_embed_avail, tmp_path: Path) -> None:
+def test_cmd_load_standards_from_repo(
+    mock_fetch, mock_get_store, _mock_embed_avail, tmp_path: Path
+) -> None:
     """cmd_load_standards fetches from STANDARDS_REPOS (single repo) when no path given.
     Redirect copy destination to tmp_path to avoid writing to data/standards (pytest-* pollution)."""
     fetch_dir = tmp_path / "fetched"
@@ -1048,7 +1050,9 @@ def test_cmd_load_standards_from_repo(mock_fetch, mock_get_store, _mock_embed_av
 @patch("onec_help.embedding.is_embedding_available", return_value=True)
 @patch("onec_help.cli._get_memory_store")
 @patch("onec_help.standards_loader.fetch_repo_archive")
-def test_cmd_load_standards_from_repos(mock_fetch, mock_get_store, _mock_embed_avail, tmp_path: Path) -> None:
+def test_cmd_load_standards_from_repos(
+    mock_fetch, mock_get_store, _mock_embed_avail, tmp_path: Path
+) -> None:
     """cmd_load_standards fetches from STANDARDS_REPOS (multiple repos) when set.
     Redirect copy destination to tmp_path to avoid writing to data/standards."""
     fetch1 = tmp_path / "repo1"

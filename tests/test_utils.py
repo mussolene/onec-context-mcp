@@ -203,10 +203,10 @@ def test_dir_size_on_disk_stat_raises_skipped(tmp_path: Path) -> None:
     bad.write_text("y")
     original_stat = Path.stat
 
-    def mock_stat(self):
+    def mock_stat(self, *args, **kwargs):
         if str(self) == str(bad):
             raise OSError("permission denied")
-        return original_stat(self)
+        return original_stat(self, *args, **kwargs)
 
     with patch.object(Path, "stat", mock_stat):
         sz = dir_size_on_disk(tmp_path)
@@ -220,8 +220,8 @@ def test_dir_size_on_disk_fallback_when_no_st_blocks(tmp_path: Path) -> None:
     original_stat = Path.stat
     target = str(f)
 
-    def mock_stat(self):
-        st = original_stat(self)
+    def mock_stat(self, *args, **kwargs):
+        st = original_stat(self, *args, **kwargs)
         # For files in our tmp dir, use st_blocks=0 to trigger fallback path
         if str(self) == target:
             return type(
