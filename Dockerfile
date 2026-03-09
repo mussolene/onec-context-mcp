@@ -10,17 +10,16 @@ ENV UV_LINK_MODE=copy
 
 WORKDIR /app
 
-# Установка uv (кэш pip для самой uv)
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install uv
+# Установка uv (hadolint DL3013: pin version; DL3042: --no-cache-dir)
+RUN pip install --no-cache-dir 'uv==0.4.11'
 
 # Только pyproject.toml: зависимости и пакет из него (без Flask/requirements.lock)
 COPY pyproject.toml README.md ./
 COPY src/ src/
 # Установка через uv с кэшем: при повторной сборке пакеты берутся из кэша, не из сети
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install .[mcp] \
-    && if [ "$EMBEDDING_BACKEND" = "local" ]; then uv pip install .[embed]; fi
+    uv pip install '.[mcp]' \
+    && if [ "$EMBEDDING_BACKEND" = "local" ]; then uv pip install '.[embed]'; fi
 
 # --- Runtime: только slim + утилиты и артефакты из builder ---
 FROM python:3.14-slim
