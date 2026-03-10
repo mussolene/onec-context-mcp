@@ -16,6 +16,7 @@ def test_render_dashboard_returns_rich_group() -> None:
         "snippets": None,
         "standards_loading": False,
         "snippets_loading": False,
+        "metadata_loading": False,
     }
     result = render_dashboard(data)
     assert isinstance(result, Group)
@@ -36,6 +37,7 @@ def test_render_dashboard_output_contains_tasks_and_errors() -> None:
         "snippets_loading": False,
         "storage_path_mb": None,
         "mcp_metrics": {"total": 5, "last_hour": 2},
+        "metadata_loading": False,
     }
     result = render_dashboard(data)
     console = Console(force_terminal=True, no_color=True)
@@ -64,6 +66,7 @@ def test_render_dashboard_shows_failed_tasks_table() -> None:
         "snippets": None,
         "standards_loading": False,
         "snippets_loading": False,
+        "metadata_loading": False,
     }
     result = render_dashboard(data)
     console = Console(force_terminal=True, no_color=True)
@@ -145,6 +148,7 @@ def test_render_dashboard_ingest_with_workers_eta_and_loading_pts() -> None:
         "snippets_loading_pts": {"loaded": 10, "total": 100, "phase": "embedding"},
         "storage_path_mb": None,
         "mcp_metrics": {},
+        "metadata_loading": False,
     }
     result = render_dashboard(data)
     console = Console(force_terminal=True, no_color=True)
@@ -172,6 +176,7 @@ def test_render_dashboard_standards_snippets_loading_workers_no_ingest() -> None
         "snippets_loading_pts": {"loaded": 5, "total": 50, "phase": "embedding"},
         "storage_path_mb": None,
         "mcp_metrics": {},
+        "metadata_loading": False,
     }
     result = render_dashboard(data)
     console = Console(force_terminal=True, no_color=True)
@@ -202,6 +207,7 @@ def test_render_dashboard_ingest_in_progress_eta_zero_division_handled() -> None
         "snippets_loading": False,
         "storage_path_mb": None,
         "mcp_metrics": {},
+        "metadata_loading": False,
     }
     result = render_dashboard(data)
     console = Console(force_terminal=True, no_color=True)
@@ -233,6 +239,7 @@ def test_render_dashboard_ingest_in_progress_single_task_progress_bar() -> None:
         "snippets_loading": False,
         "storage_path_mb": None,
         "mcp_metrics": {},
+        "metadata_loading": False,
     }
     result = render_dashboard(data)
     console = Console(force_terminal=True, no_color=True)
@@ -272,6 +279,7 @@ def test_render_dashboard_ingest_in_progress_with_current_tasks() -> None:
         "snippets_loading": False,
         "storage_path_mb": None,
         "mcp_metrics": {},
+        "metadata_loading": False,
     }
     result = render_dashboard(data)
     console = Console(force_terminal=True, no_color=True)
@@ -296,6 +304,7 @@ def test_render_dashboard_db_error_and_versions_languages() -> None:
         "snippets_loading": False,
         "storage_path_mb": None,
         "mcp_metrics": {},
+        "metadata_loading": False,
     }
     result = render_dashboard(data)
     console = Console(force_terminal=True, no_color=True)
@@ -396,6 +405,7 @@ def test_render_dashboard_versions_truncate_more_than_15() -> None:
         "snippets_loading": False,
         "storage_path_mb": None,
         "mcp_metrics": {},
+        "metadata_loading": False,
     }
     result = render_dashboard(data)
     console = Console(force_terminal=True, no_color=True)

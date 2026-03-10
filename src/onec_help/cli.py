@@ -5,6 +5,9 @@ import json
 import os
 import sys
 import tempfile
+import threading
+import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
@@ -36,11 +39,246 @@ def _load_operation_status_path(name: str) -> Path:
     return _load_operation_running_path(name).with_suffix(".status.json")
 
 
+def _heartbeat_until(
+    stop_event: threading.Event,
+    interval: int,
+    message: str,
+    progress_line: Callable[..., None],
+) -> None:
+    """Print message to stderr every interval seconds until stop_event is set (avoids no-output timeouts)."""
+    while not stop_event.wait(timeout=interval):
+        try:
+            progress_line(message)
+        except Exception:
+            pass
+
+
 def _get_memory_store():
     """Return MemoryStore singleton. Wrapper so tests can patch onec_help.cli._get_memory_store and never touch real Qdrant."""
     from .memory import get_memory_store
 
     return get_memory_store()
+
+
+def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
+    """Build metadata graph for 1C configuration exported to files.
+
+    Source directory can be passed explicitly or via ONEC_CONFIG_SOURCE_DIR env var.
+    Progress and status markers are written in the same cache dir as snippets/standards:
+    load_metadata.running + load_metadata.status.json.
+    """
+    from qdrant_client import QdrantClient
+
+    from . import embedding, metadata_graph
+    from .config_crawler import (
+        CrawlResult,
+        _looks_like_config_root,
+        crawl_config,
+        find_config_roots,
+    )
+
+    source_dir = getattr(args, "source_dir", None) or env_config.get_config_source_dir()
+    if not source_dir:
+        print(
+            "Error: configuration source dir not set. Pass path or set ONEC_CONFIG_SOURCE_DIR.",
+            file=sys.stderr,
+        )
+        return 1
+
+    base = Path(source_dir).resolve()
+    if not base.exists() or not base.is_dir():
+        print(f"Error: Configuration root not found: {base}", file=sys.stderr)
+        return 1
+
+    roots = find_config_roots(base)
+    if not roots and _looks_like_config_root(base):
+        roots = [base]
+    # Диагностика: что видит процесс в каталоге (в т.ч. в Docker volume)
+    try:
+        subdirs = [p.name for p in sorted(base.iterdir()) if p.is_dir() and not p.name.startswith(".")]
+    except OSError:
+        subdirs = []
+    print(
+        f"metadata-graph-build │ {base}: {len(subdirs)} subdir(s) {subdirs[:10]}{'...' if len(subdirs) > 10 else ''} → {len(roots)} config root(s)",
+        file=sys.stderr,
+        flush=True,
+    )
+    if not roots:
+        print(
+            f"Error: no configuration export found in {base} (no Configuration.xml/config.json or Documents/Catalogs).",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        if len(roots) == 1:
+            print(f"metadata-graph-build │ Loading configuration from {roots[0]}", file=sys.stderr, flush=True)
+            crawl = crawl_config(roots[0])
+        else:
+            print(
+                f"metadata-graph-build │ Loading {len(roots)} configuration(s) from {base}",
+                file=sys.stderr,
+                flush=True,
+            )
+            all_objects: list = []
+            all_relations: list = []
+            for r in roots:
+                c = crawl_config(r)
+                all_objects.extend(c.objects)
+                all_relations.extend(c.relations)
+                print(
+                    f"metadata-graph-build │   {r.name}: {c.config_name} ({c.config_version}) — {len(c.objects)} objects",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            crawl = CrawlResult(
+                root_dir=base,
+                config_name="",
+                config_version="",
+                platform_version=None,
+                objects=all_objects,
+                relations=all_relations,
+            )
+    except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    n_objects = len(crawl.objects)
+    cfg_ver = getattr(crawl, "config_version", None) or "0.0.0.0"
+    cfg_label = (
+        f"{getattr(crawl, 'config_name', None) or '—'} (version {cfg_ver})"
+        if len(roots) == 1
+        else f"{len(roots)} configs, {n_objects} objects total"
+    )
+    print(
+        f"metadata-graph-build │ Config: {cfg_label}",
+        file=sys.stderr,
+        flush=True,
+    )
+    qhost = env_config.get_qdrant_host()
+    qport = env_config.get_qdrant_port()
+    print(
+        f"metadata-graph-build │ Qdrant: {qhost}:{qport} (set QDRANT_HOST/QDRANT_PORT if 0 points in dashboard)",
+        file=sys.stderr,
+        flush=True,
+    )
+
+    if not embedding.is_embedding_available():
+        print(
+            "metadata-graph-build │ Embedding not available "
+            "(check EMBEDDING_BACKEND / EMBEDDING_API_URL); "
+            "metadata graph will not be updated.",
+            file=sys.stderr,
+        )
+        return 1
+
+    from ._utils import progress_done, progress_line
+
+    started_at = time.time()
+    marker = _load_operation_running_path("metadata")
+    status_path = _load_operation_status_path("metadata")
+
+    try:
+        try:
+            marker.write_text(str(started_at), encoding="utf-8")
+        except OSError:
+            pass
+        total = len(crawl.objects)
+        try:
+            status_path.write_text(
+                json.dumps(
+                    {"loaded": 0, "total": total, "phase": "embedding"},
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
+
+        client = QdrantClient(
+            host=env_config.get_qdrant_host(),
+            port=env_config.get_qdrant_port(),
+            timeout=env_config.get_qdrant_timeout(),
+            check_compatibility=False,
+        )
+
+        def _embed_batch(texts: list[str]) -> list[list[float]]:
+            # Progress to stderr so long runs are not killed by "no output" timeouts (e.g. docker exec).
+            def _progress(done: int, total: int) -> None:
+                if total and (done == total or done % 100 == 0 or done <= 1):
+                    progress_line(f"metadata-graph-build │ embedding {done}/{total} object(s)...")
+
+            return embedding.get_embedding_batch(texts, progress_callback=_progress)
+
+        if total == 0:
+            progress_done(
+                "metadata-graph-build │ No configuration objects discovered; nothing to index."
+            )
+            return 0
+
+        # Heartbeat during long embedding so docker compose exec does not time out (no output).
+        _heartbeat_stop = threading.Event()
+        _heartbeat = threading.Thread(
+            target=lambda: _heartbeat_until(
+                _heartbeat_stop,
+                interval=30,
+                message="metadata-graph-build │ embedding in progress...",
+                progress_line=progress_line,
+            ),
+            daemon=True,
+        )
+        _heartbeat.start()
+        try:
+            progress_line(
+                f"metadata-graph-build │ indexing {total} object(s) into metadata collection (config_version={cfg_ver})"
+            )
+
+            def _upsert_progress(written: int, tot: int) -> None:
+                try:
+                    status_path.write_text(
+                        json.dumps(
+                            {"loaded": written, "total": tot, "phase": "upsert"},
+                            ensure_ascii=False,
+                        ),
+                        encoding="utf-8",
+                    )
+                except OSError:
+                    pass
+
+            # Тот же батч-апсерт с retry, что в indexer; прогресс пишем в load_metadata.status.json для дашборда.
+            # on_embed_done останавливает heartbeat, чтобы не выводить «embedding in progress» во время upsert.
+            inserted = metadata_graph.build_metadata_graph_from_crawl(
+                crawl,
+                client=client,
+                embed_batch=_embed_batch,
+                collection_name="onec_config_metadata",
+                recreate=bool(getattr(args, "recreate", False)),
+                upsert_progress_callback=_upsert_progress,
+                on_embed_done=lambda: _heartbeat_stop.set(),
+            )
+        finally:
+            _heartbeat_stop.set()
+
+        try:
+            status_path.write_text(
+                json.dumps(
+                    {"loaded": inserted, "total": total, "phase": "done"},
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
+        progress_done(
+            f"metadata-graph-build │ ✓ {inserted} object(s) → onec_config_metadata (use config_version={cfg_ver!r} in search_1c_metadata / get_1c_context_bundle)"
+        )
+        return 0
+    except Exception as e:  # pragma: no cover - defensive, exercised via tests with side effects
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    finally:
+        marker.unlink(missing_ok=True)
+        status_path.unlink(missing_ok=True)
 
 
 def cmd_unpack(args: argparse.Namespace) -> int:
@@ -108,15 +346,29 @@ def cmd_build_index(args: argparse.Namespace) -> int:
 
 
 def cmd_add_bm25(args: argparse.Namespace) -> int:
-    """Add BM25 sparse vectors to all collections that lack it (no re-ingest, no re-embedding)."""
-    from .indexer import add_bm25_to_all_collections
+    """Add BM25 sparse vectors to collection(s). Use --collection to target one collection (no global clear)."""
+    from .indexer import add_bm25_to_all_collections, add_bm25_to_collection
+
+    collection = getattr(args, "collection", None)
+    batch_size = getattr(args, "batch_size", 200) or 200
+    verbose = getattr(args, "verbose", True)
 
     try:
+        if collection:
+            count = add_bm25_to_collection(
+                qdrant_host=env_config.get_qdrant_host(),
+                qdrant_port=env_config.get_qdrant_port(),
+                collection=collection,
+                batch_size=batch_size,
+                verbose=verbose,
+            )
+            print(f"{collection}: migrated {count} points with BM25")
+            return 0
         result = add_bm25_to_all_collections(
             qdrant_host=env_config.get_qdrant_host(),
             qdrant_port=env_config.get_qdrant_port(),
-            batch_size=200,
-            verbose=True,
+            batch_size=batch_size,
+            verbose=verbose,
         )
         for coll, count in result.items():
             print(f"{coll}: migrated {count} points with BM25")
@@ -161,8 +413,6 @@ def _short_error(err: str, max_len: int = 40) -> str:
 def cmd_dashboard(args: argparse.Namespace) -> int:
     """Print dashboard (Tasks, Errors, Database). --once: one frame; else Live refresh.
     Database (Qdrant) and tasks are re-fetched each refresh from env QDRANT_HOST/QDRANT_PORT."""
-    import time
-
     from .dashboard_data import get_dashboard_data
     from .dashboard_render import render_dashboard
 
@@ -903,11 +1153,14 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
             its_dir = standards_out / "its-v8std"
             if its_dir.exists():
                 its_from_disk = collect_from_folder(its_dir)
-                if its_from_disk:
-                    items.extend(its_from_disk)
-                    progress_done(
-                        f"load-standards │ ITS from disk: {len(its_from_disk)} items ← {its_dir}"
-                    )
+                items.extend(its_from_disk)
+                progress_done(
+                    f"load-standards │ ITS from disk: {len(its_from_disk)} items ← {its_dir}"
+                )
+            else:
+                progress_done(
+                    f"load-standards │ ITS from disk: skip (no folder {its_dir})"
+                )
 
         if not items:
             print("No .md files found.", file=sys.stderr)
@@ -1446,7 +1699,20 @@ def main() -> int:
     # add-bm25
     p_add_bm25 = sub.add_parser(
         "add-bm25",
-        help="Add BM25 sparse vectors to all collections (clears bm25_vocab and existing BM25, then adds)",
+        help="Add BM25 sparse vectors. Without --collection: all collections (clears bm25_vocab and BM25, then adds). With --collection: only that collection.",
+    )
+    p_add_bm25.add_argument(
+        "--collection",
+        "-c",
+        type=str,
+        default=None,
+        help="Target one collection by name (e.g. onec_help, onec_config_metadata). If set, only this collection is processed (no global clear).",
+    )
+    p_add_bm25.add_argument(
+        "--batch-size",
+        type=int,
+        default=200,
+        help="Batch size for scroll/upsert (default: 200)",
     )
     p_add_bm25.set_defaults(func=cmd_add_bm25)
 
@@ -1809,15 +2075,34 @@ def main() -> int:
         "--poll-interval",
         type=int,
         default=env_config.get_watchdog_poll_interval(),
-        help="Seconds between .hbk checks (default: 600)",
+        help="Seconds between checks for hbk/standards/snippets/config (default: 120)",
     )
     p_watchdog.add_argument(
         "--pending-interval",
         type=int,
         default=env_config.get_watchdog_pending_interval(),
-        help="Seconds between pending memory processing (default: 600)",
+        help="Seconds between pending memory processing (default: 120)",
     )
     p_watchdog.set_defaults(func=cmd_watchdog)
+
+    # metadata-graph-build — build metadata graph from exported 1C configuration
+    p_metadata = sub.add_parser(
+        "metadata-graph-build",
+        help="Build metadata graph for 1C configuration exported to files",
+    )
+    p_metadata.add_argument(
+        "source_dir",
+        type=str,
+        nargs="?",
+        default=None,
+        help="Root dir of exported configuration (default: ONEC_CONFIG_SOURCE_DIR env)",
+    )
+    p_metadata.add_argument(
+        "--recreate",
+        action="store_true",
+        help="Recreate Qdrant collection 'onec_config_metadata' before indexing",
+    )
+    p_metadata.set_defaults(func=cmd_build_metadata_graph)
 
     # qdrant-backup / qdrant-restore — снапшоты в data/backup/
     p_qdrant_backup = sub.add_parser(

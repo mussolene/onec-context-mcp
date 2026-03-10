@@ -63,6 +63,8 @@ services:
       STANDARDS_SUBPATH: ${STANDARDS_SUBPATH:-docs}
       # В контейнере каталог standards смонтирован в /data/standards — иначе resolve("data/standards") даёт /app/data/standards и Permission denied
       STANDARDS_DIR: ${STANDARDS_DIR:-/data/standards}
+      # Конфигурация 1С для metadata graph: по умолчанию /data/config внутри контейнера.
+      ONEC_CONFIG_SOURCE_DIR: ${ONEC_CONFIG_SOURCE_DIR:-/data/config}
     volumes:
       - /opt/1cv8:/opt/1cv8:ro
       - ./data/unpacked:/data
@@ -70,6 +72,7 @@ services:
       - ./data/ingest_cache:/app/var/ingest_cache
       - ./data/snippets:/data/snippets
       - ./data/standards:/data/standards
+      - ./data/config:/data/config:ro
       - ./data/backup:/data/backup
       - ./data/bm25_vocab:/app/data/bm25_vocab
     # Транспорт из MCP_TRANSPORT (streamable-http или sse). Если в Cursor не отображаются tools / ECONNRESET — попробуйте MCP_TRANSPORT=sse.

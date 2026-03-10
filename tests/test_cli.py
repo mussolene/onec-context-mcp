@@ -15,6 +15,7 @@ from onec_help.cli import (
     cmd_add_bm25,
     cmd_build_docs,
     cmd_build_index,
+    cmd_build_metadata_graph,
     cmd_dashboard,
     cmd_ingest,
     cmd_ingest_from_unpacked,
@@ -106,6 +107,18 @@ def test_cmd_add_bm25_error() -> None:
         args = make_args()
         with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
             assert cmd_add_bm25(args) == 1
+
+
+def test_cmd_add_bm25_with_collection() -> None:
+    """add-bm25 with --collection calls add_bm25_to_collection for that collection only."""
+    with patch("onec_help.indexer.add_bm25_to_collection", return_value=50) as m:
+        args = make_args(collection="onec_config_metadata", batch_size=100)
+        with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
+            assert cmd_add_bm25(args) == 0
+        m.assert_called_once()
+        call_kw = m.call_args[1]
+        assert call_kw["collection"] == "onec_config_metadata"
+        assert call_kw["batch_size"] == 100
 
 
 def test_categorize_error() -> None:
@@ -1146,6 +1159,56 @@ def _minimal_dashboard_data(**overrides):
     }
     data.update(overrides)
     return data
+
+
+@patch("onec_help.metadata_graph.build_metadata_graph_from_crawl", return_value=1)
+@patch("onec_help.embedding.is_embedding_available", return_value=True)
+@patch("onec_help.config_crawler.crawl_config")
+def test_cmd_build_metadata_graph_success(
+    mock_crawl, _mock_embed_avail, mock_build, tmp_path: Path
+) -> None:
+    """cmd_build_metadata_graph calls crawl_config and metadata_graph.build_metadata_graph_from_crawl."""
+    from onec_help.config_crawler import ConfigObject, CrawlResult
+
+    crawl = CrawlResult(
+        root_dir=tmp_path,
+        config_name="Cfg",
+        config_version="1.0.0.0",
+        platform_version=None,
+        objects=[
+            ConfigObject(
+                id="Document/Test",
+                object_type="Document",
+                name="Test",
+            )
+        ],
+        relations=[],
+    )
+    mock_crawl.return_value = crawl
+    args = make_args(source_dir=str(tmp_path), recreate=True)
+    with patch.dict(
+        "os.environ",
+        {
+            "QDRANT_HOST": "localhost",
+            "QDRANT_PORT": "6333",
+        },
+        clear=False,
+    ):
+        with patch("onec_help.config_crawler.find_config_roots", return_value=[tmp_path]):
+            assert cmd_build_metadata_graph(args) == 0
+    mock_crawl.assert_called_once()
+    mock_build.assert_called_once()
+
+
+def test_cmd_build_metadata_graph_no_source_dir_returns_error(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """cmd_build_metadata_graph returns 1 when no source_dir and get_config_source_dir returns empty."""
+    args = make_args(source_dir=None, recreate=True)
+    with patch("onec_help.cli.env_config.get_config_source_dir", return_value=""):
+        assert cmd_build_metadata_graph(args) == 1
+    err = capsys.readouterr().err
+    assert "configuration source dir not set" in err or "Pass path" in err
 
 
 @patch("onec_help.dashboard_data.get_dashboard_data")

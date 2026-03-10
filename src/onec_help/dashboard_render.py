@@ -214,6 +214,8 @@ def render_dashboard(data: dict[str, Any]) -> Any:
     standards_pts = data.get("standards_loading_pts")
     snippets_loading = data.get("snippets_loading")
     snippets_pts = data.get("snippets_loading_pts")
+    metadata_loading = data.get("metadata_loading")
+    metadata_pts = data.get("metadata_loading_pts")
     snippets = data.get("snippets")
     if not (ingest and ingest.get("status") == "in_progress") and (
         standards_loading or snippets_loading
@@ -255,6 +257,27 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 {
                     "label": "Snippets — parsing",
                     "short": "Snippets parsing",
+                    "pts": None,
+                    "total": None,
+                }
+            )
+        if metadata_loading and metadata_pts and metadata_pts.get("phase") not in ("parsing", None):
+            tot_m = metadata_pts.get("total") or 0
+            if tot_m > 0:
+                phase = metadata_pts.get("phase") or "embedding"
+                workers_extra.append(
+                    {
+                        "label": f"Config metadata — {phase} → Qdrant",
+                        "short": "Metadata → Qdrant",
+                        "pts": metadata_pts.get("loaded", 0),
+                        "total": tot_m,
+                    }
+                )
+        elif metadata_loading:
+            workers_extra.append(
+                {
+                    "label": "Config metadata — parsing",
+                    "short": "Metadata parsing",
                     "pts": None,
                     "total": None,
                 }
@@ -308,6 +331,27 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 tasks_parts.append(Text("".join(parts)))
             else:
                 tasks_parts.append(Text("\nSnippets: no data (watchdog or load-snippets)"))
+        # Config metadata (onec_config_metadata): show count from collections or hint to run
+        if not metadata_loading:
+            meta_coll = next(
+                (
+                    c
+                    for c in (data.get("collections") or [])
+                    if (c.get("name") or "").strip() == "onec_config_metadata"
+                ),
+                None,
+            )
+            meta_pts = (meta_coll.get("points_count") or 0) if meta_coll else 0
+            if meta_pts > 0:
+                tasks_parts.append(
+                    Text(f"\nConfig metadata: {meta_pts:,} objects (onec_config_metadata)")
+                )
+            else:
+                tasks_parts.append(
+                    Text(
+                        "\nConfig metadata: no data (export in data/config, run metadata-graph-build or watchdog)"
+                    )
+                )
 
     tasks_content: Any = Group(*tasks_parts)
     panels.append(Panel(tasks_content, title="[bold]Tasks[/bold]", border_style="blue"))
@@ -371,6 +415,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
     collections = data.get("collections") or []
     standards_loading_db = data.get("standards_loading")
     snippets_loading_db = data.get("snippets_loading")
+    metadata_loading_db = data.get("metadata_loading")
     if index_status.get("error"):
         db_content = f"Qdrant: [red]{index_status.get('error', 'error')}[/red]"
     elif collections:
@@ -427,10 +472,20 @@ def render_dashboard(data: dict[str, Any]) -> Any:
             db_parts.append(
                 _dim("Updating: standards/snippets → onec_help_memory (progress in Tasks)")
             )
+        if metadata_loading_db:
+            db_parts.append(_dim("Updating: config metadata graph (progress in Tasks)"))
         # onec_help_memory = standards + snippets + save_1c_snippet; pts may be less than sum of sources until load completes
         for c in collections or []:
             if (c.get("name") or "").strip() == "onec_help_memory":
                 db_parts.append(_dim("onec_help_memory: standards + snippets + save_1c_snippet"))
+                break
+        for c in collections or []:
+            if (c.get("name") or "").strip() == "onec_config_metadata":
+                db_parts.append(
+                    _dim(
+                        "onec_config_metadata: config objects from data/config (metadata-graph-build)"
+                    )
+                )
                 break
         versions = index_status.get("versions") or []
         languages = index_status.get("languages") or []

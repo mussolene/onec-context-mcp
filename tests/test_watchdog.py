@@ -1,5 +1,7 @@
 """Tests for watchdog module."""
 
+from collections.abc import Callable
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
@@ -7,13 +9,45 @@ import pytest
 
 from onec_help.watchdog import (
     _process_pending_memory,
+    _run_build_metadata_graph,
     _run_ingest,
     _run_load_snippets,
     _run_load_standards,
+    _scan_config_dir_stable,
     _scan_snippets_dir,
     _scan_standards_dir,
     run_watchdog,
 )
+
+
+@contextmanager
+def _watchdog_loop_mocks(
+    *,
+    sleep_raises_after: int = 1,
+    raise_exc: type[BaseException] = StopIteration,
+    run_ingest: Callable | None = None,
+    run_load_standards: Callable | None = None,
+):
+    """Общие моки для тестов run_watchdog: состояние Redis, time, все run_* (no-op). sleep после N вызовов бросает raise_exc."""
+    count = [0]
+
+    def sleep(_sec: float) -> None:
+        count[0] += 1
+        if count[0] >= sleep_raises_after:
+            raise raise_exc("stop")
+
+    with (
+        patch("onec_help.watchdog._load_watchdog_state", return_value={}),
+        patch("onec_help.watchdog._save_watchdog_state"),
+        patch("onec_help.watchdog.time.sleep", side_effect=sleep),
+        patch("onec_help.watchdog.time.time", return_value=0.0),
+        patch("onec_help.watchdog._run_ingest", side_effect=run_ingest),
+        patch("onec_help.watchdog._run_load_standards", side_effect=run_load_standards),
+        patch("onec_help.watchdog._run_load_snippets"),
+        patch("onec_help.watchdog._run_build_metadata_graph"),
+        patch("onec_help.watchdog._process_pending_memory"),
+    ):
+        yield
 
 
 def test_run_watchdog_no_help_source_base(capsys: pytest.CaptureFixture[str]) -> None:
@@ -46,94 +80,43 @@ def test_run_watchdog_base_is_file(tmp_path: Path, capsys: pytest.CaptureFixture
 def test_run_watchdog_help_source_base_from_env(tmp_path: Path) -> None:
     """When help_source_base is None, run_watchdog uses HELP_SOURCE_BASE from env."""
     with patch.dict("os.environ", {"HELP_SOURCE_BASE": str(tmp_path)}, clear=False):
-        sleep_count = 0
-
-        def mock_sleep(sec: float) -> None:
-            nonlocal sleep_count
-            sleep_count += 1
-            if sleep_count >= 1:
-                raise StopIteration("stop")
-
-        with patch("onec_help.watchdog.time.sleep", side_effect=mock_sleep):
-            with patch("onec_help.watchdog.time.time", return_value=0.0):
-                with patch("onec_help.watchdog._run_ingest"):
-                    with patch("onec_help.watchdog._run_load_standards"):
-                        with patch("onec_help.watchdog._run_load_snippets"):
-                            with patch("onec_help.watchdog._process_pending_memory"):
-                                try:
-                                    run_watchdog(
-                                        help_source_base=None,
-                                        poll_interval_sec=60,
-                                        pending_interval_sec=60,
-                                    )
-                                except StopIteration:
-                                    pass
+        with _watchdog_loop_mocks():
+            try:
+                run_watchdog(help_source_base=None, poll_interval_sec=60, pending_interval_sec=60)
+            except StopIteration:
+                pass
 
 
-def test_run_watchdog_one_iteration_then_stop(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
+def test_run_watchdog_one_iteration_then_stop(tmp_path: Path) -> None:
     """run_watchdog runs one iteration then exits when sleep raises (simulates KeyboardInterrupt)."""
 
     class StopAfterOne(Exception):
         pass
 
-    sleep_count = 0
-
-    def mock_sleep(sec: float) -> None:
-        nonlocal sleep_count
-        sleep_count += 1
-        if sleep_count >= 1:
-            raise StopAfterOne("stop")
-
-    with patch("onec_help.watchdog.time.sleep", side_effect=mock_sleep):
-        with patch("onec_help.watchdog.time.time", return_value=0.0):
-            with patch("onec_help.watchdog._run_ingest"):
-                with patch("onec_help.watchdog._run_load_standards"):
-                    with patch("onec_help.watchdog._run_load_snippets"):
-                        with patch("onec_help.watchdog._process_pending_memory"):
-                            with pytest.raises(StopAfterOne):
-                                run_watchdog(
-                                    help_source_base=tmp_path,
-                                    poll_interval_sec=60,
-                                    pending_interval_sec=60,
-                                )
+    with _watchdog_loop_mocks(raise_exc=StopAfterOne):
+        with pytest.raises(StopAfterOne):
+            run_watchdog(
+                help_source_base=tmp_path,
+                poll_interval_sec=60,
+                pending_interval_sec=60,
+            )
 
 
-def test_run_watchdog_triggers_ingest_on_hbk_change(
-    tmp_path: Path,
-) -> None:
+def test_run_watchdog_triggers_ingest_on_hbk_change(tmp_path: Path) -> None:
     """When .hbk files exist and differ from cache, _run_ingest is called."""
     (tmp_path / "8.3.27").mkdir()
     (tmp_path / "8.3.27" / "1cv8_ru.hbk").write_bytes(b"x")
-    ingest_called = []
+    ingest_called: list[int] = []
 
-    def capture_ingest() -> None:
-        ingest_called.append(1)
-
-    sleep_count = 0
-
-    def mock_sleep(sec: float) -> None:
-        nonlocal sleep_count
-        sleep_count += 1
-        if sleep_count >= 1:
-            raise StopIteration("stop")
-
-    with patch("onec_help.watchdog.time.sleep", side_effect=mock_sleep):
-        with patch("onec_help.watchdog.time.time", return_value=0.0):
-            with patch("onec_help.watchdog._run_ingest", side_effect=capture_ingest):
-                with patch("onec_help.watchdog._run_load_standards"):
-                    with patch("onec_help.watchdog._run_load_snippets"):
-                        with patch("onec_help.watchdog._process_pending_memory"):
-                            try:
-                                run_watchdog(
-                                    help_source_base=tmp_path,
-                                    poll_interval_sec=60,
-                                    pending_interval_sec=60,
-                                )
-                            except StopIteration:
-                                pass
+    with _watchdog_loop_mocks(run_ingest=lambda: ingest_called.append(1)):
+        try:
+            run_watchdog(
+                help_source_base=tmp_path,
+                poll_interval_sec=60,
+                pending_interval_sec=60,
+            )
+        except StopIteration:
+            pass
     assert len(ingest_called) >= 1
 
 
@@ -206,6 +189,17 @@ def test_scan_snippets_dir_collects_json_bsl(tmp_path: Path) -> None:
     assert len(out) == 3
 
 
+def test_scan_config_dir_stable_collects_xml_bsl(tmp_path: Path) -> None:
+    """_scan_config_dir_stable returns path->size for .xml and .bsl only."""
+    (tmp_path / "x.xml").write_text("<root/>")
+    (tmp_path / "y.bsl").write_text("// code")
+    (tmp_path / "z.txt").write_text("ignore")
+    out = _scan_config_dir_stable(tmp_path)
+    assert len(out) == 2
+    assert any("x.xml" in p for p in out)
+    assert any("y.bsl" in p for p in out)
+
+
 def test_run_watchdog_triggers_load_standards_when_dir_changes(tmp_path: Path) -> None:
     """When STANDARDS_DIR exists and has .md files, first run calls _run_load_standards."""
     standards_dir = tmp_path / "st"
@@ -213,35 +207,18 @@ def test_run_watchdog_triggers_load_standards_when_dir_changes(tmp_path: Path) -
     (standards_dir / "doc.md").write_text("# Doc")
     load_standards_called: list[str] = []
 
-    def capture_load_standards(path: str) -> None:
-        load_standards_called.append(path)
-
-    sleep_count = 0
-
-    def mock_sleep(sec: float) -> None:
-        nonlocal sleep_count
-        sleep_count += 1
-        if sleep_count >= 1:
-            raise StopIteration("stop")
-
     with patch.dict("os.environ", {"STANDARDS_DIR": str(standards_dir)}, clear=False):
-        with patch("onec_help.watchdog.time.sleep", side_effect=mock_sleep):
-            with patch("onec_help.watchdog.time.time", return_value=0.0):
-                with patch("onec_help.watchdog._run_ingest"):
-                    with patch(
-                        "onec_help.watchdog._run_load_standards",
-                        side_effect=capture_load_standards,
-                    ):
-                        with patch("onec_help.watchdog._run_load_snippets"):
-                            with patch("onec_help.watchdog._process_pending_memory"):
-                                try:
-                                    run_watchdog(
-                                        help_source_base=tmp_path,
-                                        poll_interval_sec=60,
-                                        pending_interval_sec=60,
-                                    )
-                                except StopIteration:
-                                    pass
+        with _watchdog_loop_mocks(
+            run_load_standards=lambda path: load_standards_called.append(path)
+        ):
+            try:
+                run_watchdog(
+                    help_source_base=tmp_path,
+                    poll_interval_sec=60,
+                    pending_interval_sec=60,
+                )
+            except StopIteration:
+                pass
     assert len(load_standards_called) >= 1
     assert load_standards_called[0] == str(standards_dir)
 
@@ -264,3 +241,14 @@ def test_run_load_snippets_success() -> None:
         _run_load_snippets("/data/snippets")
     mock_run.assert_called_once()
     assert "load-snippets" in mock_run.call_args[0][0]
+
+
+def test_run_build_metadata_graph_success() -> None:
+    """_run_build_metadata_graph runs subprocess with path."""
+    with patch("onec_help.watchdog.subprocess.run") as mock_run:
+        mock_run.return_value = type("R", (), {"returncode": 0})()
+        _run_build_metadata_graph("/data/config")
+    mock_run.assert_called_once()
+    call_args = mock_run.call_args[0][0]
+    assert "metadata-graph-build" in call_args
+    assert "/data/config" in call_args

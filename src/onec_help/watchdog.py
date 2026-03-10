@@ -17,6 +17,7 @@ from .ingest import _ingest_cache_path, collect_hbk_tasks, discover_version_dirs
 
 _STANDARDS_EXT = frozenset({".md"})
 _SNIPPETS_EXT = frozenset({".json", ".bsl", ".1c", ".md"})
+_CONFIG_EXT = frozenset({".xml", ".bsl"})
 _INGEST_STDERR_LOG = "ingest_stderr.log"
 _INGEST_STDERR_LOG_MAX_BYTES = 2 * 1024 * 1024  # 2 MiB; rotate to .old when exceeded
 
@@ -92,6 +93,16 @@ def _scan_snippets_dir_stable(snippets_dir: Path) -> dict[str, int]:
     return _scan_dir_by_ext_sizes(snippets_dir, _SNIPPETS_EXT)
 
 
+def _scan_config_dir_stable(config_dir: Path) -> dict[str, int]:
+    """Scan exported 1C configuration dir; return path -> size for relevant files.
+
+    Uses a limited set of extensions (.xml, .bsl) to approximate changes while
+    keeping the scan reasonably cheap.
+    """
+
+    return _scan_dir_by_ext_sizes(config_dir, _CONFIG_EXT)
+
+
 def _scan_hbk_like_ingest(base: Path | None = None) -> dict[str, float]:
     """Scan .hbk files using same logic as ingest (version dirs + languages filter)."""
     if base is None:
@@ -145,103 +156,175 @@ def run_watchdog(
     snippets_dir_str = env_config.get_snippets_dir()
     snippets_dir = Path(snippets_dir_str).resolve()
     last_snippets = _load_watchdog_state("snippets")
+    config_dir_str = env_config.get_config_source_dir()
+    config_dir = Path(config_dir_str).resolve() if config_dir_str else None
+    last_metadata = _load_watchdog_state("metadata")
 
     last_pending = 0.0
     last_ingest_failed = False
-    poll = max(60, poll_interval_sec)
-    pending_int = max(60, pending_interval_sec)
-    while True:
-        try:
-            now = time.time()
-            current = _scan_hbk_like_ingest(base)
-            current_std = (
-                _scan_standards_dir_stable(standards_dir) if standards_dir.exists() else {}
-            )
-            current_snip = _scan_snippets_dir_stable(snippets_dir) if snippets_dir.exists() else {}
+    poll = max(30, poll_interval_sec)
+    pending_int = max(30, pending_interval_sec)
 
-            run_ingest = False
-            run_standards = False
-            run_snippets = False
+    # Показать, какие папки отслеживаются (чтобы было видно, что config в списке).
+    print(
+        "[watchdog] watching: HELP_SOURCE_BASE, STANDARDS_DIR, SNIPPETS_DIR, ONEC_CONFIG_SOURCE_DIR",
+        file=sys.stderr,
+        flush=True,
+    )
+    if config_dir and config_dir_str:
+        exists = config_dir.exists()
+        print(
+            f"[watchdog] config dir: {config_dir_str} (exists={exists})",
+            file=sys.stderr,
+            flush=True,
+        )
+    else:
+        print(
+            "[watchdog] config dir: not set (ONEC_CONFIG_SOURCE_DIR)", file=sys.stderr, flush=True
+        )
 
-            # Retry ingest on next poll if previous run failed (recovery after crash/OOM)
-            if last_ingest_failed and current:
+    def _one_cycle() -> None:
+        nonlocal \
+            last_hbk, \
+            last_standards, \
+            last_snippets, \
+            last_metadata, \
+            last_pending, \
+            last_ingest_failed
+        now = time.time()
+        current = _scan_hbk_like_ingest(base)
+        current_std = _scan_standards_dir_stable(standards_dir) if standards_dir.exists() else {}
+        current_snip = _scan_snippets_dir_stable(snippets_dir) if snippets_dir.exists() else {}
+        current_meta = (
+            _scan_config_dir_stable(config_dir) if config_dir and config_dir.exists() else {}
+        )
+
+        run_ingest = False
+        run_standards = False
+        run_snippets = False
+        run_metadata = False
+        metadata_ok: bool | None = None
+
+        if last_ingest_failed and current:
+            print("[watchdog] retrying ingest after previous failure", file=sys.stderr, flush=True)
+            run_ingest = True
+        if current != last_hbk:
+            prev_keys = set(last_hbk)
+            curr_keys = set(current)
+            added = len(curr_keys - prev_keys)
+            removed = len(prev_keys - curr_keys)
+            changed = sum(1 for k in curr_keys & prev_keys if last_hbk.get(k) != current.get(k))
+            if added or removed or changed:
                 print(
-                    "[watchdog] retrying ingest after previous failure", file=sys.stderr, flush=True
+                    f"[watchdog] .hbk changed: +{added} new, -{removed} removed, ~{changed} modified",
+                    file=sys.stderr,
+                    flush=True,
                 )
+            last_hbk = current
+            _save_watchdog_state("hbk", current)
+            if current:
                 run_ingest = True
-            if current != last_hbk:
-                prev_keys = set(last_hbk)
-                curr_keys = set(current)
-                added = len(curr_keys - prev_keys)
-                removed = len(prev_keys - curr_keys)
-                changed = sum(1 for k in curr_keys & prev_keys if last_hbk.get(k) != current.get(k))
-                if added or removed or changed:
+
+        if current_std != last_standards and (last_standards or current_std):
+            print(
+                "[watchdog] standards dir changed, running load-standards",
+                file=sys.stderr,
+                flush=True,
+            )
+            last_standards = current_std
+            _save_watchdog_state("standards", {k: float(v) for k, v in current_std.items()})
+            run_standards = True
+
+        if current_snip != last_snippets and (last_snippets or current_snip):
+            print(
+                "[watchdog] snippets dir changed, running load-snippets",
+                file=sys.stderr,
+                flush=True,
+            )
+            last_snippets = current_snip
+            _save_watchdog_state("snippets", {k: float(v) for k, v in current_snip.items()})
+            run_snippets = True
+
+        if current_meta != last_metadata and (last_metadata or current_meta):
+            print(
+                f"[watchdog] config dir changed ({len(current_meta)} files), running metadata-graph-build",
+                file=sys.stderr,
+                flush=True,
+            )
+            # Состояние в Redis пишем только после успешного прогона (иначе при падении не перезапустим).
+            run_metadata = True
+
+        if run_ingest or run_standards or run_snippets or run_metadata:
+            tasks = []
+            if run_ingest:
+                tasks.append(("ingest", _run_ingest))
+            if run_standards:
+                tasks.append(("standards", lambda: _run_load_standards(standards_dir_str)))
+            if run_snippets:
+                tasks.append(("snippets", lambda: _run_load_snippets(snippets_dir_str)))
+            if run_metadata and config_dir_str:
+
+                def _run_metadata_task() -> bool:
                     print(
-                        f"[watchdog] .hbk changed: +{added} new, -{removed} removed, ~{changed} modified",
+                        f"[watchdog] running metadata-graph-build for {config_dir_str}",
                         file=sys.stderr,
                         flush=True,
                     )
-                last_hbk = current
-                _save_watchdog_state("hbk", current)
-                if current:
-                    run_ingest = True
+                    return _run_build_metadata_graph(config_dir_str)
 
-            if current_std != last_standards and (last_standards or current_std):
-                print(
-                    "[watchdog] standards dir changed, running load-standards",
-                    file=sys.stderr,
-                    flush=True,
-                )
-                last_standards = current_std
-                _save_watchdog_state("standards", {k: float(v) for k, v in current_std.items()})
-                run_standards = True
-
-            if current_snip != last_snippets and (last_snippets or current_snip):
-                print(
-                    "[watchdog] snippets dir changed, running load-snippets",
-                    file=sys.stderr,
-                    flush=True,
-                )
-                last_snippets = current_snip
-                _save_watchdog_state("snippets", {k: float(v) for k, v in current_snip.items()})
-                run_snippets = True
-
-            # Run needed tasks in parallel (async)
-            if run_ingest or run_standards or run_snippets:
-                tasks = []
-                if run_ingest:
-                    tasks.append(("ingest", _run_ingest))
-                if run_standards:
-                    tasks.append(("standards", lambda: _run_load_standards(standards_dir_str)))
-                if run_snippets:
-                    tasks.append(("snippets", lambda: _run_load_snippets(snippets_dir_str)))
-                if len(tasks) == 1:
-                    name, fn = tasks[0]
-                    if name == "ingest":
-                        last_ingest_failed = not fn()
-                    else:
-                        fn()
+                tasks.append(("metadata", _run_metadata_task))
+            if len(tasks) == 1:
+                name, fn = tasks[0]
+                if name == "ingest":
+                    last_ingest_failed = not fn()
+                elif name == "metadata":
+                    metadata_ok = fn()
                 else:
-                    with ThreadPoolExecutor(max_workers=len(tasks)) as executor:
-                        futures = {executor.submit(fn): name for name, fn in tasks}
-                        for future in as_completed(futures):
-                            name = futures[future]
-                            try:
-                                result = future.result()
-                                if name == "ingest":
-                                    last_ingest_failed = not result
-                            except Exception as e:
-                                print(
-                                    f"[watchdog] {name} failed: {safe_error_message(e)}",
-                                    file=sys.stderr,
-                                    flush=True,
-                                )
-                                if name == "ingest":
-                                    last_ingest_failed = True
+                    fn()
+            else:
+                with ThreadPoolExecutor(max_workers=len(tasks)) as executor:
+                    futures = {executor.submit(fn): name for name, fn in tasks}
+                    for future in as_completed(futures):
+                        name = futures[future]
+                        try:
+                            result = future.result()
+                            if name == "ingest":
+                                last_ingest_failed = not result
+                            elif name == "metadata":
+                                metadata_ok = result
+                        except Exception as e:
+                            print(
+                                f"[watchdog] {name} failed: {safe_error_message(e)}",
+                                file=sys.stderr,
+                                flush=True,
+                            )
+                            if name == "ingest":
+                                last_ingest_failed = True
+            if metadata_ok is True:
+                last_metadata = current_meta
+                _save_watchdog_state("metadata", {k: float(v) for k, v in current_meta.items()})
 
-            if now - last_pending >= pending_int:
-                last_pending = now
-                _process_pending_memory()
+        # Краткий итог цикла (как для справки/стандартов/сниппетов): видно, что папки сканируются.
+        n_hbk = len(current)
+        n_std = len(current_std)
+        n_snip = len(current_snip)
+        n_meta = len(current_meta)
+        print(
+            f"[watchdog] cycle: hbk={n_hbk} standards={n_std} snippets={n_snip} config={n_meta}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+        if now - last_pending >= pending_int:
+            last_pending = now
+            _process_pending_memory()
+
+    # Первая проверка сразу при старте контейнера (без паузы).
+    _one_cycle()
+
+    while True:
+        try:
+            _one_cycle()
         except Exception as e:
             print(f"[watchdog] error: {safe_error_message(e)}", file=sys.stderr, flush=True)
         time.sleep(poll)
@@ -404,6 +487,38 @@ def _run_load_snippets(snippets_dir: str) -> None:
             file=sys.stderr,
             flush=True,
         )
+
+
+def _run_build_metadata_graph(config_dir: str) -> bool:
+    """Run metadata-graph-build for exported configuration in config_dir. Returns True on success."""
+    if not config_dir:
+        return False
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "onec_help", "metadata-graph-build", config_dir],
+            capture_output=True,
+            timeout=1800,
+            env=os.environ.copy(),
+        )
+        if result.returncode != 0:
+            tail = (
+                (result.stderr or b"").decode("utf-8", errors="replace").strip().splitlines()[-15:]
+            )
+            print(
+                f"[watchdog] metadata-graph-build exited {result.returncode}: "
+                + ("; ".join(tail) if tail else "no stderr"),
+                file=sys.stderr,
+                flush=True,
+            )
+            return False
+        return True
+    except (subprocess.TimeoutExpired, OSError) as e:
+        print(
+            f"[watchdog] metadata-graph-build failed: {safe_error_message(e)}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return False
 
 
 def _process_pending_memory() -> None:

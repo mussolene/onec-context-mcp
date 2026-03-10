@@ -1,4 +1,4 @@
-"""Dashboard data aggregation: ingest, Qdrant, snippets, standards/snippets loading markers.
+"""Dashboard data aggregation: ingest, Qdrant, snippets, standards/snippets/metadata loading markers.
 No Rich dependency; pure data for render_dashboard()."""
 
 import json
@@ -132,8 +132,10 @@ def get_dashboard_data(
     standards_last = _read_last_standards_run()
     standards_loading = _load_marker_exists("standards")
     snippets_loading = _load_marker_exists("snippets")
+    metadata_loading = _load_marker_exists("metadata")
     standards_loading_pts = _read_load_status("standards") if standards_loading else None
     snippets_loading_pts = _read_load_status("snippets") if snippets_loading else None
+    metadata_loading_pts = _read_load_status("metadata") if metadata_loading else None
     storage_path_mb = _storage_path_mb()
     mcp_metrics = get_mcp_metrics()
 
@@ -147,8 +149,10 @@ def get_dashboard_data(
         "standards_last_run": standards_last,
         "standards_loading": standards_loading,
         "snippets_loading": snippets_loading,
+        "metadata_loading": metadata_loading,
         "standards_loading_pts": standards_loading_pts,
         "snippets_loading_pts": snippets_loading_pts,
+        "metadata_loading_pts": metadata_loading_pts,
         "storage_path_mb": storage_path_mb,
         "mcp_metrics": mcp_metrics,
         "bm25_vocab": bm25_vocab,

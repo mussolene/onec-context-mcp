@@ -19,6 +19,9 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     ports: ["6379:6379"]
+    # Кэш ингеста и состояние watchdog хранятся в Redis; без volume данные теряются при перезапуске контейнера.
+    volumes:
+      - ./data/redis:/data
 
   ingest-worker:
     profiles:
@@ -59,6 +62,8 @@ services:
       STANDARDS_SUBPATH: ${STANDARDS_SUBPATH:-docs}
       # В контейнере standards смонтирован в /data/standards — иначе load-standards пишет в /app/data/standards и Permission denied
       STANDARDS_DIR: ${STANDARDS_DIR:-/data/standards}
+      # Конфигурация 1С для metadata graph: по умолчанию /app/data/config внутри контейнера.
+      ONEC_CONFIG_SOURCE_DIR: ${ONEC_CONFIG_SOURCE_DIR:-/app/data/config}
     volumes:
       - /opt/1cv8:/opt/1cv8:ro
       - ./data/unpacked:/app/data/unpacked
@@ -66,6 +71,7 @@ services:
       - ./data/ingest_cache:/app/var/ingest_cache
       - ./data/snippets:/data/snippets
       - ./data/standards:/data/standards
+      - ./data/config:/app/data/config:ro
       - ./data/backup:/data/backup
       - ./data/bm25_vocab:/app/data/bm25_vocab
     # По умолчанию watchdog включён (WATCHDOG_ENABLED=1). При 0 — только sleep (make ingest вручную).

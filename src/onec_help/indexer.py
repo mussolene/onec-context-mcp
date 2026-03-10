@@ -711,7 +711,7 @@ SPARSE_VECTOR_NAME = "text-bm25"
 
 
 def _bm25_text_from_payload(collection: str, payload: dict[str, Any]) -> str:
-    """Extract text for BM25 from point payload. onec_help: title+text; onec_help_memory: title, summary, description, code_snippet, instruction."""
+    """Extract text for BM25 from point payload. onec_help: title+text; onec_help_memory: title, summary, ...; onec_config_metadata: text (config_name, object_type, name, full_name)."""
     if collection == "onec_help_memory":
         parts = [
             payload.get("title") or "",
@@ -721,6 +721,15 @@ def _bm25_text_from_payload(collection: str, payload: dict[str, Any]) -> str:
             payload.get("instruction") or "",
         ]
         return "\n".join(p for p in parts if p)
+    if collection == "onec_config_metadata":
+        text = (payload.get("text") or "").strip()
+        if text:
+            return text
+        return " ".join(
+            filter(
+                None, [payload.get("config_name"), payload.get("name"), payload.get("full_name")]
+            )
+        )
     # onec_help and any other: title + text
     return ((payload.get("title") or "") + "\n" + (payload.get("text") or "")).strip() or ""
 

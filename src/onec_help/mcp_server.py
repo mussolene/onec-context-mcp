@@ -305,6 +305,85 @@ def _should_show_low_score_hint(
     )
 
 
+def _format_memory_block(payload: dict[str, Any]) -> str:
+    """Format one memory item (payload) as markdown block (title, [стандарт/пример], body, code, link)."""
+    code = payload.get("code_snippet", "")
+    instruction = payload.get("instruction", "")
+    desc = payload.get("description", "") or (payload.get("summary", "") or "")[:200]
+    title = payload.get("title", "") or desc[:60]
+    d = payload.get("domain", "")
+    src = (
+        " [пример]"
+        if d == "snippets"
+        else (
+            " [инструкция]"
+            if d == "community_help"
+            else (" [стандарт]" if d == "standards" else "")
+        )
+    )
+    body = instruction if instruction else desc
+    link_line = ""
+    detail_url = payload.get("detail_url")
+    source_site = payload.get("source_site", "")
+    source = payload.get("source", "")
+    if detail_url:
+        attr = (
+            "FastCode"
+            if source_site == "fastcode.im"
+            else (
+                "HelpF" + (f" ({source})" if source else "")
+                if source_site == "helpf.pro"
+                else "Источник"
+            )
+        )
+        link_line = f"\n\n{attr}: {detail_url}"
+    block_base = (
+        f"### {title}{src}\n\n{body}\n\n```bsl\n{code}\n```"
+        if code
+        else f"### {title}{src}\n\n{body}"
+    )
+    return block_base + link_line
+
+
+def _order_memory_for_display(
+    items: list[dict[str, Any]],
+    max_standards: int = 2,
+    max_snippets: int = 2,
+    max_community: int = 1,
+    max_total: int = 6,
+) -> list[dict[str, Any]]:
+    """Reorder memory search results so standards and snippets appear first when available."""
+    by_domain: dict[str, list[dict[str, Any]]] = {
+        "standards": [],
+        "snippets": [],
+        "community_help": [],
+        "": [],
+    }
+    for m in items:
+        d = ((m.get("payload") or {}).get("domain") or "").strip()
+        if d not in by_domain:
+            by_domain[d] = []
+        by_domain[d].append(m)
+    out: list[dict[str, Any]] = []
+    out.extend(by_domain.get("standards", [])[:max_standards])
+    out.extend(by_domain.get("snippets", [])[:max_snippets])
+    out.extend(by_domain.get("community_help", [])[:max_community])
+    seen_ids: set[tuple[str, str]] = set()
+    for x in out:
+        p = x.get("payload") or {}
+        key = (p.get("title") or (p.get("description") or "")[:80], p.get("domain", ""))
+        seen_ids.add(key)
+    for m in items:
+        if len(out) >= max_total:
+            break
+        p = m.get("payload") or {}
+        key = (p.get("title") or (p.get("description") or "")[:80], p.get("domain", ""))
+        if key not in seen_ids:
+            seen_ids.add(key)
+            out.append(m)
+    return out[:max_total]
+
+
 _RRF_K = 60  # Reciprocal Rank Fusion constant
 
 
@@ -453,20 +532,25 @@ def _build_mcp_app(help_path: Path) -> Any:
     @mcp.tool()
     @_record_mcp_tool
     def search_1c_help_keyword(
-        query: str,
+        query: str | None = None,
+        keyword: str | None = None,
         limit: int = 10,
         version: str | None = None,
         language: str | None = None,
     ) -> str:
-        """Search 1C help by exact substring/BM25 in title and text (e.g. 'Формат', 'ПроцессорВыводаРезультатаКомпоновкиДанныхВКоллекциюЗначений').
+        """Search 1C help by exact substring/BM25 in title and text (e.g. 'Формат', 'РегистрНакопления.ОстаткиИОбороты').
         Use when semantic search misses specific API names or returns irrelevant results.
+        Pass the search string as **query** or **keyword** (both accepted).
         For code answers prefer get_1c_code_answer. For method names like Type.Method (e.g. HTTPСоединение.Получить) pass the full string.
         limit: max results (default 10). version, language: optional filters.
         Tip: if no matches, try search_1c_help for semantic search or synonym (e.g. ПакетПолучения → ВыполнитьПакет)."""
         err = _check_rate_limit()
         if err:
             return err
-        q, err = _truncate_if_needed((query or "").strip(), MAX_QUERY_CHARS, "query")
+        q_raw = (query or keyword or "").strip()
+        if not q_raw:
+            return "Provide query or keyword (the search string)."
+        q, err = _truncate_if_needed(q_raw, MAX_QUERY_CHARS, "query")
         if err:
             return err
         results = _search_keyword(
@@ -546,45 +630,10 @@ def _build_mcp_app(help_path: Path) -> Any:
             try:
                 from .memory import get_memory_store
 
-                for m in get_memory_store().search_long(q, limit=min(5, limit)):
-                    payload = m.get("payload", {}) or {}
-                    code = payload.get("code_snippet", "")
-                    instruction = payload.get("instruction", "")
-                    desc = payload.get("description", "") or payload.get("summary", "")[:200]
-                    title = payload.get("title", "") or desc[:60]
-                    d = payload.get("domain", "")
-                    src = (
-                        " [пример]"
-                        if d == "snippets"
-                        else (
-                            " [инструкция]"
-                            if d == "community_help"
-                            else (" [стандарт]" if d == "standards" else "")
-                        )
-                    )
-                    body = instruction if instruction else desc
-                    link_line = ""
-                    detail_url = payload.get("detail_url")
-                    source_site = payload.get("source_site", "")
-                    source = payload.get("source", "")
-                    if detail_url:
-                        attr = (
-                            "FastCode"
-                            if source_site == "fastcode.im"
-                            else (
-                                "HelpF" + (f" ({source})" if source else "")
-                                if source_site == "helpf.pro"
-                                else "Источник"
-                            )
-                        )
-                        link_line = f"\n\n{attr}: {detail_url}"
-                    block_base = (
-                        f"### {title}{src}\n\n{body}\n\n```bsl\n{code}\n```"
-                        if code
-                        else f"### {title}{src}\n\n{body}"
-                    )
-                    block = block_base + link_line
-                    memory_parts.append(block)
+                raw = get_memory_store().search_long(q, limit=10)
+                ordered = _order_memory_for_display(raw, max_standards=2, max_snippets=2, max_community=1, max_total=6)
+                for m in ordered:
+                    memory_parts.append(_format_memory_block(m.get("payload", {}) or {}))
             except Exception as e:
                 logging.getLogger(__name__).debug("get_1c_code_answer memory block failed: %s", e)
         if not results and not memory_parts:
@@ -599,6 +648,13 @@ def _build_mcp_app(help_path: Path) -> Any:
             )
         if memory_parts:
             parts.append("\n### Из памяти\n\n" + "\n\n".join(memory_parts))
+        elif include_memory and (results or meta):
+            # Память запрашивали, но сниппеты/стандарты не попали в ответ — подсказать причину
+            parts.append(
+                "\n*Чтобы в ответах появлялись примеры и стандарты (сниппеты, v8std): "
+                "выполните `load-snippets` и `load-standards`; в `get_1c_help_index_status` проверьте, "
+                "что коллекция **onec_help_memory** содержит точки.*"
+            )
         if results:
             help_blocks = []
             for r in results:
@@ -625,22 +681,83 @@ def _build_mcp_app(help_path: Path) -> Any:
 
     @mcp.tool()
     @_record_mcp_tool
+    def search_1c_memory(
+        query: str,
+        limit: int = 5,
+        domains: str | None = None,
+    ) -> str:
+        """Search only memory (snippets and standards). Returns blocks [пример] / [стандарт] by semantic similarity.
+        query: search text. limit: max items (default 5). domains: optional filter — "standards", "snippets",
+        "community_help", or comma-separated e.g. "standards,snippets" to get both; if omitted, searches all.
+        Use when you need guaranteed context from standards/snippets in addition to get_1c_code_answer."""
+        err = _check_rate_limit()
+        if err:
+            return err
+        q, err = _truncate_if_needed(query or "", MAX_QUERY_CHARS, "query")
+        if err:
+            return err
+        try:
+            from .memory import get_memory_store
+
+            store = get_memory_store()
+            all_items: list[dict[str, Any]] = []
+            if domains:
+                domain_list = [s.strip() for s in domains.split(",") if s.strip()]
+                if domain_list:
+                    per_domain = max(1, (limit + len(domain_list) - 1) // len(domain_list))
+                    for d in domain_list:
+                        all_items.extend(store.search_long(q, limit=per_domain, domain=d))
+                    # Dedupe by (title, domain)
+                    seen: set[tuple[str, str]] = set()
+                    unique: list[dict[str, Any]] = []
+                    for m in all_items:
+                        p = m.get("payload") or {}
+                        key = (
+                            (p.get("title") or (p.get("description") or "")[:80]),
+                            p.get("domain", ""),
+                        )
+                        if key not in seen:
+                            seen.add(key)
+                            unique.append(m)
+                    all_items = unique[:limit]
+                else:
+                    all_items = store.search_long(q, limit=limit)
+            else:
+                all_items = store.search_long(q, limit=limit)
+            blocks = [_format_memory_block(m.get("payload") or {}) for m in all_items]
+            if not blocks:
+                return (
+                    "Ничего не найдено в памяти. Выполните load-snippets и load-standards; "
+                    "проверьте get_1c_help_index_status (коллекция onec_help_memory)."
+                )
+            return "## Память (сниппеты и стандарты)\n\n" + "\n\n".join(blocks)
+        except Exception as e:
+            logging.getLogger(__name__).debug("search_1c_memory failed: %s", e)
+            return "Ошибка поиска по памяти."
+
+    @mcp.tool()
+    @_record_mcp_tool
     def get_1c_help_topic(
-        topic_path: str,
+        topic_path: str | None = None,
+        path: str | None = None,
         version: str | None = None,
         language: str | None = None,
         prefer_index: bool = False,
     ) -> str:
         """Get full help topic content in Markdown by path. Path from search results (e.g. 'zif3_CryptoManager.md').
+        Pass the topic path as **topic_path** or **path** (both accepted).
         Content is read from disk or from index if files were not persisted.
         version, language: optional filters when reading from index.
         prefer_index: if True, read only from index (skip disk).
-        Tip: get path from search_1c_help or search_1c_help_keyword first. Use topic_path (not path) parameter."""
+        Tip: get path from search_1c_help or search_1c_help_keyword first."""
         err = _check_rate_limit()
         if err:
             return err
+        topic = (topic_path or path or "").strip()
+        if not topic:
+            return "Provide topic_path or path (the help topic path from search results)."
         content = _get_topic(
-            topic_path,
+            topic,
             version=version,
             language=language,
             prefer_index=prefer_index,
@@ -652,7 +769,7 @@ def _build_mcp_app(help_path: Path) -> Any:
                 title = content.split("\n")[0].strip().lstrip("#").strip() or ""
                 get_memory_store().write_event(
                     "get_topic",
-                    {"topic_path": topic_path, "title": title},
+                    {"topic_path": topic, "title": title},
                 )
             except Exception as e:
                 logging.getLogger(__name__).debug("write_event get_topic failed: %s", e)
@@ -719,7 +836,8 @@ def _build_mcp_app(help_path: Path) -> Any:
     def get_form_metadata(xml_content: str) -> str:
         """Parse Form.xml content and return attributes and commands.
         xml_content: raw XML of Form.xml — must be complete with all xmlns declarations
-        (v8, cfg, xs, etc.). Truncated XML without namespaces causes Parse error."""
+        (v8, cfg, xs, etc.). Parser expects elements with local names Attribute (form attributes)
+        and Command (form commands); other formats (e.g. FormAttribute only) may yield empty lists."""
         err = _check_rate_limit()
         if err:
             return err
@@ -780,19 +898,261 @@ def _build_mcp_app(help_path: Path) -> Any:
 
     @mcp.tool()
     @_record_mcp_tool
+    def search_1c_metadata(
+        query: str,
+        config_version: str | None = None,
+        object_type: str | None = None,
+        limit: int = 20,
+    ) -> str:
+        """Search 1C configuration metadata graph (objects) by name (semantic + keyword).
+
+        query: поисковый запрос (естественный язык или часть имени объекта).
+        config_version: версия конфигурации (опционально: при одной версии в графе подставляется автоматически).
+        object_type: фильтр по типу объекта (Document, Catalog, Register..., опционально).
+        """
+        err = _check_rate_limit()
+        if err:
+            return err
+        q, err = _truncate_if_needed(query or "", MAX_QUERY_CHARS, "query")
+        if err:
+            return err
+        try:
+            from .metadata_graph import get_metadata_config_versions, search_metadata_by_name
+        except Exception as e:  # pragma: no cover - import/runtime guard
+            return f"Metadata graph module is not available: {safe_error_message(e)}"
+
+        cfg_ver = (config_version or "").strip()
+        items: list[dict[str, Any]] = []
+
+        if cfg_ver:
+            # Явно указана версия конфигурации — ищем только в ней.
+            items = search_metadata_by_name(
+                q,
+                type_filter=object_type,
+                config_version=cfg_ver,
+            )
+            if not items:
+                return (
+                    "No metadata objects found for this query/config_version. "
+                    "Ensure metadata-graph-build was run for your config export and config_version is correct."
+                )
+        else:
+            # Версия не указана: пытаемся искать по всем версиям в графе,
+            # чтобы позволить сравнительный анализ разных конфигураций.
+            versions = get_metadata_config_versions()
+            if not versions:
+                return "Metadata graph is empty. Run metadata-graph-build for your config export first."
+            if len(versions) == 1:
+                items = search_metadata_by_name(
+                    q,
+                    type_filter=object_type,
+                    config_version=versions[0],
+                )
+            else:
+                # Распределяем лимит по версиям (примерно поровну), затем объединяем результаты.
+                per_ver = max(1, (limit + len(versions) - 1) // len(versions))
+                for ver in versions:
+                    part = search_metadata_by_name(
+                        q,
+                        type_filter=object_type,
+                        config_version=ver,
+                        limit=per_ver,
+                    )
+                    items.extend(part)
+            if not items:
+                return (
+                    "No metadata objects found for this query across available config versions. "
+                    "Ensure metadata-graph-build was run for your config exports."
+                )
+        lines: list[str] = []
+        for i, obj in enumerate(items[:limit], 1):
+            ot = obj.get("object_type", "")
+            name = obj.get("name", "")
+            full = obj.get("full_name") or ""
+            oid = obj.get("id", "")
+            path = obj.get("path", "")
+            ver = obj.get("config_version") or cfg_ver or ""
+            line = f"{i}. **{ot} {name}**"
+            if full:
+                line += f" — {full}"
+            if oid:
+                line += f" (id: `{oid}`)"
+            if path:
+                line += f" — `{path}`"
+            if ver:
+                line += f" (config_version: `{ver}`)"
+            lines.append(line)
+        return "\n".join(lines)
+
+    @mcp.tool()
+    @_record_mcp_tool
+    def get_1c_metadata_object(
+        object_id: str,
+        config_version: str | None = None,
+    ) -> str:
+        """Get detailed info about a single configuration object from metadata graph.
+
+        object_id: identifier from search_1c_metadata (payload.id, e.g. 'Document/РеализацияТоваровУслуг').
+        config_version: optional — version of the configuration (e.g. 3.0.184.16). Required if the collection has multiple configs.
+        """
+        err = _check_rate_limit()
+        if err:
+            return err
+        if not object_id or not object_id.strip():
+            return "Provide non-empty object_id."
+        try:
+            from .metadata_graph import get_metadata_config_versions, get_metadata_object
+        except Exception as e:  # pragma: no cover - import/runtime guard
+            return f"Metadata graph module is not available: {safe_error_message(e)}"
+
+        cfg_ver = (config_version or "").strip()
+        if not cfg_ver:
+            versions = get_metadata_config_versions()
+            if len(versions) > 1:
+                return (
+                    "Specify config_version (e.g. 3.0.184.16). "
+                    "The metadata collection has multiple configurations."
+                )
+            if len(versions) == 1:
+                cfg_ver = versions[0]
+
+        obj = get_metadata_object(
+            object_id.strip(),
+            config_version=cfg_ver or None,
+        )
+        if not obj:
+            return (
+                "Объект метаданных не найден. "
+                "Выполните metadata-graph-build для выгрузки конфигурации и укажите верный config_version."
+            )
+        from .metadata_graph import _OBJECT_TYPE_RU, format_requisite_type_display
+
+        type_ru = _OBJECT_TYPE_RU.get(obj.get("object_type", ""), obj.get("object_type", ""))
+        lines = [
+            f"**ID:** `{obj.get('id', '')}`",
+            f"**Тип:** {type_ru}",
+            f"**Имя:** {obj.get('name', '')}",
+        ]
+        full = obj.get("full_name")
+        if full:
+            lines.append(f"**Представление:** {full}")
+        path = obj.get("path")
+        if path:
+            lines.append(f"**Путь:** `{path}`")
+        parent_id = obj.get("parent_id")
+        if parent_id:
+            lines.append(f"**Родительский объект:** `{parent_id}`")
+        form_ids = obj.get("form_ids") or []
+        if form_ids:
+            lines.append("\n**Формы:**")
+            for fid in form_ids:
+                lines.append(f"- `{fid}`")
+        cfg_name = obj.get("config_name")
+        cfg_ver = obj.get("config_version")
+        if cfg_name or cfg_ver:
+            lines.append(f"**Конфигурация:** {cfg_name or ''} (версия {cfg_ver or ''})")
+        plat = obj.get("platform_version")
+        if plat:
+            lines.append(f"**Платформа:** {plat}")
+        attrs = obj.get("attributes") or {}
+        if attrs:
+            reqs = attrs.get("requisites") or []
+            tabs = attrs.get("tabular_sections") or []
+            if reqs:
+                lines.append("\n**Реквизиты:**")
+                for r in reqs:
+                    name = r.get("name") if isinstance(r, dict) else str(r)
+                    disp = (
+                        format_requisite_type_display(r, append_raw_in_brackets=True)
+                        if isinstance(r, dict)
+                        else ""
+                    )
+                    if disp:
+                        lines.append(f"- {name}: {disp}")
+                    else:
+                        lines.append(f"- {name}")
+            if tabs:
+                lines.append("\n**Табличные части:**")
+                for t in tabs:
+                    name = t.get("name") if isinstance(t, dict) else str(t)
+                    lines.append(f"\n**{name}:**")
+                    reqs_ts = (t.get("requisites") or []) if isinstance(t, dict) else []
+                    for r in reqs_ts:
+                        if isinstance(r, dict):
+                            rname = r.get("name") or ""
+                            disp = (
+                                format_requisite_type_display(r, append_raw_in_brackets=True)
+                                if isinstance(r, dict) else ""
+                            )
+                            if disp:
+                                lines.append(f"  - {rname}: {disp}")
+                            else:
+                                lines.append(f"  - {rname}")
+                        else:
+                            lines.append(f"  - {r}")
+                    if not reqs_ts:
+                        lines.append("  (реквизиты не извлечены)")
+            form_reqs = attrs.get("form_requisites") or []
+            form_cmds = attrs.get("form_commands") or []
+            if form_reqs:
+                lines.append("\n**Реквизиты формы:**")
+                for r in form_reqs:
+                    name = r.get("name") if isinstance(r, dict) else str(r)
+                    disp = (
+                        format_requisite_type_display(r, append_raw_in_brackets=True)
+                        if isinstance(r, dict)
+                        else ""
+                    )
+                    if disp:
+                        lines.append(f"- {name}: {disp}")
+                    else:
+                        lines.append(f"- {name}")
+            if form_cmds:
+                lines.append("\n**Команды формы:**")
+                for c in form_cmds:
+                    name = c.get("name") if isinstance(c, dict) else str(c)
+                    action = (c.get("action") or "").strip() if isinstance(c, dict) else ""
+                    title = (c.get("title") or "").strip() if isinstance(c, dict) else ""
+                    part = f"- {name}"
+                    if action and action != name:
+                        part += f" → {action}"
+                    if title:
+                        part += f" ({title})"
+                    lines.append(part)
+            for k, v in sorted(attrs.items()):
+                if (
+                    k
+                    not in (
+                        "requisites",
+                        "tabular_sections",
+                        "form_requisites",
+                        "form_commands",
+                        "parent_id",
+                    )
+                    and v
+                ):
+                    lines.append(f"\n**{k}:** {v}")
+        return "\n".join(lines)
+
+    @mcp.tool()
+    @_record_mcp_tool
     def get_1c_help_related(
-        topic_path: str,
+        topic_path: str | None = None,
+        path: str | None = None,
         version: str | None = None,
         language: str | None = None,
     ) -> str:
         """Get list of related topics for a given help topic path.
         Returns paths and titles from outgoing links in the topic.
-        topic_path: path from search results (e.g. 'Format971.md').
+        Pass the topic path as **topic_path** or **path** (e.g. 'Format971.md').
         version, language: optional filters when reading from index."""
         from .indexer import get_1c_help_related as _get_related
 
+        topic = (topic_path or path or "").strip()
+        if not topic:
+            return "Provide topic_path or path (the help topic path from search results)."
         items = _get_related(
-            topic_path,
+            topic,
             version=version,
             language=language,
         )
@@ -870,7 +1230,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         if s.get("languages"):
             lines.append(f"Languages (sample): {', '.join(s['languages'])}")
 
-        # Memory collection (snippets + standards): point count for verification
+        # Memory and metadata collections: point counts for verification
         try:
             from .indexer import get_all_collections_status
 
@@ -882,7 +1242,13 @@ def _build_mcp_app(help_path: Path) -> Any:
                         lines.append(
                             f"Memory (**onec_help_memory**): **{_mem_count}** points (snippets + standards)"
                         )
-                    break
+                elif coll.get("name") == "onec_config_metadata":
+                    _meta_count = coll.get("points_count")
+                    if _meta_count is not None:
+                        lines.append("")
+                        lines.append(
+                            f"Metadata (**onec_config_metadata**): **{_meta_count}** points"
+                        )
         except Exception:
             pass
 
@@ -959,6 +1325,97 @@ def _build_mcp_app(help_path: Path) -> Any:
                     lines.append(f"Failed: {failed_count} file(s)")
 
         return "\n".join(lines)
+
+    @mcp.tool()
+    @_record_mcp_tool
+    def get_1c_context_bundle(
+        query: str,
+        config_version: str | None = None,
+        file_uri: str | None = None,
+        symbol_name: str | None = None,
+        limit: int = 5,
+    ) -> str:
+        """Build combined context (help topics, snippets/standards, metadata) for a 1C task.
+
+        query: текст запроса или имя API.
+        config_version: версия конфигурации, для которой нужно подбирать объекты (как в выгрузке).
+        file_uri, symbol_name: опциональные подсказки (текущий модуль/символ) — пока используются только как метаданные.
+        """
+        err = _check_rate_limit()
+        if err:
+            return err
+        q, err = _truncate_if_needed(query or "", MAX_QUERY_CHARS, "query")
+        if err:
+            return err
+        try:
+            from .context_builder import ContextRequest, build_context
+        except Exception as e:  # pragma: no cover - import/runtime guard
+            return f"Context builder is not available: {safe_error_message(e)}"
+
+        ctx = build_context(
+            ContextRequest(
+                query=q,
+                config_version=config_version,
+                file_uri=file_uri,
+                symbol_name=symbol_name,
+                limit=limit,
+            )
+        )
+
+        help_topics = ctx.get("help_topics") or []
+        memory_items = ctx.get("memory") or []
+        metadata_objects = ctx.get("metadata_objects") or []
+
+        if not (help_topics or memory_items or metadata_objects):
+            return "No context found: help index, memory and metadata graph returned no results."
+
+        parts: list[str] = [f"## Контекст для запроса: {q}"]
+
+        if help_topics:
+            lines = []
+            for i, h in enumerate(help_topics[:limit], 1):
+                title = h.get("title", "")
+                path = h.get("path", "")
+                text = (h.get("text") or "")[: _snippet_max_chars()]
+                lines.append(f"{i}. **{title}** — `{path}`\n   {text}...")
+            parts.append("\n### Из справки\n\n" + "\n".join(lines))
+
+        if memory_items:
+            lines = []
+            for i, m in enumerate(memory_items[:limit], 1):
+                payload = m.get("payload", {}) or m
+                title = payload.get("title", "") or payload.get("summary", "")[:80]
+                domain = payload.get("domain", "")
+                prefix = (
+                    "[пример]"
+                    if domain == "snippets"
+                    else "[стандарт]"
+                    if domain == "standards"
+                    else "[memory]"
+                )
+                desc = payload.get("description", "") or payload.get("instruction", "") or ""
+                lines.append(f"{i}. **{title}** {prefix}\n   {desc[: _snippet_max_chars()]}...")
+            parts.append("\n### Сниппеты и стандарты\n\n" + "\n".join(lines))
+
+        if metadata_objects:
+            lines = []
+            for i, obj in enumerate(metadata_objects[:limit], 1):
+                ot = obj.get("object_type", "")
+                name = obj.get("name", "")
+                full = obj.get("full_name") or ""
+                oid = obj.get("id", "")
+                path = obj.get("path", "")
+                line = f"{i}. **{ot} {name}**"
+                if full:
+                    line += f" — {full}"
+                if oid:
+                    line += f" (id: `{oid}`)"
+                if path:
+                    line += f" — `{path}`"
+                lines.append(line)
+            parts.append("\n### Объекты конфигурации\n\n" + "\n".join(lines))
+
+        return "\n".join(parts)
 
     def _match_priority(name_lower: str, title_lower: str) -> int:
         """Lower = better. 0=exact, 1=startswith+space/(, 2=in, 3=no match."""
@@ -1040,8 +1497,9 @@ def _build_mcp_app(help_path: Path) -> Any:
     def how_to_use_1c_help_and_bsl_bridge(task: str = "all") -> str:
         """Returns instructions for using 1c-help and lsp-bsl-bridge MCP. task: 'all' (default) = full text; 'develop' | 'refactor' | 'test' = only the relevant block (fewer tokens). Call in a new 1C chat and paste the result into the first message."""
         block_develop = """1c-HELP + LSP — DEVELOP (code examples, API, snippets)
-- get_1c_code_answer(query) first. If weak → search_1c_help_keyword("Тип.Метод") → get_1c_help_topic(topic_path). Parameter is topic_path, not path.
-- Empty results: get_1c_help_index_status → search_1c_help_keyword with exact API name.
+- get_1c_code_answer(query, include_memory=True) first. If weak/irrelevant → search_1c_help_keyword(\"Тип.Метод\") → get_1c_help_topic(topic_path) using the path from results. Parameter is topic_path, not path.
+- Need standards/snippets explicitly: search_1c_memory(query, domains=\"standards,snippets\") in addition to get_1c_code_answer.
+- Empty or poor help results: get_1c_help_index_status → then search_1c_help_keyword with exact API name (Тип.Метод).
 - After working code: save_1c_snippet(code_snippet, description, title).
 - get_form_metadata(xml_content): full Form.xml with xmlns. get_module_info(uri_or_path): path to Module.bsl or ObjectModule.bsl.
 - URI (lsp): Docker → file:///projects/<path>; Cyrillic paths → URL-encoding. After edit: document_diagnostics(uri) until no ERROR/WARNING."""
@@ -1067,8 +1525,9 @@ def _build_mcp_app(help_path: Path) -> Any:
 
 ---
 2) 1c-HELP — ORDER OF CALLS
-- Code examples: get_1c_code_answer(query) first. If irrelevant or weak → search_1c_help_keyword with exact API name (e.g. "МенеджерКриптографии.Подписать") → get_1c_help_topic(topic_path) using the path from results. Important: parameter is topic_path, not path.
-- Empty or poor results: get_1c_help_index_status (check index and versions) → then search_1c_help_keyword with exact Тип.Метод.
+- Code examples: get_1c_code_answer(query, include_memory=True) first. If irrelevant or weak → search_1c_help_keyword with exact API name (e.g. "МенеджерКриптографии.Подписать") → get_1c_help_topic(topic_path) using the path from results. Important: parameter is topic_path, not path.
+- Need explicit standards/snippets: search_1c_memory(query, domains="standards,snippets") in addition to get_1c_code_answer.
+- Empty or poor results: get_1c_help_index_status (check index, memory and metadata) → then search_1c_help_keyword with exact Тип.Метод.
 - After working code: save_1c_snippet(code_snippet, description, title).
 - get_form_metadata(xml_content): pass full Form.xml with all xmlns; truncated XML fails. get_module_info(uri_or_path): path to Module.bsl or ObjectModule.bsl.
 - For methods always use full Тип.Метод in search_1c_help_keyword and get_1c_function_info.
@@ -1081,7 +1540,12 @@ def _build_mcp_app(help_path: Path) -> Any:
 - Refactoring: project_analysis first → edit one file → document_diagnostics → after batch: did_change_watched_files(language="bsl", changes_json=[{"uri":"file:///...", "type":2}]).
 
 ---
-4) LIMITS (1c-help)
+4) METADATA (1c-help)
+- search_1c_metadata(query, config_version=None, object_type=None, limit=20): if config_version is given — search only that config; if omitted and multiple versions exist, search across all and mark each line with config_version. Use this to compare objects between configurations/versions.
+- get_1c_metadata_object(object_id, config_version=None): details for one object (requisites, tabular sections). Prefer passing the config_version from search_1c_metadata output to avoid ambiguity.
+- get_1c_context_bundle(query, config_version=None, file_uri=None, symbol_name=None): combined context (help + memory + metadata). With multiple configs, pass config_version explicitly when you want a specific configuration.
+
+5) LIMITS (1c-help)
 - query and xml_content: up to 64 KB. Topic content in get_1c_code_answer: MCP_MAX_TOPIC_CHARS (default 4000). Full report: docs/mcp-1c-help-tools-report.md."""
 
     @mcp.prompt

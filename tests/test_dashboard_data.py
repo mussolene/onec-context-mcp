@@ -27,6 +27,7 @@ def test_get_dashboard_data_returns_expected_keys(
         "snippets",
         "standards_loading",
         "snippets_loading",
+        "metadata_loading",
         "storage_path_mb",
         "mcp_metrics",
     ):

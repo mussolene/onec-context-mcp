@@ -15,9 +15,11 @@ alwaysApply: false
 ## Краткий порядок вызовов
 
 **1c-help (справка, примеры):**
-1. Примеры кода: `get_1c_code_answer(query)` → при нерелевантности: `search_1c_help_keyword("Тип.Метод")` → `get_1c_help_topic(topic_path)` (параметр **topic_path**, не path).
-2. Пустые ответы: `get_1c_help_index_status` → затем `search_1c_help_keyword` с точным именем API.
-3. После рабочего кода: `save_1c_snippet(code_snippet, description, title)`.
+1. Примеры кода: `get_1c_code_answer(query)` (блок «Из памяти» уже упорядочен: сначала стандарты, затем сниппеты). При необходимости явного списка стандартов/сниппетов — дополнительно `search_1c_memory(query, domains="standards,snippets")`.
+2. При нерелевантных результатах по справке: `search_1c_help_keyword("Тип.Метод")` → `get_1c_help_topic(topic_path)` по `path` из keyword-поиска (параметр **topic_path** или **path**, оба допустимы).
+3. Пустые ответы: `get_1c_help_index_status` → затем `search_1c_help_keyword` с точным именем API.
+4. Контекст по конфигурации (справка + память + объекты метаданных): `get_1c_context_bundle(query[, config_version][, limit])`. Только объекты метаданных: `search_1c_metadata(query[, config_version])` → `get_1c_metadata_object(object_id)` (после `metadata-graph-build`; config_version опционален при одной версии в графе; поиск семантический).
+5. После рабочего кода: `save_1c_snippet(code_snippet, description, title)`.
 
 **lsp-bsl-bridge (проверка, навигация):**
 1. После правок: `document_diagnostics(uri)` → исправлять до отсутствия ERROR/WARNING.

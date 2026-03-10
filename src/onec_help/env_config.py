@@ -385,11 +385,12 @@ def get_hbk_labels() -> str:
     return (os.environ.get("HBK_LABELS") or HBK_LABELS_DEFAULT).strip()
 
 
-# --- Snippets ---
+# --- Snippets / metadata graph ---
 SNIPPETS_DIR_DEFAULT = "data/snippets"
 SAVE_SNIPPET_TO_FILES_DEFAULT = "1"
 SNIPPETS_JSON_PATH_DEFAULT = ""
 SNIPPETS_SKIP_CACHE_DEFAULT = "0"
+CONFIG_SOURCE_DIR_DEFAULT = "data/config"
 
 
 def get_snippets_dir() -> str:
@@ -408,6 +409,15 @@ def get_snippets_skip_cache() -> bool:
 def get_save_snippet_to_files() -> bool:
     v = (os.environ.get("SAVE_SNIPPET_TO_FILES") or SAVE_SNIPPET_TO_FILES_DEFAULT).strip().lower()
     return v in ("1", "true", "yes")
+
+
+def get_config_source_dir() -> str:
+    """Root directory with exported 1C configuration for metadata graph.
+
+    Uses ONEC_CONFIG_SOURCE_DIR env var; falls back to data/config when unset.
+    """
+
+    return (os.environ.get("ONEC_CONFIG_SOURCE_DIR") or CONFIG_SOURCE_DIR_DEFAULT).strip()
 
 
 # --- Standards ---
@@ -474,15 +484,16 @@ def get_memory_medium_ttl_days() -> int:
 
 
 # --- Watchdog ---
-WATCHDOG_POLL_INTERVAL_DEFAULT = 600
-WATCHDOG_PENDING_INTERVAL_DEFAULT = 600
+# Сниженный порог по умолчанию (2 мин), чтобы папки (hbk, standards, snippets, config) проверялись чаще.
+WATCHDOG_POLL_INTERVAL_DEFAULT = 120
+WATCHDOG_PENDING_INTERVAL_DEFAULT = 120
 WATCHDOG_INGEST_TIMEOUT_DEFAULT = 10800
 
 
 def get_watchdog_poll_interval() -> int:
     try:
         return max(
-            60, int(os.environ.get("WATCHDOG_POLL_INTERVAL", str(WATCHDOG_POLL_INTERVAL_DEFAULT)))
+            30, int(os.environ.get("WATCHDOG_POLL_INTERVAL", str(WATCHDOG_POLL_INTERVAL_DEFAULT)))
         )
     except ValueError:
         return WATCHDOG_POLL_INTERVAL_DEFAULT
@@ -491,7 +502,7 @@ def get_watchdog_poll_interval() -> int:
 def get_watchdog_pending_interval() -> int:
     try:
         return max(
-            60,
+            30,
             int(
                 os.environ.get("WATCHDOG_PENDING_INTERVAL", str(WATCHDOG_PENDING_INTERVAL_DEFAULT))
             ),

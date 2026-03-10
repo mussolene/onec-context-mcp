@@ -33,7 +33,7 @@ endif
 INGEST_SERVICE = ingest-worker
 INDEX_STATUS_SERVICE = mcp
 
-.PHONY: build build-full fetch-bsl-bridge parse-fastcode parse-helpf load-snippets load-snippets-from-project load-standards snippets
+.PHONY: build build-nocache build-full fetch-bsl-bridge parse-fastcode parse-helpf load-snippets load-snippets-from-project load-standards snippets
 .PHONY: up down ingest-up ingest-down ingest-worker up-full down-full bsl-start bsl-stop qdrant-logs ingest-logs ollama-logs qdrant-reset qdrant-backup qdrant-restore ensure-data
 
 # bsl-bridge: локальный клон (Git URL в context не работает на Docker Windows)
@@ -49,6 +49,10 @@ WATCH_INTERVAL ?= 2
 # Сборка образов (split). SERVICE=mcp|ingest-worker — только один сервис. По умолчанию образ без local-эмбеддингов.
 build:
 	$(COMPOSE) build $(if $(SERVICE),$(SERVICE),mcp ingest-worker)
+
+# Сборка образов (split). SERVICE=mcp|ingest-worker — только один сервис. По умолчанию образ без local-эмбеддингов.
+build-nocache:
+	$(COMPOSE) build $(if $(SERVICE),$(SERVICE),mcp ingest-worker) --no-cache
 
 # Сборка образа (full, один контейнер mcp)
 build-full:
@@ -135,11 +139,11 @@ ingest-from-unpacked:
 # Каталоги data/* создаются Docker при volume mount — кросс-платформенно
 # По умолчанию только qdrant + mcp
 up:
-	$(COMPOSE) up -d
+	$(COMPOSE) up -d --remove-orphans
 
 # Запустить ingest-worker (watchdog): нужен после make up, если нужна индексация/стандарты/сниппеты
 ingest-up:
-	$(COMPOSE) --profile ingest up -d
+	$(COMPOSE) --profile ingest up -d --remove-orphans
 
 # Остановить только ingest-worker (qdrant и mcp остаются)
 ingest-down:
@@ -168,7 +172,7 @@ bsl-stop:
 
 # Создать каталоги data/ для bind-mount. После потери data/qdrant: make ensure-data && make up; для индекса: make ingest-up
 ensure-data:
-	@mkdir -p data/qdrant data/unpacked data/ingest_cache data/snippets data/backup data/bm25_vocab data/standards
+	@mkdir -p data/qdrant data/unpacked data/ingest_cache data/snippets data/backup data/bm25_vocab data/standards data/config data/redis
 	@echo "data/qdrant и остальные каталоги созданы."
 
 # При qdrant exit 101: логи и сброс данных. Использовать оба -f!
@@ -178,6 +182,53 @@ qdrant-logs:
 # Логи ingest-worker (эмбеддинги, fallback, ошибки API). Ищите [embedding] и «Внешний сервис недоступен»
 ingest-logs:
 	$(COMPOSE) logs ingest-worker --tail 200
+
+# Сбросить состояние watchdog для config metadata и сразу запустить metadata-graph-build (без ожидания следующего цикла опроса).
+reset-metadata-watchdog:
+	@echo "Сброс watchdog:state:metadata в Redis..."
+	@$(COMPOSE) exec redis redis-cli DEL "watchdog:state:metadata" || true
+	@echo "Запуск metadata-graph-build в ingest-worker (источник: ONEC_CONFIG_SOURCE_DIR)..."
+	$(COMPOSE) exec $(INGEST_SERVICE) python -m onec_help metadata-graph-build
+
+# Только сбросить ключ (без запуска build). Следующий запуск metadata — при следующем опросе watchdog (до 10 мин).
+reset-metadata-watchdog-only:
+	@$(COMPOSE) exec redis redis-cli DEL "watchdog:state:metadata" || true
+	@echo "Ключ сброшен. Ждите следующий цикл watchdog (WATCHDOG_POLL_INTERVAL сек) или выполните: make metadata-build"
+
+# Очистить в Redis ошибки, которые отображаются в dashboard (ingest + MCP).
+clear-dashboard-errors:
+	@echo "Очистка ошибок дашборда в Redis (ingest:errors, mcp:errors_total, mcp:errors_recent)..."
+	@$(COMPOSE) exec redis redis-cli DEL "ingest:errors" "mcp:errors_total" "mcp:errors_recent" || true
+	@echo "Готово. Панели Errors и MCP requests в дашборде будут пустыми по ошибкам."
+
+# Запустить сборку графа метаданных конфигурации вручную (в ingest-worker). Путь из ONEC_CONFIG_SOURCE_DIR или data/config.
+# Требует: make ingest-up (ingest-worker запущен). Если в списке команд нет metadata-graph-build — пересоберите образ: make build.
+# Для больших конфигов (тысячи объектов) эмбеддинг и запись в Qdrant могут занять 10+ мин.
+# При таймауте после «embedding N/N» (запись в Qdrant): QDRANT_TIMEOUT=600 make metadata-build
+METADATA_EXEC_ENV = $(if $(QDRANT_TIMEOUT),-e QDRANT_TIMEOUT=$(QDRANT_TIMEOUT),)
+metadata-build:
+	$(COMPOSE) exec $(METADATA_EXEC_ENV) $(INGEST_SERVICE) python -m onec_help metadata-graph-build $(ARGS)
+metadata-graph-build: metadata-build
+
+# Диагностика: почему watchdog не запускает metadata-graph-build. Показывает путь конфигурации, find_config_root и число файлов .xml/.bsl.
+metadata-watchdog-debug:
+	@echo "Диагностика config dir и watchdog (в контейнере ingest-worker)..."
+	$(COMPOSE) exec $(INGEST_SERVICE) python -c "\
+from pathlib import Path; \
+from onec_help import env_config; \
+from onec_help.watchdog import _scan_config_dir_stable; \
+from onec_help.config_crawler import find_config_root; \
+d = env_config.get_config_source_dir(); \
+p = Path(d).resolve() if d else None; \
+print('ONEC_CONFIG_SOURCE_DIR (effective):', repr(d)); \
+print('resolved path:', p, '| exists:', p.exists() if p else False); \
+root = find_config_root(p) if p and p.exists() else None; \
+print('find_config_root:', root); \
+scan = _scan_config_dir_stable(p) if p and p.exists() else {}; \
+print('scan .xml/.bsl files count:', len(scan)); \
+"
+	@echo "--- Redis: ключ watchdog:state:metadata ---"
+	@$(COMPOSE) exec redis redis-cli EXISTS "watchdog:state:metadata" 2>/dev/null || echo "redis недоступен или ключ не найден"
 
 # Логи Ollama на хосте (macOS: ~/.ollama/logs/server.log). Ищите «aborting embedding request due to client closing»
 ollama-logs:
@@ -201,6 +252,7 @@ help:
 	@echo "1C Help MCP — Docker (по умолчанию split)"
 	@echo ""
 	@echo "  make build            Сборка образов mcp+ingest-worker (split). SERVICE=mcp|ingest-worker"
+	@echo "  make build-nocache    Сборка образов mcp+ingest-worker (split). SERVICE=mcp|ingest-worker" --no-cache
 	@echo "  make build-full       Сборка образа mcp (full)"
 	@echo "  make parse-fastcode   Parse FastCode.im → fastcode_snippets.json"
 	@echo "  make parse-helpf      Parse HelpF.pro FAQ/Files → helpf_snippets.json"
@@ -214,7 +266,7 @@ help:
 	@echo "  make ingest           Индексация .hbk (требует make ingest-up)"
 	@echo "  make ingest-full      Индексация (full, mcp)"
 	@echo "  make build-index      Индексация из папки (ARGS=путь)"
-	@echo "  make add-bm25         Добавить BM25 sparse vectors (без re-ingest)"
+	@echo "  make add-bm25         Добавить BM25 sparse. ARGS='--collection onec_config_metadata' — только эта коллекция"
 	@echo "  make dashboard        Дашборд (Tasks, Errors, Qdrant). ARGS='--once' — один кадр"
 	@echo "  make fetch-bsl-bridge  Клонировать mcp-bsl-lsp-bridge (для Windows)"
 	@echo "  make up               Start qdrant + mcp (по умолчанию только эти два)"
@@ -227,6 +279,9 @@ help:
 	@echo "  make ensure-data      Создать data/qdrant и др. (после потери базы)"
 	@echo "  make qdrant-logs      Логи qdrant (при exit 101)"
 	@echo "  make ingest-logs     Логи ingest-worker (эмбеддинги, fallback)"
+	@echo "  make reset-metadata-watchdog  Сбросить metadata в watchdog и сразу запустить metadata-graph-build (нужен make ingest-up)"
+	@echo "  make metadata-build           Запустить metadata-graph-build вручную (источник: data/config или ONEC_CONFIG_SOURCE_DIR)"
+	@echo "  make metadata-watchdog-debug Диагностика: путь конфигурации, find_config_root, число файлов, ключ Redis"
 	@echo "  make ollama-logs      Последние 100 строк лога Ollama (~/.ollama/logs/server.log)"
 	@echo "  make qdrant-reset     Удалить data/qdrant, перезапустить с пустым индексом"
 	@echo "  make qdrant-backup    Снапшот → data/backup/ (для миграции)"

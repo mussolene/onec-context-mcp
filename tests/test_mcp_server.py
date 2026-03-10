@@ -293,6 +293,30 @@ def test_mcp_tool_search_1c_help_keyword_via_app(help_sample_dir: Path) -> None:
     assert "API" in text or "api.html" in text
 
 
+def test_mcp_tool_search_1c_help_keyword_accepts_keyword_param(help_sample_dir: Path) -> None:
+    """search_1c_help_keyword accepts 'keyword' as alias for 'query' (avoids validation error)."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(
+        mcp_server,
+        "_search_keyword",
+        return_value=[{"title": "ОстаткиИОбороты", "path": "table12.html", "text": "virtual table"}],
+    ):
+        result = asyncio.run(
+            app.call_tool("search_1c_help_keyword", {"keyword": "РегистрНакопления.ОстаткиИОбороты", "limit": 5})
+        )
+    text = result.content[0].text if result.content else ""
+    assert "ОстаткиИОбороты" in text or "table12" in text
+
+
+def test_mcp_tool_get_1c_help_topic_accepts_path_param(help_sample_dir: Path) -> None:
+    """get_1c_help_topic accepts 'path' as alias for 'topic_path'."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(mcp_server, "_get_topic", return_value="# Topic\n\nBody"):
+        result = asyncio.run(app.call_tool("get_1c_help_topic", {"path": "zif3_Format.md"}))
+    text = result.content[0].text if result.content else ""
+    assert "Body" in text or "Topic" in text
+
+
 def test_mcp_tool_search_1c_help_no_results(help_sample_dir: Path) -> None:
     """search_1c_help returns message when no results."""
     app = mcp_server._build_mcp_app(help_sample_dir)
@@ -634,6 +658,48 @@ def test_mcp_tool_get_1c_code_answer_no_results_no_memory(help_sample_dir: Path)
     assert "No results" in text or "index exists" in text or "search_1c_help_keyword" in text
 
 
+def test_mcp_tool_search_1c_memory(help_sample_dir: Path) -> None:
+    """search_1c_memory returns formatted blocks from memory (snippets/standards)."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    memory_results = [
+        {"payload": {"title": "Стандарт именования", "domain": "standards", "description": "Правила именования"}},
+        {"payload": {"title": "Пример запроса", "domain": "snippets", "code_snippet": "ВЫБРАТЬ 1", "description": "Пример"}},
+    ]
+    with patch("onec_help.memory.get_memory_store") as mock_get_store:
+        mock_store = mock_get_store.return_value
+        mock_store.search_long.return_value = memory_results
+        result = asyncio.run(
+            app.call_tool(
+                "search_1c_memory",
+                {"query": "запрос 1С", "limit": 5},
+            )
+        )
+    text = result.content[0].text if result.content else ""
+    assert "Память (сниппеты и стандарты)" in text
+    assert "Стандарт именования" in text or "стандарт" in text
+    assert "Пример запроса" in text or "пример" in text
+
+
+def test_mcp_tool_search_1c_memory_with_domains(help_sample_dir: Path) -> None:
+    """search_1c_memory with domains=standards,snippets calls search_long per domain."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch("onec_help.memory.get_memory_store") as mock_get_store:
+        mock_store = mock_get_store.return_value
+        mock_store.search_long.side_effect = [
+            [{"payload": {"title": "Стандарт", "domain": "standards"}}],
+            [{"payload": {"title": "Сниппет", "domain": "snippets", "code_snippet": "Сообщить(1);"}}],
+        ]
+        result = asyncio.run(
+            app.call_tool(
+                "search_1c_memory",
+                {"query": "тест", "limit": 4, "domains": "standards,snippets"},
+            )
+        )
+    text = result.content[0].text if result.content else ""
+    assert "Память (сниппеты и стандарты)" in text
+    assert mock_store.search_long.call_count == 2
+
+
 def test_mcp_tool_get_1c_function_info_choose_index(help_sample_dir: Path) -> None:
     """get_1c_function_info with choose_index returns content of chosen result."""
     app = mcp_server._build_mcp_app(help_sample_dir)
@@ -668,3 +734,81 @@ def test_mcp_tool_get_1c_function_info_empty_name(help_sample_dir: Path) -> None
     )
     text = result.content[0].text if result.content else ""
     assert "Provide" in text or "name" in text
+
+
+@patch("onec_help.metadata_graph.search_metadata_by_name")
+def test_mcp_tool_search_1c_metadata_via_app(mock_search_meta, help_sample_dir: Path) -> None:
+    """Call search_1c_metadata tool via app."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    mock_search_meta.return_value = [
+        {
+            "id": "Document/Sales",
+            "config_name": "Cfg",
+            "config_version": "1.0.0.0",
+            "object_type": "Document",
+            "name": "Sales",
+            "full_name": "Реализация",
+            "path": "Documents/Sales",
+        }
+    ]
+    result = asyncio.run(
+        app.call_tool(
+            "search_1c_metadata",
+            {"query": "Sales", "config_version": "1.0.0.0", "object_type": None, "limit": 5},
+        )
+    )
+    text = result.content[0].text if result.content else ""
+    assert "Sales" in text or "Document" in text
+
+
+@patch("onec_help.metadata_graph.get_metadata_object")
+def test_mcp_tool_get_1c_metadata_object_via_app(mock_get_meta, help_sample_dir: Path) -> None:
+    """Call get_1c_metadata_object tool via app."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    mock_get_meta.return_value = {
+        "id": "Document/Sales",
+        "object_type": "Document",
+        "name": "Sales",
+        "full_name": "Реализация",
+        "path": "Documents/Sales",
+        "config_name": "Cfg",
+        "config_version": "1.0.0.0",
+    }
+    result = asyncio.run(
+        app.call_tool(
+            "get_1c_metadata_object",
+            {"object_id": "Document/Sales", "config_version": "1.0.0.0"},
+        )
+    )
+    text = result.content[0].text if result.content else ""
+    assert "Sales" in text or "Document" in text
+
+
+@patch("onec_help.context_builder.build_context")
+def test_mcp_tool_get_1c_context_bundle_via_app(mock_build_ctx, help_sample_dir: Path) -> None:
+    """Call get_1c_context_bundle tool via app."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    mock_build_ctx.return_value = {
+        "request": {"query": "Тест", "config_version": "CfgVer"},
+        "help_topics": [{"title": "A", "path": "a.html", "text": "x"}],
+        "memory": [{"payload": {"title": "Snippet", "domain": "snippets", "description": "desc"}}],
+        "metadata_objects": [
+            {
+                "id": "Document/Sales",
+                "object_type": "Document",
+                "name": "Sales",
+                "full_name": "Реализация",
+                "path": "Documents/Sales",
+            }
+        ],
+    }
+    result = asyncio.run(
+        app.call_tool(
+            "get_1c_context_bundle",
+            {"query": "Тест", "config_version": "CfgVer", "file_uri": None, "symbol_name": None},
+        )
+    )
+    text = result.content[0].text if result.content else ""
+    assert "Из справки" in text
+    assert "Сниппеты" in text or "стандарты" in text
+    assert "Объекты конфигурации" in text

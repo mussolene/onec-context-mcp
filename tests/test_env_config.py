@@ -1,4 +1,4 @@
-"""Tests for env_config (data dir, Qdrant, defaults)."""
+"""Tests for env_config (data dir, Qdrant, defaults, metadata graph)."""
 
 import os
 from unittest.mock import patch
@@ -82,3 +82,11 @@ def test_get_redis_url_fallback() -> None:
     """get_redis_url_fallback returns default fallback URL."""
     assert "localhost" in env_config.get_redis_url_fallback()
     assert "6379" in env_config.get_redis_url_fallback()
+
+
+def test_get_config_source_dir_env() -> None:
+    """get_config_source_dir uses ONEC_CONFIG_SOURCE_DIR or falls back to data/config."""
+    with patch.dict(os.environ, {}, clear=True):
+        assert env_config.get_config_source_dir().endswith("data/config")
+    with patch.dict(os.environ, {"ONEC_CONFIG_SOURCE_DIR": "/path/to/cfg"}, clear=True):
+        assert env_config.get_config_source_dir() == "/path/to/cfg"

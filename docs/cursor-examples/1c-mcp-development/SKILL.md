@@ -19,12 +19,15 @@ description: Ведёт агента по разработке 1С (BSL) с MCP 
 
 | Сценарий | MCP | Инструмент | Заметки |
 |----------|-----|------------|---------|
-| Примеры, API | 1c-help | `get_1c_code_answer` | `code_only=True`, если нужен только код |
-| Точный поиск по имени API | 1c-help | `search_1c_help_keyword` | Передавать полное имя, напр. `Тип.Метод` |
-| Детали топика | 1c-help | `get_1c_help_topic` | Параметр `topic_path`, не `path` |
-| Описание/сигнатура API | 1c-help | `get_1c_function_info` | При нескольких совпадениях — `choose_index` |
-| Метаданные формы | 1c-help | `get_form_metadata` | Передать `xml_content` из Form.xml |
-| Сохранить полезный код | 1c-help | `save_1c_snippet` | После рабочего примера |
+| Примеры, API | 1c-help | `get_1c_code_answer` | `code_only=True`, если нужен только код. Блок «Из памяти» упорядочен: сначала [стандарт], затем [пример]. |
+| Гарантированный контекст из стандартов/сниппетов | 1c-help | `search_1c_memory` | `domains="standards,snippets"` — только стандарты и сниппеты, без справки. Удобно вызывать дополнительно к `get_1c_code_answer`. |
+| Точный поиск по имени API | 1c-help | `search_1c_help_keyword` | Передавать полное имя, напр. `Тип.Метод`. Параметр `query` **или** `keyword`. |
+| Детали топика | 1c-help | `get_1c_help_topic` | Принимать `topic_path` **или** `path` (оба допустимы) из результатов поиска. |
+| Описание/сигнатура API | 1c-help | `get_1c_function_info` | При нескольких совпадениях — `choose_index`. |
+| Метаданные формы | 1c-help | `get_form_metadata` | Передать `xml_content` из Form.xml (ожидаются элементы Attribute, Command). |
+| Поиск объектов конфигурации | 1c-help | `search_1c_metadata`, `get_1c_metadata_object` | После `metadata-graph-build`. Поиск семантический + по подстроке; `config_version` опционален при одной версии в графе. В ответе — id, full_name, requisites, tabular_sections при наличии в выгрузке. |
+| Комбинированный контекст (справка + память + метаданные) | 1c-help | `get_1c_context_bundle` | Один вызов для задачи; `config_version` опционален при одной версии в графе. |
+| Сохранить полезный код | 1c-help | `save_1c_snippet` | После рабочего примера. |
 | Диагностика файла | lsp-bsl-bridge | `document_diagnostics` | URI: `file:///projects/<путь>/Module.bsl` |
 | Быстрые правки | lsp-bsl-bridge | `code_actions` | Ограниченная поддержка; часто — ручные правки |
 | Навигация | lsp-bsl-bridge | `project_analysis`, `symbol_explore` | Перед рефакторингом |
@@ -45,13 +48,14 @@ description: Ведёт агента по разработке 1С (BSL) с MCP 
 
 ### Написание кода (цикл до чистоты)
 
-1. Вызвать `get_1c_code_answer(query)` для примеров.
-2. Если результат скудный или нерелевантный → вызвать `search_1c_help_keyword("Тип.Метод")` с полным именем или `get_1c_help_topic(topic_path)`.
-3. Реализовать или адаптировать код.
-4. Вызвать `document_diagnostics(uri)`.
-5. **При ERROR или WARNING:** исправить → повторить п. 4. Не продолжать, пока не чисто.
-6. Если результат переиспользуемый: вызвать `save_1c_snippet(code_snippet, description, title)`.
-7. По желанию добавить unit-тесты 1С (YaxUnit) или BDD/сценарии (Vanessa-Automation: .feature, xdd, UI) для новой логики. Где искать: `Tests/` (unit), `features/` или `BDD/` (Vanessa). См. `docs/1c-testing-guide.md`.
+1. Вызвать `get_1c_code_answer(query)` для примеров (по умолчанию с блоком «Из памяти»: сначала стандарты, затем сниппеты).
+2. Если результата из памяти не хватает → дополнительно вызвать `search_1c_memory(query, domains="standards,snippets")` для явного списка стандартов и сниппетов.
+3. Если результат скудный или нерелевантный по справке → вызвать `search_1c_help_keyword("Тип.Метод")` с полным именем или `get_1c_help_topic(topic_path)` по `path` из keyword-поиска.
+4. Реализовать или адаптировать код.
+5. Вызвать `document_diagnostics(uri)`.
+6. **При ERROR или WARNING:** исправить → повторить п. 5. Не продолжать, пока не чисто.
+7. Если результат переиспользуемый: вызвать `save_1c_snippet(code_snippet, description, title)`.
+8. По желанию добавить unit-тесты 1С (YaxUnit) или BDD/сценарии (Vanessa-Automation: .feature, xdd, UI) для новой логики. Где искать: `Tests/` (unit), `features/` или `BDD/` (Vanessa). См. `docs/1c-testing-guide.md`.
 
 ### Рефакторинг (цикл по файлам)
 
@@ -84,6 +88,14 @@ file:///projects/src/DataProcessors/.../Forms/.../Ext/Form/Module.bsl
 
 Путь на хосте `./src/...` → в контейнере `file:///projects/src/...` (volume `.:/projects`)
 
+## Метаданные конфигурации (search_1c_metadata, get_1c_context_bundle)
+
+Использовать при работе с объектами конфигурации (Документы, Справочники, Регистры и т.д.): семантический поиск по запросу (в т.ч. естественный язык) и подбор контекста. Требуется `metadata-graph-build` для выгрузки (ONEC_CONFIG_SOURCE_DIR); в `get_1c_help_index_status` отображается коллекция **onec_config_metadata**. Параметр `config_version` опционален — при одной версии в графе подставляется автоматически. При выгрузке «в файлы» в граф попадают синоним (full_name), реквизиты и табличные части из XML объекта. Для комбинированного контекста: `get_1c_context_bundle(query[, config_version][, limit])`; для только объектов метаданных: `search_1c_metadata(query[, config_version][, object_type])` → `get_1c_metadata_object(object_id)`.
+
+## Запросы: несколько соединений (стандарты v8std)
+
+**Несколько внутренних соединений** в одном запросе по «плоским» таблицам (справочники, документы, таблицы регистров) **допускаются** языком и стандартами. Ограничения v8std касаются не количества соединений, а **что** соединять: не использовать в качестве одной из сторон соединения вложенные запросы и виртуальные таблицы (ст. 655); не использовать вложенные запросы **в условии** соединения (ПО …) — переписывать с временными таблицами (ст. 656). Подробнее: `docs/query-joins-standards.md`.
+
 ## Типичные промахи семантики
 
 Семантический поиск (`get_1c_code_answer`, `search_1c_help`) иногда возвращает нерелевантные темы при:
@@ -113,7 +125,7 @@ file:///projects/src/DataProcessors/.../Forms/.../Ext/Form/Module.bsl
 
 | Ошибка | Исправление |
 |--------|-------------|
-| `get_1c_help_topic(path=...)` | Параметр `path` не использовать; только `topic_path` |
+| `get_1c_help_topic(...)` не находит топик | Убедиться, что передан `topic_path` **или** `path` из результатов поиска |
 | `ПрочитатьJSON` возвращает Соответствие | Добавить `ПрочитатьВСоответствие=Истина` |
 | `HTTPСоединение.Получить` на клиенте | Только сервер; использовать HTTPЗапрос или RPC |
 | Поиск только по `Метод` | Передавать полное `Тип.Метод` в `search_1c_help_keyword` |
@@ -122,4 +134,4 @@ file:///projects/src/DataProcessors/.../Forms/.../Ext/Form/Module.bsl
 
 ## Дополнительно
 
-См. [reference.md](reference.md): URI, примеры вызовов, команды тестирования (pytest, YaxUnit, Vanessa, CoverageBSL). См. `docs/1c-testing-guide.md`: что тестировать YaxUnit, что — Vanessa (xdd/UI), где искать тесты.
+См. [reference.md](reference.md): URI, примеры вызовов, команды тестирования (pytest, YaxUnit, Vanessa, CoverageBSL). См. `docs/1c-testing-guide.md`: что тестировать YaxUnit, что — Vanessa (xdd/UI), где искать тесты. По запросам и соединениям — `docs/query-joins-standards.md`.
