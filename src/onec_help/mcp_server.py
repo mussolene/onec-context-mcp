@@ -937,8 +937,7 @@ def _build_mcp_app(help_path: Path) -> Any:
                     "Ensure metadata-graph-build was run for your config export and config_version is correct."
                 )
         else:
-            # Версия не указана: пытаемся искать по всем версиям в графе,
-            # чтобы позволить сравнительный анализ разных конфигураций.
+            # Версия не указана: пытаемся искать по всем версиям в графе.
             versions = get_metadata_config_versions()
             if not versions:
                 return "Metadata graph is empty. Run metadata-graph-build for your config export first."
@@ -949,7 +948,24 @@ def _build_mcp_app(help_path: Path) -> Any:
                     config_version=versions[0],
                 )
             else:
-                # Распределяем лимит по версиям (примерно поровну), затем объединяем результаты.
+                # Один раз получаем эмбеддинг запроса и переиспользуем по всем версиям (ускоряет поиск).
+                query_vector: list[float] | None = None
+                if (q or "").strip():
+                    try:
+                        from . import embedding
+                        from .indexer import get_collection_vector_size
+                        coll_dim = get_collection_vector_size(
+                            collection="onec_config_metadata",
+                            qdrant_host=env_config.get_qdrant_host(),
+                            qdrant_port=env_config.get_qdrant_port(),
+                        )
+                        if coll_dim is not None:
+                            query_vector = embedding.get_embedding(
+                                (q or "").strip(),
+                                target_dimension=coll_dim,
+                            )
+                    except Exception:
+                        pass
                 per_ver = max(1, (limit + len(versions) - 1) // len(versions))
                 for ver in versions:
                     part = search_metadata_by_name(
@@ -957,6 +973,7 @@ def _build_mcp_app(help_path: Path) -> Any:
                         type_filter=object_type,
                         config_version=ver,
                         limit=per_ver,
+                        query_vector=query_vector,
                     )
                     items.extend(part)
             if not items:

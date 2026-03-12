@@ -87,6 +87,18 @@ def test_run_watchdog_help_source_base_from_env(tmp_path: Path) -> None:
                 pass
 
 
+def test_run_watchdog_once_exits_after_one_cycle(tmp_path: Path) -> None:
+    """run_watchdog(once=True) runs one cycle and returns without entering the loop."""
+    with _watchdog_loop_mocks():
+        run_watchdog(
+            help_source_base=tmp_path,
+            poll_interval_sec=60,
+            pending_interval_sec=60,
+            once=True,
+        )
+    # No exception: exited after first _one_cycle()
+
+
 def test_run_watchdog_one_iteration_then_stop(tmp_path: Path) -> None:
     """run_watchdog runs one iteration then exits when sleep raises (simulates KeyboardInterrupt)."""
 

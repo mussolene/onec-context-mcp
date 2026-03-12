@@ -68,7 +68,8 @@
 |------------|----------|--------------|
 | EMBEDDING_BACKEND | openai_api (по умолчанию, Ollama), local, deterministic, none | openai_api |
 | EMBEDDING_MODEL | Имя модели. По умолчанию nomic-embed-text-v2-moe (Ollama). Для local — HuggingFace id nomic-ai/nomic-embed-text-v2-moe | nomic-embed-text-v2-moe |
-| EMBEDDING_API_URL | URL Ollama / LM Studio / OpenAI-совместимого API | http://localhost:11434/v1 |
+| EMBEDDING_API_URL | URL Ollama / LM Studio / OpenAI-совместимого API. При NDA‑данных рекомендуется on‑prem или локальный сервис (localhost/VPN). | http://localhost:11434/v1 |
+| EMBEDDING_API_KEY | Секретный токен доступа к внешнему API (если требуется). Не должен попадать в репозиторий, логи и отчёты. | пусто |
 | EMBEDDING_DIMENSION | Размерность при openai_api | авто |
 | EMBEDDING_BATCH_SIZE | Размер батча | 32 |
 | EMBEDDING_WORKERS | Одновременных HTTP-запросов (очередь на сервере); макс. 150 (только openai_api) | 6 |
@@ -77,6 +78,12 @@
 | EMBEDDING_BATCH_TIMEOUT | Таймаут batch-запроса (с) | max(timeout, 30 + batch/10) |
 | EMBEDDING_FORCE_BATCH | 1/true — макс. батч (256) и воркеры (150) | 0 |
 | EMBEDDING_CACHE_SIZE | Макс. записей кэша по хэшу текста (local/openai_api). 0 — кэш отключён. Снижает повторные отправки при повторных запусках. | 10000 |
+
+При работе с конфиденциальными данными 1С:
+
+- предпочтителен локальный embedding‑сервис (Ollama/LM Studio в пределах того же контура, что и Qdrant);
+- EMBEDDING_API_URL и EMBEDDING_API_KEY задаются только через переменные окружения/секреты CI, а не в `.env`, закоммиченном в репозиторий;
+- в логах и отчётах не должны фигурировать полные URL embedding‑сервиса и токены.
 
 **Очередь 100–150 одновременных запросов (LM Studio / Ollama).** В интерфейсе показывается число **одновременных HTTP-запросов**, а не текстов в одном запросе. В коде один запрос = один батч (до `EMBEDDING_BATCH_SIZE` текстов); параллельных запросов = `EMBEDDING_WORKERS` (макс. 150). Чтобы в очереди было 100–150 запросов: задайте `EMBEDDING_WORKERS=100` (или 150) и `EMBEDDING_BATCH_SIZE=5` или `10`, чтобы батчей было не меньше числа воркеров (например 500 текстов ÷ 5 = 100 батчей → 100 запросов в полёте). Пример для `.env`: `EMBEDDING_WORKERS=100` и `EMBEDDING_BATCH_SIZE=5`.
 

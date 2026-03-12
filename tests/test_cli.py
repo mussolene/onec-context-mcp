@@ -662,6 +662,19 @@ def test_cmd_watchdog_success(mock_run_watchdog) -> None:
     mock_run_watchdog.assert_called_once_with(
         poll_interval_sec=120,
         pending_interval_sec=300,
+        once=False,
+    )
+
+
+@patch("onec_help.watchdog.run_watchdog")
+def test_cmd_watchdog_once(mock_run_watchdog) -> None:
+    """cmd_watchdog with once=True calls run_watchdog with once=True."""
+    args = make_args(poll_interval=60, pending_interval=60, once=True)
+    assert cmd_watchdog(args) == 0
+    mock_run_watchdog.assert_called_once_with(
+        poll_interval_sec=60,
+        pending_interval_sec=60,
+        once=True,
     )
 
 

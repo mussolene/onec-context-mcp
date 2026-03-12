@@ -14,6 +14,17 @@
 | `memory.py` | Хранение JSONL/Qdrant, `path_inside_base` | OK |
 | `standards_loader.py` | Валидация owner/repo, только https://github.com | OK |
 
+## Дополнительные проверки для новых изменений
+
+- При изменениях Docker/compose и env:
+  - MCP и Qdrant по умолчанию не публикуются на 0.0.0.0 (только localhost или внутренняя Docker‑сеть).
+  - Нет новых проброшенных портов без явного комментария о необходимости и способе защиты (reverse proxy, TLS, auth).
+- При изменениях, касающихся сниппетов и памяти:
+  - Логика save_1c_snippet не пишет лишних данных в логи и метрики; размер code_snippet ограничен и соответствует ожиданиям.
+  - SNIPPETS_DIR и MEMORY_BASE_PATH не «утекают» в публичные сообщения об ошибках.
+- При изменениях embedding API:
+  - Значения EMBEDDING_API_URL и EMBEDDING_API_KEY не логируются и не попадают в исключения целиком.
+
 ## CI
 
 - pip-audit, hadolint, trivy — в [.github/workflows/security.yml](../../.github/workflows/security.yml)

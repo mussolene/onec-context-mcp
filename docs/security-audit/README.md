@@ -17,6 +17,15 @@
 
 Полный план — `docs/security-audit-prompt.md` (промпт), [audit-runbook.md](audit-runbook.md) (сценарий выполнения).
 
+## Использование в code review и CI
+
+- При ревью изменений, затрагивающих безопасность (Docker/compose, env, MCP, embedding, Qdrant, Redis, snippets, metadata), используйте:
+  - [code-review-verification.md](code-review-verification.md) — чек‑лист по критическим участкам и дополнительным проверкам (порты, логи, сниппеты, embedding).
+  - [nda-checklist.md](nda-checklist.md) — при работе с конфиденциальным кодом/конфигурацией 1С.
+- В CI дополнительно к pip-audit, hadolint и trivy запускается `scripts/ci_security_checks.py`, который:
+  - запрещает появление закоммиченных `.env`‑файлов (кроме `env.example`);
+  - проверяет, что в docker-compose по умолчанию нет привязок `0.0.0.0:PORT` (используется localhost или внутренняя сеть).
+
 ## Запуск сканов
 
 ```bash

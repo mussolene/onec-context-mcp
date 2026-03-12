@@ -11,17 +11,21 @@ if [ "$(id -u)" = "0" ]; then
   fi
   if [ "$_mcp_mode" != "api" ]; then
     # Exclude EMBEDDING_API_KEY from .ingest_env (security: no secrets on disk)
-    env | grep -E '^(QDRANT_|HELP_|INGEST_|WATCHDOG_|MEMORY_|SNIPPETS_|STANDARDS_)' | sed 's/^/export /' > /app/.ingest_env 2>/dev/null || true
+    env | grep -E '^(QDRANT_|HELP_|INGEST_|WATCHDOG_|MEMORY_|SNIPPETS_|STANDARDS_|ONEC_CONFIG_)' | sed 's/^/export /' > /app/.ingest_env 2>/dev/null || true
     env | grep -E '^EMBEDDING_(BACKEND|MODEL|API_URL|DIMENSION|BATCH_SIZE|WORKERS|FORCE_BATCH|TIMEOUT)=' | sed 's/^/export /' >> /app/.ingest_env 2>/dev/null || true
     chown app:app /app/.ingest_env 2>/dev/null || true
-    if [ -d /opt/1cv8 ]; then
+    # INGEST_WORKER=1: только cron (ingest и watchdog по расписанию), без фоновых процессов
+    if [ "$INGEST_WORKER" = "1" ]; then
+      crontab -u app /app/crontab 2>/dev/null || true
+      cron
+    elif [ -d /opt/1cv8 ]; then
       crontab -u app /app/crontab 2>/dev/null || true
       cron
       # Restart ingest on exit (e.g. Bus error / OOM) so index keeps progressing
       ( gosu app sh -c '. /app/.ingest_env 2>/dev/null; cd /app && while true; do python -m onec_help ingest >> /app/var/log/ingest.log 2>&1; _e=$?; echo "[ingest] exit $_e, restart in 60s" >> /app/var/log/ingest.log; sleep 60; done' ) &
-    fi
-    if [ "$WATCHDOG_ENABLED" = "1" ]; then
-      ( gosu app sh -c '. /app/.ingest_env 2>/dev/null; cd /app && python -m onec_help watchdog >> /app/var/log/watchdog.log 2>&1' ) &
+      if [ "$WATCHDOG_ENABLED" = "1" ]; then
+        ( gosu app sh -c '. /app/.ingest_env 2>/dev/null; cd /app && python -m onec_help watchdog >> /app/var/log/watchdog.log 2>&1' ) &
+      fi
     fi
   fi
   exec gosu app "$@"

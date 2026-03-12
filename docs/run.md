@@ -36,7 +36,7 @@ python -m onec_help mcp . --transport streamable-http --host 0.0.0.0 --port 8050
 
 - Данные справки: монтируется `/opt/1cv8` в контейнер mcp, подпапки = версии 1С. Индексация вручную: `docker compose exec mcp python -m onec_help ingest`; по расписанию в mcp запущен cron (раз в сутки в 3:00). На Windows при монтировании `C:\Program Files\1cv8` учтите подпапку `bin` — поиск .hbk рекурсивный.
 - Запуск: `make up` или `docker compose -f docker-compose.base.yml -f docker-compose.yml up -d` — поднимает Qdrant и MCP-сервер (mcp; в нём же cron для индексации). Без `-f` base-файла команда `docker compose up -d` выдаст ошибку.
-- Порты: 8050 (MCP, streamable-http), 6333 (Qdrant).
+- Порты по умолчанию: 8050 (MCP, streamable-http), 6333 (Qdrant).
 - **Только распаковка:** тот же образ `mcp`, команда `unpack-dir`. Запуск вручную:  
   `docker compose run --rm -v /opt/1cv8:/input:ro -v $(pwd)/unpacked:/output mcp python -m onec_help unpack-dir /input -o /output -l ru`
 - **Логи ingest:** `docker compose exec mcp tail -f /app/var/log/ingest.log`

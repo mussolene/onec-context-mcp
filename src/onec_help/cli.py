@@ -1283,6 +1283,7 @@ def cmd_watchdog(args: argparse.Namespace) -> int:
         run_watchdog(
             poll_interval_sec=args.poll_interval,
             pending_interval_sec=args.pending_interval,
+            once=getattr(args, "once", False),
         )
         return 0
     except KeyboardInterrupt:
@@ -2082,6 +2083,11 @@ def main() -> int:
         type=int,
         default=env_config.get_watchdog_pending_interval(),
         help="Seconds between pending memory processing (default: 120)",
+    )
+    p_watchdog.add_argument(
+        "--once",
+        action="store_true",
+        help="Run one check cycle and exit (for cron); default is infinite loop.",
     )
     p_watchdog.set_defaults(func=cmd_watchdog)
 

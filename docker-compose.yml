@@ -18,7 +18,6 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    ports: ["6379:6379"]
     # Кэш ингеста и состояние watchdog хранятся в Redis; без volume данные теряются при перезапуске контейнера.
     volumes:
       - ./data/redis:/data
@@ -29,6 +28,7 @@ services:
     build:
       context: .
     environment:
+      INGEST_WORKER: "1"
       REDIS_URL: redis://redis:6379/0
       QDRANT_HOST: ${QDRANT_HOST:-qdrant}
       QDRANT_PORT: ${QDRANT_PORT:-6333}
@@ -74,8 +74,8 @@ services:
       - ./data/config:/app/data/config:ro
       - ./data/backup:/data/backup
       - ./data/bm25_vocab:/app/data/bm25_vocab
-    # По умолчанию watchdog включён (WATCHDOG_ENABLED=1). При 0 — только sleep (make ingest вручную).
-    command: ["sh", "-c", "if [ \"$${WATCHDOG_ENABLED:-1}\" = \"1\" ]; then exec python -m onec_help watchdog; else exec sleep infinity; fi"]
+    # Watchdog и ingest только по cron (каждые 10 мин / раз в сутки). Контейнер живёт за счёт sleep.
+    command: ["sleep", "infinity"]
     depends_on:
       qdrant:
         condition: service_healthy

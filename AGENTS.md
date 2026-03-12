@@ -25,7 +25,7 @@
 2. **INGEST_CACHE_FILE** — путь к каталогу маркеров (load_*.running, load_*.status.json); сами данные кэша в Redis.
 3. **Ошибка кэша** — при недоступности Redis (RuntimeError) проверьте REDIS_URL/REDIS_HOST и что контейнер redis запущен.
 4. **Распаковка по умолчанию** — ingest пишет в **data/unpacked** (DATA_UNPACKED_DIR) структуру **version/stem** (run_unpack_sync), затем run_ingest_from_unpacked индексирует из неё. Команда **ingest-from-unpacked** ожидает именно эту структуру; вывод **unpack-dir** (version/lang/name) с ней не совместим. INGEST_USE_TEMP=1 — временная папка с удалением после индексации.
-5. **Watchdog** — состояние (hbk, standards, snippets, **metadata**) хранится в Redis (ключи `watchdog:state:*`); при рестарте неизменённые .hbk пропускаются по кэшу. Следит за **STANDARDS_DIR**, **SNIPPETS_DIR** и **ONEC_CONFIG_SOURCE_DIR** (по умолчанию data/config); при изменении запускает load-standards, load-snippets, ingest и/или metadata-graph-build **параллельно**. **Первая проверка** всех папок выполняется **сразу при старте** контейнера; интервал опроса по умолчанию — **120 с** (WATCHDOG_POLL_INTERVAL / WATCHDOG_PENDING_INTERVAL), минимум 30 с. Если metadata-graph-build не запускается при наличии выгрузки в data/config — в Redis уже сохранено состояние «каталог обработан». Сброс и немедленный запуск: **`make reset-metadata-watchdog`** (удаляет `watchdog:state:metadata` и сразу запускает metadata-graph-build; нужен **`make ingest-up`**). Ручной запуск: **`make metadata-build`**. Диагностика пути и скана: **`make metadata-watchdog-debug`**.
+5. **Watchdog** — работает **только в контейнере ingest-worker** и **только по cron** (раз в 10 мин: `watchdog --once`), без постоянно крутящегося процесса. Состояние (hbk, standards, snippets, **metadata**) хранится в Redis (ключи `watchdog:state:*`). Следит за **STANDARDS_DIR**, **SNIPPETS_DIR** и **ONEC_CONFIG_SOURCE_DIR** (по умолчанию data/config); при изменении запускает load-standards, load-snippets, ingest и/или metadata-graph-build. Локально можно запускать `python -m onec_help watchdog` (бесконечный цикл) или `watchdog --once` (один проход). Если metadata-graph-build не запускается при наличии выгрузки в data/config — в Redis уже сохранено состояние «каталог обработан». Сброс и немедленный запуск: **`make reset-metadata-watchdog`** (нужен **`make ingest-up`**). Ручной запуск: **`make metadata-build`**. Диагностика: **`make metadata-watchdog-debug`**.
 6. **reinit --force** — стирает коллекции и кэш, затем init; полная переиндексация ожидаема.
 7. **Сброс только Qdrant** (volume пересоздан, Redis-кэш остался): справка не восстанавливается (ingest пропускает по кэшу). Решение: `reinit --force` или очистить ключи ingest/snippets в Redis и запустить ingest. Подробно: `docs/ingest-troubleshooting.md` §5.
 8. **Сниппеты/стандарты грузятся при каждом старте:** раньше watchdog и кэш load-snippets опирались на **mtime** (время изменения файла). После перезапуска контейнера или нового монтирования volume mtime мог меняться → «каталог изменился» → load-snippets запускался каждый раз. Теперь: подпись каталога в кэше — по **(path, size)**; watchdog сравнивает состояние по **path → size**. После рестарта те же файлы с теми же размерами не считаются изменёнными.
@@ -84,12 +84,18 @@
 ## Безопасность
 
 - MCP по HTTP не имеет аутентификации; рассчитан **только** на доверенную сеть (localhost/VPN). При экспозиции в интернет — обязателен обратный прокси с аутентификацией.
+- Рекомендуемый вариант для HTTP-транспорта MCP:
+  - MCP-сервер слушает **только localhost** (127.0.0.1:8050) или внутреннюю Docker-сеть.
+  - Снаружи открыт только reverse proxy (nginx/Traefik/Caddy) с TLS и аутентификацией (basic/OIDC/мутуальный TLS).
+  - Cursor и другие клиенты подключаются к proxy-URL; прямой доступ к контейнеру mcp снаружи отключён.
+- Qdrant и Redis по умолчанию должны быть видимы только из внутренней сети (Docker network/VPN). Если Qdrant всё же открывается наружу — только за TLS/прокси и с включённой аутентификацией согласно документации Qdrant.
 
 ## Конфиденциальность и NDA
 
 - **Embedding API:** по умолчанию Ollama (localhost:11434), модель nomic-embed-text-v2-moe. Текст справки и поисковые запросы отправляются на этот сервис; при конфиденциальных данных используйте on-prem (EMBEDDING_API_URL на внутренний хост).
 - **Memory (MEMORY_ENABLED=1):** история сессий (topic_path, save_snippet, exchange) хранится в JSONL и Qdrant. Учитывайте политику хранения и доступ к этим данным.
 - **save_1c_snippet:** сохранённый код пишется в memory. При SAVE_SNIPPET_TO_FILES=1 — также в SNIPPETS_DIR. При конфиденциальном коде настройте SNIPPETS_DIR и MEMORY_BASE_PATH в защищённое место.
+- **Конфигурация 1С и стандарты ITS:** каталоги ONEC_CONFIG_SOURCE_DIR (`data/config`) и STANDARDS_DIR (в т.ч. `its-v8std`) относятся к NDA‑периметру; коллекция `onec_config_metadata` в Qdrant должна размещаться только во внутренней сети/под VPN, экспорт точек и исходных XML/статей ITS наружу допускается только по отдельному согласованию.
 - **Логи:** в production (PRODUCTION=1) в ответах API и логах не раскрываются полные пути и текст исключений.
 
 ## Правила

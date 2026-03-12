@@ -1,2 +1,4 @@
 # Индексация справки из смонтированного HELP_SOURCE_BASE (подпапки = версии 1С) — раз в сутки в 3:00
 0 3 * * * /bin/sh -c '. /app/.ingest_env 2>/dev/null; cd /app && python -m onec_help ingest >> /app/var/log/ingest.log 2>&1'
+# Watchdog: одна проверка по расписанию (ingest-worker; hbk/standards/snippets/config). Каждые 10 мин.
+*/10 * * * * /bin/sh -c '. /app/.ingest_env 2>/dev/null; cd /app && python -m onec_help watchdog --once >> /app/var/log/watchdog.log 2>&1'

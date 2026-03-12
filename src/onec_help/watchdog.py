@@ -132,11 +132,11 @@ def run_watchdog(
     help_source_base: Path | None = None,
     poll_interval_sec: int = 600,
     pending_interval_sec: int = 600,
+    once: bool = False,
 ) -> None:
     """
-    Infinite loop: (1) check for new/changed .hbk (same discovery as ingest), trigger ingest;
-    (2) check STANDARDS_DIR and SNIPPETS_DIR, on change run load-standards / load-snippets;
-    (3) process pending memory embeddings periodically.
+    Check hbk/standards/snippets/config and run ingest/load-standards/load-snippets/metadata-graph-build
+    when changed; process pending memory. If once=True, run one cycle and exit; else infinite loop.
     """
     if help_source_base is not None:
         base = Path(help_source_base).resolve()
@@ -319,8 +319,13 @@ def run_watchdog(
             last_pending = now
             _process_pending_memory()
 
-    # Первая проверка сразу при старте контейнера (без паузы).
-    _one_cycle()
+    # Один цикл сразу (при --once выходим после него).
+    try:
+        _one_cycle()
+    except Exception as e:
+        print(f"[watchdog] error: {safe_error_message(e)}", file=sys.stderr, flush=True)
+    if once:
+        return
 
     while True:
         try:

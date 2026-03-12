@@ -563,6 +563,10 @@ def get_metadata_config_versions(
 _RRF_K = 60
 
 
+# Макс. точек при scroll в substring-поиске (чтобы не прокручивать всю коллекцию — ускоряет search_1c_metadata).
+_SEARCH_METADATA_SUBSTRING_MAX_POINTS = 512
+
+
 def _search_metadata_substring(
     client: Any,
     collection_name: str,
@@ -570,19 +574,23 @@ def _search_metadata_substring(
     type_filter: str | None,
     filt: Any,
     limit: int,
+    max_points: int = _SEARCH_METADATA_SUBSTRING_MAX_POINTS,
 ) -> list[dict[str, Any]]:
-    """Scroll + substring match by name/full_name. Used as fallback or for hybrid merge."""
+    """Scroll + substring match by name/full_name. Stops after max_points to avoid slow full scan."""
     results: list[dict[str, Any]] = []
     offset: Any | None = None
-    while len(results) < limit:
+    seen = 0
+    while len(results) < limit and seen < max_points:
+        batch_size = min(64, limit * 2, max_points - seen)
         points, offset = client.scroll(
             collection_name=collection_name,
             scroll_filter=filt,
-            limit=min(64, limit * 2),
+            limit=batch_size,
             offset=offset,
         )
         if not points:
             break
+        seen += len(points)
         for pt in points:
             payload = getattr(pt, "payload", None) or {}
             if type_filter and payload.get("object_type") != type_filter:
@@ -611,12 +619,14 @@ def search_metadata_by_name(
     limit: int = 20,
     use_semantic: bool = True,
     use_hybrid: bool = True,
+    query_vector: list[float] | None = None,
 ) -> list[dict[str, Any]]:
     """Search configuration objects by semantic (vector) and/or substring within a given config_version.
 
-    When use_semantic is True, the query is embedded and vector search is performed; when use_hybrid
-    is True, substring results are merged with vector results via RRF. Falls back to substring-only
-    if the collection does not exist or embedding is unavailable.
+    When use_semantic is True, the query is embedded (or query_vector used if provided) and vector
+    search is performed; when use_hybrid is True, substring results are merged with vector results
+    via RRF. query_vector: optional precomputed embedding to avoid repeated embedding calls when
+    searching multiple config versions.
     """
 
     if not config_version:
@@ -637,7 +647,7 @@ def search_metadata_by_name(
     )
 
     vector_results: list[dict[str, Any]] = []
-    if use_semantic and (query or "").strip():
+    if use_semantic and ((query or "").strip() or query_vector):
         try:
             from . import embedding
             from .indexer import get_collection_vector_size
@@ -648,10 +658,13 @@ def search_metadata_by_name(
                 qdrant_port=env_config.get_qdrant_port(),
             )
             if client.collection_exists(collection_name) and coll_dim is not None:
-                vector = embedding.get_embedding(
-                    query.strip(),
-                    target_dimension=coll_dim,
-                )
+                if query_vector is not None and len(query_vector) == coll_dim:
+                    vector = query_vector
+                else:
+                    vector = embedding.get_embedding(
+                        (query or "").strip(),
+                        target_dimension=coll_dim,
+                    )
                 kwargs: dict[str, Any] = {
                     "collection_name": collection_name,
                     "limit": limit * 2 if use_hybrid else limit,
