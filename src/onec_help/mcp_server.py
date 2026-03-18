@@ -604,11 +604,9 @@ def _build_mcp_app(help_path: Path) -> Any:
         version: str | None = None,
         language: str | None = None,
     ) -> str:
-        """Search 1C help and return full content of top results in one call.
-        Combines semantic + keyword search, then get_topic for each result.
-        query: search text. limit: max topics with full content (default 3).
-        version, language: optional filters.
-        Tip: if results are irrelevant, try search_1c_help_keyword with exact API name (Тип.Метод)."""
+        """[DEPRECATED] Use get_1c_code_answer instead — same search + full topic content, plus memory context (snippets, standards).
+        Kept for backward compatibility only. Will be removed in a future version.
+        query: search text. limit: max topics (default 3). version, language: optional filters."""
         err = _check_rate_limit()
         if err:
             return err
@@ -638,13 +636,18 @@ def _build_mcp_app(help_path: Path) -> Any:
         limit: int = 3,
         include_memory: bool = True,
         code_only: bool = False,
+        max_chars_per_topic: int = 0,
         version: str | None = None,
         language: str | None = None,
     ) -> str:
-        """Get code-ready answer from 1C help in one call. Best for: 'вывод СКД в таблицу', 'Формат', etc.
-        Combines semantic + keyword search, full topic content, and memory (include_memory=True by default). Prefer over search+get_topic chain.
+        """PRIMARY tool for any 1C/BSL coding question. Call this FIRST before any other search tool.
+        Combines semantic + keyword search, full topic content, and memory (snippets, standards).
+        Prefer over search_1c_help + get_1c_help_topic chain — one call instead of many.
+        Use get_1c_context_bundle instead when you also need config metadata objects (Documents, Catalogs, etc.).
+        Use search_1c_help for lightweight topic discovery without full content.
         Common 1C pitfalls: (1) ПрочитатьJSON returns Структура by default — use ПрочитатьВСоответствие=Истина for Соответствие. (2) HTTPСоединение.Получить — server-side only, not on client. (3) НачатьТранзакцию must always be wrapped in Попытка/Исключение with ОтменитьТранзакцию in exception. (4) Запрос.Выполнить() inside a loop causes N queries — use batch or query outside loop. (5) ФоновоеЗадание.ПолучитьПоследнее() returns Неопределено if no previous job — check for Неопределено before accessing result.
-        query: natural language or API name. limit: max topics (default 3). include_memory: also search saved snippets. code_only: if True, return primarily code blocks from help.
+        query: natural language or API name. limit: max topics (default 3). include_memory: also search saved snippets/standards (default True). code_only: if True, return primarily code blocks from help.
+        max_chars_per_topic: truncation per topic in chars (default 0 = use MCP_MAX_TOPIC_CHARS env, typically 4000). Set higher (e.g. 8000) for more detail, lower (e.g. 1500) to save tokens.
         Tip: if results are irrelevant, call search_1c_help_keyword with exact API name (Тип.Метод), then get_1c_help_topic for full content."""
         err = _check_rate_limit()
         if err:
@@ -685,23 +688,23 @@ def _build_mcp_app(help_path: Path) -> Any:
             )
         if results:
             help_blocks = []
+            _max_chars = max_chars_per_topic if max_chars_per_topic > 0 else _max_topic_content_chars()
             for r in results:
                 path = r.get("path", "")
                 if not path:
                     continue
                 content = _get_topic(path, version=version, language=language, prefer_index=False)
                 if content:
-                    max_chars = _max_topic_content_chars()
                     if code_only:
                         blocks = _extract_code_blocks(content)
                         if blocks:
                             block_text = "\n\n".join(f"```bsl\n{b}\n```" for b in blocks)
                             help_blocks.append(f"---\n## {path}\n\n{block_text}")
                         else:
-                            help_blocks.append(f"---\n## {path}\n\n{content[:max_chars]}...")
+                            help_blocks.append(f"---\n## {path}\n\n{content[:_max_chars]}...")
                     else:
-                        if len(content) > max_chars:
-                            content = content[:max_chars] + "\n\n..."
+                        if len(content) > _max_chars:
+                            content = content[:_max_chars] + "\n\n..."
                         help_blocks.append(f"---\n## {path}\n\n{content}")
             if help_blocks:
                 parts.append("\n### Из справки\n\n" + "\n\n".join(help_blocks))
@@ -1421,10 +1424,11 @@ def _build_mcp_app(help_path: Path) -> Any:
         symbol_name: str | None = None,
         limit: int = 5,
     ) -> str:
-        """Build combined context (help topics, snippets/standards, metadata) for a 1C task in one call.
-        Use instead of calling search_1c_help + search_1c_memory + search_1c_metadata separately.
-        query: main search text or API name — the primary search term.
-        config_version: configuration version for metadata lookup (e.g. '3.0.184.16'); optional if one config loaded.
+        """Build combined context (help topics + snippets/standards + config metadata objects) for a 1C task in one call.
+        Use when you need all three sources: help docs, memory (snippets/standards), AND config objects (Documents, Catalogs, Registers).
+        For code questions without config metadata, prefer get_1c_code_answer (includes full topic content + code_only mode).
+        Returns topic snippets (not full content) — call get_1c_help_topic or get_1c_help_topics_bulk for full text.
+        query: main search text or API name. config_version: e.g. '3.0.184.16'; optional if one config loaded.
         file_uri, symbol_name: accepted but not yet used for navigation — pass query as the main search term.
         limit: max items per source (default 5)."""
         err = _check_rate_limit()
@@ -1626,10 +1630,12 @@ def _build_mcp_app(help_path: Path) -> Any:
         This tool is designed for autonomous AI invocation (unlike the prompt version which targets user invocation)."""
         _guide_develop = (
             "1C-HELP DEVELOP WORKFLOW:\n"
-            "1. get_1c_code_answer(query, include_memory=True) — start here for any code question.\n"
-            "2. If weak: search_1c_help_keyword('Тип.Метод') → get_1c_help_topic(topic_path=<path>). Note: param is topic_path, not path.\n"
-            "3. Need multiple topics: get_1c_help_topics_bulk(paths=[...]).\n"
-            "4. Need standards: search_1c_memory(query, domains='standards,snippets').\n"
+            "1. get_1c_code_answer(query, include_memory=True) — FIRST call for any 1C/BSL code question.\n"
+            "   Use max_chars_per_topic=8000 for more detail, or code_only=True for code blocks only.\n"
+            "2. Need config objects too? → get_1c_context_bundle(query, config_version=...) adds Documents/Catalogs/etc.\n"
+            "3. If results are weak: search_1c_help_keyword('Тип.Метод') → get_1c_help_topic(topic_path=<path>).\n"
+            "   Note: param is topic_path, not path. Bulk: get_1c_help_topics_bulk(paths=[...]).\n"
+            "4. Standards/snippets only: search_1c_memory(query, domains='standards,snippets').\n"
             "5. Check index health: get_1c_help_index_status.\n"
             "6. After working code: save_1c_snippet(code_snippet, description, title).\n"
             "Key pitfalls: ПрочитатьJSON→Структура (use ПрочитатьВСоответствие=Истина for Соответствие); "
@@ -1729,23 +1735,8 @@ def _build_mcp_app(help_path: Path) -> Any:
 - query and xml_content: up to 64 KB. Topic content in get_1c_code_answer: MCP_MAX_TOPIC_CHARS (default 4000). Full topic: get_1c_help_topic(topic_path). Bulk topics: get_1c_help_topics_bulk(paths=[...]). Full report: docs/mcp-1c-help-tools-report.md."""
 
     @mcp.prompt
-    def get_mcp_workflow_guide() -> str:
-        """Returns workflow guide: order of calls for 1c-help and lsp-bsl-bridge when editing .bsl. Paste into chat or IDE rules. Needs MCP_CURSOR_DOCS_PATH or run from repo with docs/."""
-        return _read_cursor_doc("cursor-examples/rules/1c-mcp-workflow.mdc")
-
-    @mcp.prompt
-    def get_mcp_tools_tips() -> str:
-        """Returns tools tips: empty responses, URI format, LSP coordinates. Paste into chat or IDE rules. Needs MCP_CURSOR_DOCS_PATH or run from repo with docs/."""
-        return _read_cursor_doc("cursor-examples/rules/1c-mcp-tools-report.mdc")
-
-    @mcp.prompt
-    def get_mcp_tools_summary() -> str:
-        """Returns tools report summary: when to use which MCP, limits, pitfalls. Paste into chat or IDE skills. Needs MCP_CURSOR_DOCS_PATH or run from repo with docs/."""
-        return _read_cursor_doc("cursor-examples/1c-mcp-tools-report/SKILL.md")
-
-    @mcp.prompt
     def get_mcp_guides_bundle() -> str:
-        """Returns all three guides in one block (workflow, tips, summary). Use for onboarding or to restore IDE config. Needs MCP_CURSOR_DOCS_PATH or run from repo with docs/."""
+        """Returns all guides in one block (workflow, tools tips, tools summary). Use for onboarding or to restore IDE config. Needs MCP_CURSOR_DOCS_PATH or run from repo with docs/."""
         parts = [
             "=== workflow ===\n" + _read_cursor_doc("cursor-examples/rules/1c-mcp-workflow.mdc"),
             "=== tools_tips ===\n"
