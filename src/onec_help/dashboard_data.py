@@ -94,6 +94,14 @@ def _read_last_standards_run() -> dict[str, Any] | None:
         return None
 
 
+def _read_last_metadata_run() -> dict[str, Any] | None:
+    """Last metadata-graph-build run for dashboard."""
+    try:
+        return redis_cache.metadata_last_run()
+    except Exception:
+        return None
+
+
 def _storage_path_mb() -> float | None:
     """DB size in MB from QDRANT_STORAGE_PATH if set and dir exists."""
     path = env_config.get_qdrant_storage_path()
@@ -130,6 +138,7 @@ def get_dashboard_data(
     bm25_vocab = _bm25_vocab_stats_for_collections(collection_names)
     snippets_last = read_last_snippets_run()
     standards_last = _read_last_standards_run()
+    metadata_last = _read_last_metadata_run()
     standards_loading = _load_marker_exists("standards")
     snippets_loading = _load_marker_exists("snippets")
     metadata_loading = _load_marker_exists("metadata")
@@ -147,6 +156,7 @@ def get_dashboard_data(
         "collections": collections,
         "snippets": snippets_last,
         "standards_last_run": standards_last,
+        "metadata_last_run": metadata_last,
         "standards_loading": standards_loading,
         "snippets_loading": snippets_loading,
         "metadata_loading": metadata_loading,

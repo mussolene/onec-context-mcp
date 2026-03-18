@@ -30,6 +30,7 @@ _INGEST_RUNS_LIMIT = 20
 _SNIPPETS_CACHE = "snippets:cache"
 _SNIPPETS_LAST_RUN = "snippets:last_run"
 _STANDARDS_LAST_RUN = "standards:last_run"
+_METADATA_LAST_RUN = "metadata:last_run"
 
 _client: Any = None
 
@@ -131,12 +132,14 @@ def get_redis():
 
 
 def clear_all() -> bool:
-    """Delete all ingest, snippets, watchdog and MCP metrics keys. Returns True on success."""
+    """Delete all ingest, snippets, standards, metadata, watchdog and MCP metrics keys. Returns True on success."""
     try:
         r = get_redis()
         keys = (
             list(r.scan_iter(match="ingest:*"))
             + list(r.scan_iter(match="snippets:*"))
+            + list(r.scan_iter(match="standards:*"))
+            + list(r.scan_iter(match="metadata:*"))
             + list(r.scan_iter(match="watchdog:*"))
             + list(r.scan_iter(match="mcp:*"))
         )
@@ -574,6 +577,41 @@ def standards_last_run() -> dict[str, Any] | None:
         }
     except Exception as e:
         _LOG.debug("standards_last_run: %s", e)
+        return None
+
+
+def metadata_run_record(objects_indexed: int, started_at: float) -> None:
+    """Record last metadata-graph-build run (for dashboard)."""
+    try:
+        r = get_redis()
+        row = {
+            "started_at": started_at,
+            "finished_at": time.time(),
+            "objects_indexed": objects_indexed,
+        }
+        r.set(_METADATA_LAST_RUN, json.dumps(row))
+    except Exception as e:
+        _LOG.debug("metadata_run_record: %s", e)
+
+
+def metadata_last_run() -> dict[str, Any] | None:
+    """Last metadata-graph-build run for dashboard."""
+    try:
+        r = get_redis()
+        raw = r.get(_METADATA_LAST_RUN)
+        if not raw:
+            return None
+        row = json.loads(raw)
+        return {
+            "started_at": row.get("started_at"),
+            "finished_at": row.get("finished_at"),
+            "objects_indexed": row.get("objects_indexed", 0),
+            "total_elapsed_sec": (row.get("finished_at") or 0) - (row.get("started_at") or 0)
+            if row.get("finished_at") and row.get("started_at")
+            else None,
+        }
+    except Exception as e:
+        _LOG.debug("metadata_last_run: %s", e)
         return None
 
 

@@ -137,6 +137,29 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                         "total": tot_sn,
                     }
                 )
+        metadata_loading_w = data.get("metadata_loading")
+        metadata_pts_w = data.get("metadata_loading_pts")
+        if metadata_loading_w and metadata_pts_w and metadata_pts_w.get("phase") not in ("parsing", None):
+            tot_m = metadata_pts_w.get("total") or 0
+            if tot_m > 0:
+                phase_m = metadata_pts_w.get("phase") or "embedding"
+                workers.append(
+                    {
+                        "label": f"Config metadata — {phase_m} → Qdrant",
+                        "short": "Metadata → Qdrant",
+                        "pts": metadata_pts_w.get("loaded", 0),
+                        "total": tot_m,
+                    }
+                )
+        elif metadata_loading_w:
+            workers.append(
+                {
+                    "label": "Config metadata — parsing",
+                    "short": "Metadata parsing",
+                    "pts": None,
+                    "total": None,
+                }
+            )
         # When ingest in progress but standards/snippets not loading: show loaded state so user sees they feed onec_help_memory
         memory_coll = next(
             (
@@ -218,7 +241,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
     metadata_pts = data.get("metadata_loading_pts")
     snippets = data.get("snippets")
     if not (ingest and ingest.get("status") == "in_progress") and (
-        standards_loading or snippets_loading
+        standards_loading or snippets_loading or metadata_loading
     ):
         workers_extra: list[dict[str, Any]] = []
         if standards_loading and standards_pts and standards_pts.get("phase") != "parsing":
@@ -331,27 +354,38 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 tasks_parts.append(Text("".join(parts)))
             else:
                 tasks_parts.append(Text("\nSnippets: no data (watchdog or load-snippets)"))
-        # Config metadata (onec_config_metadata): show count from collections or hint to run
+        # Config metadata (onec_config_metadata): show last run from Redis (same as standards/snippets)
         if not metadata_loading:
-            meta_coll = next(
-                (
-                    c
-                    for c in (data.get("collections") or [])
-                    if (c.get("name") or "").strip() == "onec_config_metadata"
-                ),
-                None,
-            )
-            meta_pts = (meta_coll.get("points_count") or 0) if meta_coll else 0
-            if meta_pts > 0:
-                tasks_parts.append(
-                    Text(f"\nConfig metadata: {meta_pts:,} objects (onec_config_metadata)")
-                )
+            metadata_last = data.get("metadata_last_run")
+            if metadata_last:
+                objects_m = metadata_last.get("objects_indexed")
+                elapsed_m = metadata_last.get("total_elapsed_sec")
+                parts_m = ["\nConfig metadata: last run"]
+                if objects_m is not None:
+                    parts_m.append(f", {objects_m:,} objects")
+                if elapsed_m is not None:
+                    parts_m.append(f", {format_duration(elapsed_m)}")
+                tasks_parts.append(Text("".join(parts_m)))
             else:
-                tasks_parts.append(
-                    Text(
-                        "\nConfig metadata: no data (export in data/config, run metadata-graph-build or watchdog)"
-                    )
+                meta_coll = next(
+                    (
+                        c
+                        for c in (data.get("collections") or [])
+                        if (c.get("name") or "").strip() == "onec_config_metadata"
+                    ),
+                    None,
                 )
+                meta_pts = (meta_coll.get("points_count") or 0) if meta_coll else 0
+                if meta_pts > 0:
+                    tasks_parts.append(
+                        Text(f"\nConfig metadata: {meta_pts:,} objects (onec_config_metadata)")
+                    )
+                else:
+                    tasks_parts.append(
+                        Text(
+                            "\nConfig metadata: no data (export in data/config, run metadata-graph-build or watchdog)"
+                        )
+                    )
 
     tasks_content: Any = Group(*tasks_parts)
     panels.append(Panel(tasks_content, title="[bold]Tasks[/bold]", border_style="blue"))
