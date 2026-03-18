@@ -3,6 +3,7 @@
 import logging
 import re
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,27 @@ from .toc_parser import (
 
 COLLECTION_NAME = "onec_help"
 SNIPPET_MAX_CHARS = 850
+
+# Shared QdrantClient for the default host/port (read hot-path: search, get_topic, etc.).
+# QdrantClient (httpx-based) is documented thread-safe for concurrent reads.
+# Write/ingest functions that use custom host/port or long timeouts create their own client.
+_default_qdrant_client: "QdrantClient | None" = None
+_default_qdrant_client_lock = threading.Lock()
+_default_qdrant_client_key: tuple[str, int] | None = None
+
+
+def _get_default_qdrant_client(host: str, port: int) -> "QdrantClient":
+    """Return shared QdrantClient for given host/port (double-checked locking).
+    Creates a new client if host/port changed (e.g. env reload or tests)."""
+    global _default_qdrant_client, _default_qdrant_client_key
+    key = (host, port)
+    if _default_qdrant_client is not None and _default_qdrant_client_key == key:
+        return _default_qdrant_client
+    with _default_qdrant_client_lock:
+        if _default_qdrant_client is None or _default_qdrant_client_key != key:
+            _default_qdrant_client = QdrantClient(host=host, port=port, check_compatibility=False)
+            _default_qdrant_client_key = key
+        return _default_qdrant_client
 
 # Regex for CamelCase and Cyrillic identifiers (min 3 chars) for keyword extraction
 _KEYWORDS_PATTERN = re.compile(r"[А-Яа-яA-Za-z][А-Яа-яA-Za-z0-9]{2,}")
@@ -121,7 +143,7 @@ def get_collection_vector_size(
     host = qdrant_host or env_config.get_qdrant_host()
     port = qdrant_port or env_config.get_qdrant_port()
     try:
-        client = QdrantClient(host=host, port=port, check_compatibility=False)
+        client = _get_default_qdrant_client(host, port)
         if not client.collection_exists(collection):
             return None
         info = client.get_collection(collection)
@@ -579,7 +601,7 @@ def get_index_status(
     host = qdrant_host or env_config.get_qdrant_host()
     port = qdrant_port or env_config.get_qdrant_port()
     try:
-        client = QdrantClient(host=host, port=port, check_compatibility=False)
+        client = _get_default_qdrant_client(host, port)
     except Exception as e:
         return {"error": safe_error_message(e), "exists": False, "points_count": 0}
     if not client.collection_exists(collection):
@@ -655,7 +677,7 @@ def get_all_collections_status(
     host = qdrant_host or env_config.get_qdrant_host()
     port = qdrant_port or env_config.get_qdrant_port()
     try:
-        client = QdrantClient(host=host, port=port, check_compatibility=False)
+        client = _get_default_qdrant_client(host, port)
     except Exception as e:
         logging.getLogger(__name__).debug("get_all_collections QdrantClient failed: %s", e)
         return []
@@ -1162,7 +1184,7 @@ def search_index(
     port = qdrant_port or env_config.get_qdrant_port()
     if QdrantClient is None:
         return []
-    client = QdrantClient(host=host, port=port, check_compatibility=False)
+    client = _get_default_qdrant_client(host, port)
     coll_dim = get_collection_vector_size(collection=collection, qdrant_host=host, qdrant_port=port)
     vector = embedding.get_embedding(
         query, target_dimension=coll_dim if coll_dim is not None else None
@@ -1305,7 +1327,7 @@ def get_topic_from_index(
     if not topic_path.endswith(".md") and not topic_path.endswith(".html"):
         path_variants.append(topic_path + ".md")
         path_variants.append(topic_path + ".html")
-    client = QdrantClient(host=host, port=port, check_compatibility=False)
+    client = _get_default_qdrant_client(host, port)
     for pv in path_variants:
         try:
             must_cond = [FieldCondition(key="path", match=MatchValue(value=pv))]
@@ -1368,7 +1390,7 @@ def search_index_keyword(
         return []
     host = qdrant_host or env_config.get_qdrant_host()
     port = qdrant_port or env_config.get_qdrant_port()
-    client = QdrantClient(host=host, port=port, check_compatibility=False)
+    client = _get_default_qdrant_client(host, port)
     q_lower = query.strip().lower()
     if not q_lower:
         return []
@@ -1599,7 +1621,7 @@ def list_index_titles(
         return []
     host = qdrant_host or env_config.get_qdrant_host()
     port = qdrant_port or env_config.get_qdrant_port()
-    client = QdrantClient(host=host, port=port, check_compatibility=False)
+    client = _get_default_qdrant_client(host, port)
     out: list[dict[str, Any]] = []
     seen_paths: set[str] = set()
     offset = None
@@ -1645,7 +1667,7 @@ def list_index_nav_items(
         return []
     host = qdrant_host or env_config.get_qdrant_host()
     port = qdrant_port or env_config.get_qdrant_port()
-    client = QdrantClient(host=host, port=port, check_compatibility=False)
+    client = _get_default_qdrant_client(host, port)
     if not client.collection_exists(collection):
         return []
     out: list[dict[str, Any]] = []
@@ -1787,7 +1809,7 @@ def get_1c_help_related(
     if not topic_path.endswith(".md") and not topic_path.endswith(".html"):
         path_variants.append(topic_path + ".md")
         path_variants.append(topic_path + ".html")
-    client = QdrantClient(host=host, port=port, check_compatibility=False)
+    client = _get_default_qdrant_client(host, port)
     seen_paths: set[str] = set()
     result: list[dict[str, Any]] = []
     for pv in path_variants:
@@ -1852,7 +1874,7 @@ def get_1c_help_unresolved_links(
     if not topic_path.endswith(".md") and not topic_path.endswith(".html"):
         path_variants.append(topic_path + ".md")
         path_variants.append(topic_path + ".html")
-    client = QdrantClient(host=host, port=port, check_compatibility=False)
+    client = _get_default_qdrant_client(host, port)
     seen_titles: set[str] = set()
     result: list[dict[str, Any]] = []
     for pv in path_variants:

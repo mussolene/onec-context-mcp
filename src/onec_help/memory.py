@@ -18,6 +18,29 @@ _MEMORY_COLLECTION = "onec_help_memory"
 _store: Optional["MemoryStore"] = None
 _store_lock = threading.Lock()
 
+# Shared QdrantClient for memory operations (thread-safe, avoids new TCP conn per write/search).
+_memory_qdrant_client: Optional[Any] = None
+_memory_qdrant_client_lock = threading.Lock()
+
+
+def _get_memory_qdrant_client() -> Any:
+    """Return shared QdrantClient for onec_help_memory. Creates once, reuses thereafter."""
+    global _memory_qdrant_client
+    if _memory_qdrant_client is not None:
+        return _memory_qdrant_client
+    with _memory_qdrant_client_lock:
+        if _memory_qdrant_client is None:
+            from qdrant_client import QdrantClient as _QdrantClient
+
+            from . import env_config
+
+            _memory_qdrant_client = _QdrantClient(
+                host=env_config.get_qdrant_host(),
+                port=env_config.get_qdrant_port(),
+                check_compatibility=False,
+            )
+        return _memory_qdrant_client
+
 
 def get_memory_store(base_path: Path | None = None) -> "MemoryStore":
     """Return singleton MemoryStore. base_path from env MEMORY_BASE_PATH or ~/.onec_help."""
@@ -160,14 +183,9 @@ class MemoryStore:
         numeric_id: int | None = None,
     ) -> None:
         try:
-            from qdrant_client import QdrantClient
             from qdrant_client.models import Distance, PointStruct, VectorParams
 
-            from . import env_config
-
-            host = env_config.get_qdrant_host()
-            port = env_config.get_qdrant_port()
-            client = QdrantClient(host=host, port=port, check_compatibility=False)
+            client = _get_memory_qdrant_client()
             if not client.collection_exists(_MEMORY_COLLECTION):
                 client.create_collection(
                     collection_name=_MEMORY_COLLECTION,
@@ -375,14 +393,11 @@ class MemoryStore:
     ) -> list[dict[str, Any]]:
         """Search onec_help_memory by hybrid BM25+semantic with RRF fusion."""
         try:
-            from qdrant_client import QdrantClient
             from qdrant_client.models import FieldCondition, Filter, MatchValue, SparseVector
 
-            from . import embedding, env_config
+            from . import embedding
 
-            host = env_config.get_qdrant_host()
-            port = env_config.get_qdrant_port()
-            client = QdrantClient(host=host, port=port, check_compatibility=False)
+            client = _get_memory_qdrant_client()
             if not client.collection_exists(_MEMORY_COLLECTION):
                 return []
 

@@ -39,6 +39,34 @@ def _ensure_onec_help_refs():
     yield
 
 
+@pytest.fixture(autouse=True)
+def _disable_httpx_in_tests():
+    """Force embedding module to use urllib path in tests.
+    Tests mock urllib.request.urlopen; setting sys.modules['httpx'] = None makes
+    'import httpx' raise ImportError even after importlib.reload(), so _HTTPX_AVAILABLE
+    stays False and all HTTP calls go through the urllib fallback path."""
+    import sys
+
+    with patch.dict(sys.modules, {"httpx": None}):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_qdrant_singletons():
+    """Reset shared QdrantClient singletons between tests.
+    Singletons are module-level globals; without reset, a mock from one test leaks into the next."""
+    import onec_help.indexer as _indexer
+    import onec_help.memory as _memory
+
+    _indexer._default_qdrant_client = None
+    _indexer._default_qdrant_client_key = None
+    _memory._memory_qdrant_client = None
+    yield
+    _indexer._default_qdrant_client = None
+    _indexer._default_qdrant_client_key = None
+    _memory._memory_qdrant_client = None
+
+
 @pytest.fixture
 def fixtures_dir() -> Path:
     return Path(__file__).parent / "fixtures"

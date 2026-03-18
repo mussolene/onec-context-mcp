@@ -499,6 +499,15 @@ def _build_mcp_app(help_path: Path) -> Any:
     if not _HAS_FASTMCP:
         raise RuntimeError("fastmcp required: pip install fastmcp")
 
+    # Raise anyio default thread pool capacity so FastMCP can dispatch many sync tools concurrently.
+    # Default is 40, which becomes the bottleneck for 1000+ agents.
+    try:
+        from anyio import to_thread as _anyio_to_thread
+
+        _anyio_to_thread.current_default_thread_limiter().total_tokens = 500
+    except Exception:
+        pass  # anyio not available in test context or API differs — not fatal
+
     mcp = FastMCP("1C Help")
     if _HAS_ERROR_MIDDLEWARE and ErrorHandlingMiddleware is not None:
         mcp.add_middleware(ErrorHandlingMiddleware(error_callback=_mcp_error_to_redis_callback))

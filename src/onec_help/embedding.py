@@ -14,6 +14,37 @@ import unicodedata
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any
+
+try:
+    import httpx as _httpx
+
+    _HTTPX_AVAILABLE = True
+except ImportError:
+    _httpx = None  # type: ignore[assignment]
+    _HTTPX_AVAILABLE = False
+
+_http_client: Any = None
+_http_client_lock = threading.Lock()
+
+
+def _get_http_client() -> Any:
+    """Return a module-level httpx.Client singleton (thread-safe, connection pooling).
+    Falls back to None when httpx is not available; callers fall back to urllib in that case."""
+    global _http_client
+    if not _HTTPX_AVAILABLE or _httpx is None:
+        return None
+    if _http_client is None:
+        with _http_client_lock:
+            if _http_client is None:
+                _http_client = _httpx.Client(
+                    timeout=_httpx.Timeout(connect=5.0, read=300.0, write=30.0, pool=5.0),
+                    limits=_httpx.Limits(
+                        max_connections=200,
+                        max_keepalive_connections=100,
+                    ),
+                )
+    return _http_client
 
 from . import env_config as _env_config
 
@@ -187,15 +218,29 @@ def _embedding_cache_set(key: str, vec: list[float]) -> None:
 
 def _retry_after_delay(err: BaseException) -> float | None:
     """For HTTP 429, return seconds to wait from Retry-After header, or None."""
-    if not isinstance(err, urllib.error.HTTPError) or err.code != 429:
-        return None
-    ra = err.headers.get("Retry-After") if err.headers else None
-    if not ra:
-        return 60.0  # default for 429 when no Retry-After
-    try:
-        return min(120, max(1, int(ra)))
-    except (ValueError, TypeError):
-        return 60.0
+    # urllib path
+    if isinstance(err, urllib.error.HTTPError) and err.code == 429:
+        ra = err.headers.get("Retry-After") if err.headers else None
+        if not ra:
+            return 60.0
+        try:
+            return min(120, max(1, int(ra)))
+        except (ValueError, TypeError):
+            return 60.0
+    # httpx path
+    if _HTTPX_AVAILABLE and _httpx is not None:
+        try:
+            if isinstance(err, _httpx.HTTPStatusError) and err.response.status_code == 429:
+                ra = err.response.headers.get("Retry-After")
+                if not ra:
+                    return 60.0
+                try:
+                    return min(120, max(1, int(ra)))
+                except (ValueError, TypeError):
+                    return 60.0
+        except Exception:
+            pass
+    return None
 
 
 def _mask_url_for_log(url: str) -> str:
@@ -275,14 +320,18 @@ def _check_embedding_api_available() -> bool:
         )
         return False
     try:
-        req = urllib.request.Request(
-            f"{_EMBEDDING_API_URL}/models",
-            headers={"Content-Type": "application/json"}
-            | ({"Authorization": f"Bearer {_EMBEDDING_API_KEY}"} if _EMBEDDING_API_KEY else {}),
-            method="GET",
-        )
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            resp.read()
+        _headers: dict[str, str] = {"Content-Type": "application/json"}
+        if _EMBEDDING_API_KEY:
+            _headers["Authorization"] = f"Bearer {_EMBEDDING_API_KEY}"
+        _client = _get_http_client()
+        if _client is not None:
+            _client.get(f"{_EMBEDDING_API_URL}/models", headers=_headers, timeout=5.0)
+        else:
+            req = urllib.request.Request(
+                f"{_EMBEDDING_API_URL}/models", headers=_headers, method="GET"
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                resp.read()
         _embedding_api_available = True
         return True
     except Exception as e:
@@ -395,14 +444,19 @@ def _resolve_openai_api_model() -> str:
         return _resolved_api_model_id
     model_ids: list[str] = []
     try:
-        req = urllib.request.Request(
-            f"{_EMBEDDING_API_URL}/models",
-            headers={"Content-Type": "application/json"}
-            | ({"Authorization": f"Bearer {_EMBEDDING_API_KEY}"} if _EMBEDDING_API_KEY else {}),
-            method="GET",
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        _headers2: dict[str, str] = {"Content-Type": "application/json"}
+        if _EMBEDDING_API_KEY:
+            _headers2["Authorization"] = f"Bearer {_EMBEDDING_API_KEY}"
+        _client2 = _get_http_client()
+        if _client2 is not None:
+            _resp2 = _client2.get(f"{_EMBEDDING_API_URL}/models", headers=_headers2, timeout=10.0)
+            data = _resp2.json()
+        else:
+            req = urllib.request.Request(
+                f"{_EMBEDDING_API_URL}/models", headers=_headers2, method="GET"
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
         for item in data.get("data") or []:
             if isinstance(item, dict) and item.get("id"):
                 model_ids.append(str(item["id"]))
@@ -426,30 +480,38 @@ def _resolve_openai_api_model() -> str:
     if base_url.endswith("/v1"):
         base_url = base_url[:-3]
     try:
-        load_req = urllib.request.Request(
-            f"{base_url}/api/v1/models",
-            method="GET",
-            headers={"Content-Type": "application/json"}
-            | ({"Authorization": f"Bearer {_EMBEDDING_API_KEY}"} if _EMBEDDING_API_KEY else {}),
-        )
-        with urllib.request.urlopen(load_req, timeout=10) as resp:
-            native = json.loads(resp.read().decode("utf-8"))
+        _headers3: dict[str, str] = {"Content-Type": "application/json"}
+        if _EMBEDDING_API_KEY:
+            _headers3["Authorization"] = f"Bearer {_EMBEDDING_API_KEY}"
+        _client3 = _get_http_client()
+        if _client3 is not None:
+            _resp3 = _client3.get(f"{base_url}/api/v1/models", headers=_headers3, timeout=10.0)
+            native = _resp3.json()
+        else:
+            load_req = urllib.request.Request(
+                f"{base_url}/api/v1/models", method="GET", headers=_headers3
+            )
+            with urllib.request.urlopen(load_req, timeout=10) as resp:
+                native = json.loads(resp.read().decode("utf-8"))
         for item in native.get("models") or []:
             if isinstance(item, dict) and item.get("type") == "embedding" and item.get("key"):
                 key = str(item["key"])
-                load_body = json.dumps({"model": key}).encode("utf-8")
-                post = urllib.request.Request(
-                    f"{base_url}/api/v1/models/load",
-                    data=load_body,
-                    headers={"Content-Type": "application/json"}
-                    | (
-                        {"Authorization": f"Bearer {_EMBEDDING_API_KEY}"}
-                        if _EMBEDDING_API_KEY
-                        else {}
-                    ),
-                    method="POST",
-                )
-                urllib.request.urlopen(post, timeout=120)
+                if _client3 is not None:
+                    _client3.post(
+                        f"{base_url}/api/v1/models/load",
+                        json={"model": key},
+                        headers=_headers3,
+                        timeout=120.0,
+                    )
+                else:
+                    load_body = json.dumps({"model": key}).encode("utf-8")
+                    post = urllib.request.Request(
+                        f"{base_url}/api/v1/models/load",
+                        data=load_body,
+                        headers=_headers3,
+                        method="POST",
+                    )
+                    urllib.request.urlopen(post, timeout=120)
                 _resolved_api_model_id = key
                 return _resolved_api_model_id
     except Exception as e:
@@ -551,21 +613,20 @@ def _get_embedding_api_single(text: str) -> list[float]:
     for attempt in range(RETRY_ATTEMPTS):
         _acquire_api_slot()
         try:
-            req = urllib.request.Request(
-                url,
-                data=body,
-                headers={
-                    "Content-Type": "application/json",
-                    **(
-                        {"Authorization": f"Bearer {_EMBEDDING_API_KEY}"}
-                        if _EMBEDDING_API_KEY
-                        else {}
-                    ),
-                },
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
+            _emb_headers: dict[str, str] = {"Content-Type": "application/json"}
+            if _EMBEDDING_API_KEY:
+                _emb_headers["Authorization"] = f"Bearer {_EMBEDDING_API_KEY}"
+            _emb_client = _get_http_client()
+            if _emb_client is not None:
+                _emb_resp = _emb_client.post(
+                    url, content=body, headers=_emb_headers, timeout=float(timeout)
+                )
+                _emb_resp.raise_for_status()
+                data = _emb_resp.json()
+            else:
+                req = urllib.request.Request(url, data=body, headers=_emb_headers, method="POST")
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
             out = data.get("data") or []
             first = out[0] if out else None
             if isinstance(first, dict) and "embedding" in first:
@@ -605,21 +666,20 @@ def _get_embedding_api_batch(texts: list[str]) -> list[list[float]]:
     for attempt in range(RETRY_ATTEMPTS):
         _acquire_api_slot()
         try:
-            req = urllib.request.Request(
-                url,
-                data=body,
-                headers={
-                    "Content-Type": "application/json",
-                    **(
-                        {"Authorization": f"Bearer {_EMBEDDING_API_KEY}"}
-                        if _EMBEDDING_API_KEY
-                        else {}
-                    ),
-                },
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=batch_timeout) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
+            _batch_headers: dict[str, str] = {"Content-Type": "application/json"}
+            if _EMBEDDING_API_KEY:
+                _batch_headers["Authorization"] = f"Bearer {_EMBEDDING_API_KEY}"
+            _batch_client = _get_http_client()
+            if _batch_client is not None:
+                _batch_resp = _batch_client.post(
+                    url, content=body, headers=_batch_headers, timeout=float(batch_timeout)
+                )
+                _batch_resp.raise_for_status()
+                data = _batch_resp.json()
+            else:
+                req = urllib.request.Request(url, data=body, headers=_batch_headers, method="POST")
+                with urllib.request.urlopen(req, timeout=batch_timeout) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
             out = data.get("data") or []
             if len(out) >= len(texts):
                 result = []
