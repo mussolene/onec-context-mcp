@@ -719,20 +719,38 @@ def _get_embedding_api_batch_parallel(
     texts: list[str],
     batch_size: int,
     workers: int,
+    on_batch_done: Any = None,
 ) -> list[list[float]]:
-    """Split texts into batches and call API in parallel (ThreadPool)."""
+    """Split texts into batches and call API in parallel (ThreadPool).
+    on_batch_done(done, total): optional per-batch progress callback (thread-safe)."""
     if not texts:
         return []
     batches = [texts[i : i + batch_size] for i in range(0, len(texts), batch_size)]
+    total = len(texts)
+    done_lock = threading.Lock()
+    done_count = [0]
+
+    def _call_and_report(batch: list[str]) -> list[list[float]]:
+        vecs = _get_embedding_api_batch(batch)
+        if on_batch_done is not None:
+            with done_lock:
+                done_count[0] += len(vecs)
+                d = done_count[0]
+            try:
+                on_batch_done(d, total)
+            except Exception:
+                pass
+        return vecs
+
     if workers <= 1 or len(batches) <= 1:
         results: list[list[float]] = []
         for batch in batches:
-            results.extend(_get_embedding_api_batch(batch))
+            results.extend(_call_and_report(batch))
         return results
     batch_results: list[list[list[float]]] = [None] * len(batches)  # type: ignore[list-item]
     with ThreadPoolExecutor(max_workers=min(workers, len(batches))) as executor:
         future_to_idx = {
-            executor.submit(_get_embedding_api_batch, b): i for i, b in enumerate(batches)
+            executor.submit(_call_and_report, b): i for i, b in enumerate(batches)
         }
         for future in as_completed(future_to_idx):
             idx = future_to_idx[future]
@@ -828,7 +846,10 @@ def get_embedding_batch(
     _report(0, embed_total)
 
     if _EMBEDDING_BACKEND == "openai_api":
-        uncached_vecs = _get_embedding_api_batch_parallel(uncached_texts, size, w)
+        uncached_vecs = _get_embedding_api_batch_parallel(
+            uncached_texts, size, w,
+            on_batch_done=lambda done, total: _report(done, total),
+        )
         _report(embed_total, embed_total)
     else:
         uncached_vecs = []
