@@ -44,13 +44,20 @@ def _heartbeat_until(
     interval: int,
     message: str,
     progress_line: Callable[..., None],
+    marker_path: "Path | None" = None,
 ) -> None:
-    """Print message to stderr every interval seconds until stop_event is set (avoids no-output timeouts)."""
+    """Print message to stderr every interval seconds until stop_event is set (avoids no-output timeouts).
+    If marker_path is given, refreshes its mtime on each tick so the dashboard stale-check keeps showing 'loading'."""
     while not stop_event.wait(timeout=interval):
         try:
             progress_line(message)
         except Exception:
             pass
+        if marker_path is not None:
+            try:
+                marker_path.write_text(str(time.time()), encoding="utf-8")
+            except OSError:
+                pass
 
 
 def _get_memory_store():
@@ -110,59 +117,6 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
         )
         return 1
 
-    try:
-        if len(roots) == 1:
-            print(f"metadata-graph-build │ Loading configuration from {roots[0]}", file=sys.stderr, flush=True)
-            crawl = crawl_config(roots[0])
-        else:
-            print(
-                f"metadata-graph-build │ Loading {len(roots)} configuration(s) from {base}",
-                file=sys.stderr,
-                flush=True,
-            )
-            all_objects: list = []
-            all_relations: list = []
-            for r in roots:
-                c = crawl_config(r)
-                all_objects.extend(c.objects)
-                all_relations.extend(c.relations)
-                print(
-                    f"metadata-graph-build │   {r.name}: {c.config_name} ({c.config_version}) — {len(c.objects)} objects",
-                    file=sys.stderr,
-                    flush=True,
-                )
-            crawl = CrawlResult(
-                root_dir=base,
-                config_name="",
-                config_version="",
-                platform_version=None,
-                objects=all_objects,
-                relations=all_relations,
-            )
-    except FileNotFoundError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-
-    n_objects = len(crawl.objects)
-    cfg_ver = getattr(crawl, "config_version", None) or "0.0.0.0"
-    cfg_label = (
-        f"{getattr(crawl, 'config_name', None) or '—'} (version {cfg_ver})"
-        if len(roots) == 1
-        else f"{len(roots)} configs, {n_objects} objects total"
-    )
-    print(
-        f"metadata-graph-build │ Config: {cfg_label}",
-        file=sys.stderr,
-        flush=True,
-    )
-    qhost = env_config.get_qdrant_host()
-    qport = env_config.get_qdrant_port()
-    print(
-        f"metadata-graph-build │ Qdrant: {qhost}:{qport} (set QDRANT_HOST/QDRANT_PORT if 0 points in dashboard)",
-        file=sys.stderr,
-        flush=True,
-    )
-
     if not embedding.is_embedding_available():
         print(
             "metadata-graph-build │ Embedding not available "
@@ -178,12 +132,90 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
     marker = _load_operation_running_path("metadata")
     status_path = _load_operation_status_path("metadata")
 
+    # Пишем маркер и фазу "parsing" ДО краулинга — дашборд видит операцию с первого момента.
+    try:
+        marker.write_text(str(started_at), encoding="utf-8")
+    except OSError:
+        pass
+    try:
+        status_path.write_text(
+            json.dumps({"phase": "parsing"}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+
+    # Heartbeat запускаем ДО краулинга: обновляет mtime маркера каждые 30 с,
+    # чтобы дашборд не считал операцию зависшей (_LOAD_MARKER_STALE_SEC = 600).
+    _heartbeat_stop = threading.Event()
+    _heartbeat = threading.Thread(
+        target=lambda: _heartbeat_until(
+            _heartbeat_stop,
+            interval=30,
+            message="metadata-graph-build │ parsing/embedding in progress...",
+            progress_line=progress_line,
+            marker_path=marker,
+        ),
+        daemon=True,
+    )
+    _heartbeat.start()
+
     try:
         try:
-            marker.write_text(str(started_at), encoding="utf-8")
-        except OSError:
-            pass
+            if len(roots) == 1:
+                print(f"metadata-graph-build │ Loading configuration from {roots[0]}", file=sys.stderr, flush=True)
+                crawl = crawl_config(roots[0])
+            else:
+                print(
+                    f"metadata-graph-build │ Loading {len(roots)} configuration(s) from {base}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                all_objects: list = []
+                all_relations: list = []
+                for r in roots:
+                    c = crawl_config(r)
+                    all_objects.extend(c.objects)
+                    all_relations.extend(c.relations)
+                    print(
+                        f"metadata-graph-build │   {r.name}: {c.config_name} ({c.config_version}) — {len(c.objects)} objects",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                crawl = CrawlResult(
+                    root_dir=base,
+                    config_name="",
+                    config_version="",
+                    platform_version=None,
+                    objects=all_objects,
+                    relations=all_relations,
+                )
+        except FileNotFoundError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+
+        n_objects = len(crawl.objects)
+        cfg_ver = getattr(crawl, "config_version", None) or "0.0.0.0"
+        cfg_label = (
+            f"{getattr(crawl, 'config_name', None) or '—'} (version {cfg_ver})"
+            if len(roots) == 1
+            else f"{len(roots)} configs, {n_objects} objects total"
+        )
+        print(
+            f"metadata-graph-build │ Config: {cfg_label}",
+            file=sys.stderr,
+            flush=True,
+        )
+        qhost = env_config.get_qdrant_host()
+        qport = env_config.get_qdrant_port()
+        print(
+            f"metadata-graph-build │ Qdrant: {qhost}:{qport} (set QDRANT_HOST/QDRANT_PORT if 0 points in dashboard)",
+            file=sys.stderr,
+            flush=True,
+        )
+
         total = len(crawl.objects)
+        # Переходим к фазе embedding: теперь пишем реальный total
         try:
             status_path.write_text(
                 json.dumps(
@@ -202,11 +234,12 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
             check_compatibility=False,
         )
 
+        # embed_batch вызывается за раз для ~500 объектов (не всех 61773 сразу).
+        # Прогресс каждого батча логируем в stderr; status.json обновляет _upsert_progress ниже.
         def _embed_batch(texts: list[str]) -> list[list[float]]:
-            # Progress to stderr so long runs are not killed by "no output" timeouts (e.g. docker exec).
             def _progress(done: int, total: int) -> None:
-                if total and (done == total or done % 100 == 0 or done <= 1):
-                    progress_line(f"metadata-graph-build │ embedding {done}/{total} object(s)...")
+                if total and (done == total or done <= 1):
+                    progress_line(f"metadata-graph-build │ embedding batch {done}/{total}...")
 
             return embedding.get_embedding_batch(texts, progress_callback=_progress)
 
@@ -216,28 +249,19 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
             )
             return 0
 
-        # Heartbeat during long embedding so docker compose exec does not time out (no output).
-        _heartbeat_stop = threading.Event()
-        _heartbeat = threading.Thread(
-            target=lambda: _heartbeat_until(
-                _heartbeat_stop,
-                interval=30,
-                message="metadata-graph-build │ embedding in progress...",
-                progress_line=progress_line,
-            ),
-            daemon=True,
-        )
-        _heartbeat.start()
         try:
             progress_line(
                 f"metadata-graph-build │ indexing {total} object(s) into metadata collection (config_version={cfg_ver})"
             )
 
+            # Главный индикатор прогресса для дашборда: сколько объектов уже записано в Qdrant.
+            # Вызывается после каждого батча embed → upsert (как в build_index для справки).
             def _upsert_progress(written: int, tot: int) -> None:
+                progress_line(f"metadata-graph-build │ {written}/{tot} indexed into onec_config_metadata")
                 try:
                     status_path.write_text(
                         json.dumps(
-                            {"loaded": written, "total": tot, "phase": "upsert"},
+                            {"loaded": written, "total": tot, "phase": "indexing"},
                             ensure_ascii=False,
                         ),
                         encoding="utf-8",
@@ -245,8 +269,6 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
                 except OSError:
                     pass
 
-            # Тот же батч-апсерт с retry, что в indexer; прогресс пишем в load_metadata.status.json для дашборда.
-            # on_embed_done останавливает heartbeat, чтобы не выводить «embedding in progress» во время upsert.
             inserted = metadata_graph.build_metadata_graph_from_crawl(
                 crawl,
                 client=client,
@@ -254,7 +276,6 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
                 collection_name="onec_config_metadata",
                 recreate=bool(getattr(args, "recreate", False)),
                 upsert_progress_callback=_upsert_progress,
-                on_embed_done=lambda: _heartbeat_stop.set(),
             )
         finally:
             _heartbeat_stop.set()
@@ -272,11 +293,18 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
         progress_done(
             f"metadata-graph-build │ ✓ {inserted} object(s) → onec_config_metadata (use config_version={cfg_ver!r} in search_1c_metadata / get_1c_context_bundle)"
         )
+        # Записываем "last run" в Redis — дашборд покажет результат как у standards/snippets
+        try:
+            from . import redis_cache as _rc
+            _rc.metadata_run_record(inserted, started_at)
+        except Exception:
+            pass
         return 0
     except Exception as e:  # pragma: no cover - defensive, exercised via tests with side effects
         print(f"Error: {e}", file=sys.stderr)
         return 1
     finally:
+        _heartbeat_stop.set()
         marker.unlink(missing_ok=True)
         status_path.unlink(missing_ok=True)
 
