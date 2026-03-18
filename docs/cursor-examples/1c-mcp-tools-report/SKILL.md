@@ -22,11 +22,14 @@ description: Ориентация по отчёту о полноте MCP 1c-hel
 
 ## Порядок вызовов (кратко)
 
-1. **Примеры кода / API:** `get_1c_code_answer(query)` → при нерелевантности: `search_1c_help_keyword("Тип.Метод")` → `get_1c_help_topic(topic_path)`.
-2. **Проверка индекса:** при сомнениях в полноте ответов — `get_1c_help_index_status`.
-3. **Проверка кода после правок:** `document_diagnostics(uri)` → цикл до отсутствия ERROR/WARNING.
-4. **Перед рефакторингом:** `project_analysis` (workspace_symbols) → при необходимости `symbol_explore`; для `call_graph`/`definition`/`hover` использовать **координаты из выдачи project_analysis** (Recommended hover coordinate).
-5. **После рабочего кода:** `save_1c_snippet(code_snippet, description, title)`.
+1. **Старт задачи (AI):** `get_1c_quick_guide(task="develop"|"refactor"|"test")` — компактная инструкция для автономного агента.
+2. **Примеры кода / API:** `get_1c_code_answer(query, include_memory=True)` → при нерелевантности: `search_1c_help_keyword("Тип.Метод")` → `get_1c_help_topic(topic_path=<path>)` (параметр **topic_path**, не `path`). Несколько топиков: `get_1c_help_topics_bulk(paths=[...])`.
+3. **Явные стандарты/сниппеты:** `search_1c_memory(query, domains="standards,snippets")`.
+4. **Проверка индекса:** `get_1c_help_index_status`.
+5. **Проверка кода:** `document_diagnostics(uri)` → цикл до отсутствия ERROR/WARNING.
+6. **Рефакторинг:** `project_analysis` → `symbol_explore`; координаты из project_analysis (Recommended hover coordinate), 0-based.
+7. **После рабочего кода:** `save_1c_snippet(code_snippet, description, title)`.
+8. **Ловушки 1С:** промпт `get_1c_common_pitfalls()`.
 
 ## Подводные камни (из отчёта)
 
@@ -44,8 +47,10 @@ description: Ориентация по отчёту о полноте MCP 1c-hel
 ## Лимиты 1c-help
 
 - query / xml_content: до 64 KB (MAX_QUERY_CHARS).
-- Контент топика в get_1c_code_answer / search_1c_help_with_content: MCP_MAX_TOPIC_CHARS (по умолчанию 4000).
+- Контент топика в get_1c_code_answer / search_1c_help_with_content: MCP_MAX_TOPIC_CHARS (по умолчанию 4000). Полный топик — через `get_1c_help_topic(topic_path)`.
+- get_1c_help_topics_bulk: до 10 путей за вызов; max_chars_per_topic настраивается.
 - Сниппет в результатах поиска: MCP_SNIPPET_MAX_CHARS (1200).
+- Результаты поиска включают entity_type (method/property/type) и breadcrumb (последние 2 уровня иерархии справки) для лучшего понимания контекста.
 
 ## Ссылки
 

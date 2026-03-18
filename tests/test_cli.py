@@ -842,23 +842,33 @@ def test_cmd_load_snippets_type_split(mock_get_store, _mock_embed_avail, tmp_pat
 
 @patch("urllib.request.urlopen")
 def test_cmd_qdrant_backup_success(mock_urlopen, tmp_path: Path) -> None:
-    """cmd_qdrant_backup creates snapshot and saves to output dir."""
-    create_resp = MagicMock()
-    create_resp.read.return_value = b'{"result":{"name":"abc-123.snapshot"}}'
-    create_resp.__enter__ = lambda self: self
-    create_resp.__exit__ = lambda *a: None
-    download_resp = MagicMock()
-    download_resp.read.return_value = b"snapshot-data"
-    download_resp.__enter__ = lambda self: self
-    download_resp.__exit__ = lambda *a: None
-    mock_urlopen.side_effect = [create_resp, download_resp]
+    """cmd_qdrant_backup creates snapshot and saves to output dir for all 3 collections."""
+    import urllib.error
+
+    def make_ctx_mock(data: bytes) -> MagicMock:
+        m = MagicMock()
+        m.read.return_value = data
+        m.__enter__ = lambda self: self
+        m.__exit__ = lambda *a: None
+        return m
+
+    # onec_help: success (create + download)
+    create_resp = make_ctx_mock(b'{"result":{"name":"abc-123.snapshot"}}')
+    download_resp = make_ctx_mock(b"snapshot-data")
+    # onec_help_memory and onec_config_metadata: not present → URLError on create
+    mock_urlopen.side_effect = [
+        create_resp,
+        download_resp,
+        urllib.error.URLError("not found"),
+        urllib.error.URLError("not found"),
+    ]
 
     out_dir = tmp_path / "backup"
     args = make_args(output_dir=str(out_dir))
     with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
         assert cmd_qdrant_backup(args) == 0
 
-    assert mock_urlopen.call_count == 2
+    assert mock_urlopen.call_count == 4
     snaps = list(out_dir.glob("onec_help-*.snapshot"))
     assert len(snaps) == 1
     assert snaps[0].read_bytes() == b"snapshot-data"

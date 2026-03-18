@@ -240,11 +240,11 @@ qdrant-reset:
 	docker run --rm -v "$(CURDIR)/data:/data" alpine rm -rf /data/qdrant
 	@echo "data/qdrant удалён. Запустите: make up; для индексации: make ingest-up"
 
-# Снапшот коллекции → data/backup/onec_help-{timestamp}.snapshot (для миграции между хостами)
+# Снапшоты всех коллекций onec_* → data/backup/{collection}-{timestamp}.snapshot (для миграции между хостами)
 qdrant-backup:
 	$(COMPOSE) exec mcp python -m onec_help qdrant-backup -o /data/backup
 
-# Восстановить коллекцию из последнего снапшота в data/backup/ (в контейнере: /data/backup)
+# Восстановить все коллекции onec_* из последних снапшотов в data/backup/ (в контейнере: /data/backup)
 qdrant-restore:
 	$(COMPOSE) exec mcp python -m onec_help qdrant-restore --backup-dir /data/backup
 

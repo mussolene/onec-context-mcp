@@ -16,8 +16,9 @@ alwaysApply: false
 
 ## URI для lsp-bsl-bridge (единый формат)
 
-- **Docker:** `file:///projects/<путь>` (volume `.:/projects`). Пути с кириллицей — в URL-encoding (например из выдачи project_analysis URI уже с %D0%9C...).
-- **Локально:** полный file URI. При пустом ответе document_diagnostics/definition — попробовать URI с URL-encoded путём.
+- **Docker:** `file:///projects/<путь>` (volume `.:/projects`). Пути с кириллицей — **обязательно URL-encoding**. Примеры: `/Менеджер/` → `/%D0%9C%D0%B5%D0%BD%D0%B5%D0%B4%D0%B6%D0%B5%D1%80/`, `/МойМодуль/` → `/%D0%9C%D0%BE%D0%B9%D0%9C%D0%BE%D0%B4%D1%83%D0%BB%D1%8C/`. URI из выдачи `project_analysis` уже URL-encoded — использовать как есть.
+- **Локально:** полный file URI. При пустом ответе document_diagnostics/definition — проверить URL-encoding кириллицы.
+- **Координаты:** 0-based (первая строка = 0, первый символ = 0). Из `project_analysis` берётся "Recommended hover coordinate".
 
 ## Навигация и позиционные инструменты
 

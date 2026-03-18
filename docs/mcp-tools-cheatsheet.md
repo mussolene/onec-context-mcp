@@ -4,7 +4,7 @@
 
 ---
 
-## 1c-help (13)
+## 1c-help (15)
 
 | Инструмент | Ключевой параметр | Назначение |
 |------------|-------------------|------------|
@@ -21,6 +21,10 @@
 | get_form_metadata | xml_content | Разбор Form.xml (атрибуты, команды); передавать полный XML с xmlns. |
 | get_module_info | uri_or_path | Тип модуля (ObjectModule и т.д.) по пути к .bsl. |
 | compare_1c_help | topic_path_or_query, version_left, version_right | Сравнение топика между версиями. Путь можно передать «как из поиска» (8.3.13.1513/shcntx_ru/...) или без версии (shcntx_ru/...); сервер сам подставит version_left/version_right. |
+| get_1c_help_topics_bulk | paths (list) | Контент нескольких топиков за один вызов (до 10 путей). Эффективнее N вызовов get_1c_help_topic. |
+| search_1c_metadata | query, config_version | Поиск объектов конфигурации (Documents, Catalogs…). Требует metadata-graph-build. |
+| get_1c_metadata_object | object_id | Детали объекта (реквизиты, ТЧ). object_id из search_1c_metadata. |
+| get_1c_context_bundle | query | Справка + память + метаданные за один вызов. |
 
 ---
 
@@ -45,11 +49,18 @@
 
 ---
 
+## Инструменты (tools) 1c-help для AI
+
+| Инструмент | Параметр | Назначение |
+|------------|----------|------------|
+| **get_1c_quick_guide** | task=develop\|refactor\|test | Компактная инструкция для автономного AI (150-300 токенов). Вызывать в начале задачи. |
+
 ## Промпты 1c-help
 
 | Промпт | Назначение |
 |--------|------------|
 | how_to_use_1c_help_and_bsl_bridge | Инструкция по двум MCP; task=develop\|refactor\|test — короткий блок. |
+| get_1c_common_pitfalls | Типичные ловушки 1С/BSL с wrong/right примерами кода (11+ паттернов). |
 | get_mcp_workflow_guide | Текст руководства по порядку вызовов (workflow). |
 | get_mcp_tools_tips | Подсказки: пустые ответы, URI, координаты. |
 | get_mcp_tools_summary | Выжимка отчёта: когда какой MCP, лимиты. |
@@ -57,4 +68,4 @@
 
 ---
 
-**URI:** Docker — `file:///projects/<путь>`; кириллица в пути — URL-encoding. **Порядок:** примеры → get_1c_code_answer; точный API → search_1c_help_keyword → get_1c_help_topic(**topic_path**); проверка кода → document_diagnostics; навигация → project_analysis → symbol_explore или get_range_content.
+**URI:** Docker — `file:///projects/<путь>`; кириллица — URL-encoding (Менеджер → %D0%9C%D0%B5...). **Координаты** LSP: 0-based. **Порядок:** примеры → get_1c_code_answer; точный API → search_1c_help_keyword → get_1c_help_topic(**topic_path**); несколько топиков → get_1c_help_topics_bulk; проверка кода → document_diagnostics; навигация → project_analysis → symbol_explore.

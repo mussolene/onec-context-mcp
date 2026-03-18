@@ -373,39 +373,80 @@ class MemoryStore:
         limit: int = 5,
         domain: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Search onec_help_memory by semantic similarity."""
+        """Search onec_help_memory by hybrid BM25+semantic with RRF fusion."""
         try:
             from qdrant_client import QdrantClient
-            from qdrant_client.models import FieldCondition, Filter, MatchValue
+            from qdrant_client.models import FieldCondition, Filter, MatchValue, SparseVector
 
-            from . import embedding
-
-            vec = embedding.get_embedding(query)
-            from . import env_config
+            from . import embedding, env_config
 
             host = env_config.get_qdrant_host()
             port = env_config.get_qdrant_port()
             client = QdrantClient(host=host, port=port, check_compatibility=False)
             if not client.collection_exists(_MEMORY_COLLECTION):
                 return []
-            kwargs: dict[str, Any] = {
-                "collection_name": _MEMORY_COLLECTION,
-                "query_vector": vec,
-                "limit": limit,
-                "with_payload": True,
-            }
+
+            query_filter = None
             if domain and Filter and FieldCondition and MatchValue:
-                kwargs["query_filter"] = Filter(
+                query_filter = Filter(
                     must=[FieldCondition(key="domain", match=MatchValue(value=domain))]
                 )
-            if hasattr(client, "query_points"):
-                res = client.query_points(**kwargs)
-                points = getattr(res, "points", [])
-            else:
-                points = client.search(**kwargs)
+
+            fetch_limit = limit * 3  # fetch more for RRF merging
+            vec = embedding.get_embedding(query)
+            semantic_res = client.query_points(
+                collection_name=_MEMORY_COLLECTION,
+                query=vec,
+                limit=fetch_limit,
+                with_payload=True,
+                query_filter=query_filter,
+            )
+            semantic_pts = getattr(semantic_res, "points", [])
+
+            # BM25 hybrid leg
+            bm25_pts: list[Any] = []
+            try:
+                from . import env_config as _ec
+                from .sparse_bm25 import bm25_vocab_path, load_vocab, query_vector
+
+                vp = bm25_vocab_path(_MEMORY_COLLECTION)
+                if vp.exists():
+                    vocab, doc_freq, N = load_vocab(vp)
+                    qv = query_vector(query, vocab, doc_freq, N)
+                    if qv.get("indices"):
+                        sv = SparseVector(indices=qv["indices"], values=qv["values"])
+                        bm25_res = client.query_points(
+                            collection_name=_MEMORY_COLLECTION,
+                            query=sv,
+                            using="text-bm25",
+                            limit=fetch_limit,
+                            with_payload=True,
+                            query_filter=query_filter,
+                        )
+                        bm25_pts = getattr(bm25_res, "points", [])
+            except Exception:
+                pass
+
+            # RRF merge
+            _RRF_K = 60
+            rrf: dict[Any, float] = {}
+            id_to_pt: dict[Any, Any] = {}
+            for rank, pt in enumerate(semantic_pts, 1):
+                pid = getattr(pt, "id", None)
+                if pid is not None:
+                    rrf[pid] = rrf.get(pid, 0) + 1 / (_RRF_K + rank)
+                    id_to_pt[pid] = pt
+            for rank, pt in enumerate(bm25_pts, 1):
+                pid = getattr(pt, "id", None)
+                if pid is not None:
+                    rrf[pid] = rrf.get(pid, 0) + 1 / (_RRF_K + rank)
+                    if pid not in id_to_pt:
+                        id_to_pt[pid] = pt
+
+            merged = sorted(id_to_pt.values(), key=lambda p: -rrf.get(getattr(p, "id", None), 0))
             return [
-                {"payload": getattr(p, "payload", {}), "score": getattr(p, "score", None)}
-                for p in points
+                {"payload": getattr(p, "payload", {}), "score": rrf.get(getattr(p, "id", None), 0)}
+                for p in merged[:limit]
             ]
         except Exception:
             return []

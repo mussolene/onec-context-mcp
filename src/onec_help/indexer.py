@@ -1205,6 +1205,8 @@ def search_index(
                 "text": text,
                 "score": getattr(h, "score", None),
                 "version": payload.get("version", ""),
+                "entity_type": payload.get("entity_type", ""),
+                "breadcrumb": payload.get("breadcrumb") or [],
             }
         )
     if not version and not language:
@@ -1429,6 +1431,8 @@ def search_index_keyword(
                                 "text": snippet,
                                 "score": getattr(h, "score", None),
                                 "version": payload.get("version", ""),
+                                "entity_type": payload.get("entity_type", ""),
+                                "breadcrumb": payload.get("breadcrumb") or [],
                             }
                         )
                     if raw:
@@ -1521,6 +1525,8 @@ def search_index_keyword(
                 "text": snippet,
                 "score": None,
                 "version": payload.get("version", ""),
+                "entity_type": payload.get("entity_type", ""),
+                "breadcrumb": payload.get("breadcrumb") or [],
             }
             if path not in out_dict:
                 out_dict[path] = rec
@@ -1820,6 +1826,58 @@ def get_1c_help_related(
                         )
                 if next_offset is None:
                     break
+            if result:
+                return result
+        except Exception:
+            continue
+    return result
+
+
+def get_1c_help_unresolved_links(
+    topic_path: str,
+    qdrant_host: str | None = None,
+    qdrant_port: int | None = None,
+    collection: str = COLLECTION_NAME,
+    version: str | None = None,
+    language: str | None = None,
+) -> list[dict[str, Any]]:
+    """Return outgoing links that have no resolved_path (e.g. v8help:// protocol links).
+    Useful as a fallback when get_1c_help_related returns nothing."""
+    if QdrantClient is None or Filter is None or FieldCondition is None or MatchValue is None:
+        return []
+    host = qdrant_host or env_config.get_qdrant_host()
+    port = qdrant_port or env_config.get_qdrant_port()
+    topic_path = topic_path.lstrip("/")
+    path_variants = [topic_path]
+    if not topic_path.endswith(".md") and not topic_path.endswith(".html"):
+        path_variants.append(topic_path + ".md")
+        path_variants.append(topic_path + ".html")
+    client = QdrantClient(host=host, port=port, check_compatibility=False)
+    seen_titles: set[str] = set()
+    result: list[dict[str, Any]] = []
+    for pv in path_variants:
+        try:
+            must_cond = [FieldCondition(key="path", match=MatchValue(value=pv))]
+            if version:
+                must_cond.append(FieldCondition(key="version", match=MatchValue(value=version)))
+            if language:
+                must_cond.append(FieldCondition(key="language", match=MatchValue(value=language)))
+            pts, _ = client.scroll(
+                collection_name=collection,
+                scroll_filter=Filter(must=must_cond),
+                limit=10,
+                with_payload=True,
+                with_vectors=False,
+            )
+            for pt in pts:
+                payload = getattr(pt, "payload", None) or {}
+                for lnk in payload.get("outgoing_links") or []:
+                    if lnk.get("resolved_path"):
+                        continue  # already resolved — skip
+                    title = lnk.get("target_title") or lnk.get("link_text", "")
+                    if title and title not in seen_titles:
+                        seen_titles.add(title)
+                        result.append({"target_title": title, "href": lnk.get("href", "")})
             if result:
                 return result
         except Exception:

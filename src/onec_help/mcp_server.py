@@ -2,13 +2,32 @@
 
 import functools
 import inspect
+import json
 import logging
 import os
 import re
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
+
+from pydantic import BeforeValidator
+
+
+def _coerce_str_to_list(v: Any) -> Any:
+    """Allow MCP clients that serialize list params as JSON strings."""
+    if isinstance(v, str):
+        try:
+            parsed = json.loads(v)
+            if isinstance(parsed, list):
+                return parsed
+        except Exception:
+            pass
+        return [v]
+    return v
+
+
+_StrList = Annotated[list[str], BeforeValidator(_coerce_str_to_list)]
 
 from ._utils import format_duration, safe_error_message
 from .mcp_metrics import record_request as _record_mcp_request
@@ -305,6 +324,19 @@ def _should_show_low_score_hint(
     )
 
 
+def _format_result_meta(r: dict[str, Any]) -> str:
+    """Return compact metadata suffix for a search result: entity_type and top breadcrumb level."""
+    parts: list[str] = []
+    et = (r.get("entity_type") or "").strip()
+    if et:
+        parts.append(et)
+    bc = r.get("breadcrumb")
+    if bc and isinstance(bc, list) and len(bc) >= 2:
+        # Show last 2 levels: e.g. "Объекты > HTTPСоединение"
+        parts.append(" > ".join(str(x) for x in bc[-2:]))
+    return f" [{', '.join(parts)}]" if parts else ""
+
+
 def _format_memory_block(payload: dict[str, Any]) -> str:
     """Format one memory item (payload) as markdown block (title, [стандарт/пример], body, code, link)."""
     code = payload.get("code_snippet", "")
@@ -505,51 +537,37 @@ def _build_mcp_app(help_path: Path) -> Any:
             return "No results found. Ensure build-index was run and Qdrant is available."
         lines = []
         idx = 1
-        suffix = " [help]" if memory_results else ""
         for r in results:
-            lines.append(f"{idx}. **{r.get('title', '')}** (path: {r.get('path', '')}){suffix}")
+            meta = _format_result_meta(r)
+            lines.append(f"{idx}. **{r.get('title', '')}**{meta} (path: {r.get('path', '')})")
             text = r.get("text", "")[: _snippet_max_chars()]
             lines.append(f"   {text}...")
             idx += 1
         for m in memory_results:
             payload = m.get("payload", {})
-            title = payload.get("title", "") or payload.get("summary", "")[:80]
-            d = payload.get("domain", "")
-            src = (
-                " [пример]"
-                if d == "snippets"
-                else (
-                    " [инструкция]"
-                    if d == "community_help"
-                    else (" [стандарт]" if d == "standards" else " [memory]")
-                )
-            )
-            lines.append(f"{idx}. **{title}**{src}")
-            lines.append(f"   {str(payload)[: _snippet_max_chars()]}...")
+            lines.append(f"{idx}. " + _format_memory_block(payload))
             idx += 1
         return "\n".join(lines)
 
     @mcp.tool()
     @_record_mcp_tool
     def search_1c_help_keyword(
-        query: str | None = None,
-        keyword: str | None = None,
+        query: str,
         limit: int = 10,
         version: str | None = None,
         language: str | None = None,
     ) -> str:
         """Search 1C help by exact substring/BM25 in title and text (e.g. 'Формат', 'РегистрНакопления.ОстаткиИОбороты').
         Use when semantic search misses specific API names or returns irrelevant results.
-        Pass the search string as **query** or **keyword** (both accepted).
-        For code answers prefer get_1c_code_answer. For method names like Type.Method (e.g. HTTPСоединение.Получить) pass the full string.
-        limit: max results (default 10). version, language: optional filters.
+        query: the search string — pass exact API name or Type.Method (e.g. 'HTTPСоединение.Получить').
+        For code answers prefer get_1c_code_answer. limit: max results (default 10). version, language: optional filters.
         Tip: if no matches, try search_1c_help for semantic search or synonym (e.g. ПакетПолучения → ВыполнитьПакет)."""
         err = _check_rate_limit()
         if err:
             return err
-        q_raw = (query or keyword or "").strip()
+        q_raw = (query or "").strip()
         if not q_raw:
-            return "Provide query or keyword (the search string)."
+            return "Provide query (the search string, e.g. 'HTTPСоединение.Получить')."
         q, err = _truncate_if_needed(q_raw, MAX_QUERY_CHARS, "query")
         if err:
             return err
@@ -563,7 +581,8 @@ def _build_mcp_app(help_path: Path) -> Any:
             return "No keyword matches. Try search_1c_help for semantic search."
         lines = []
         for i, r in enumerate(results, 1):
-            lines.append(f"{i}. **{r.get('title', '')}** (path: {r.get('path', '')})")
+            meta = _format_result_meta(r)
+            lines.append(f"{i}. **{r.get('title', '')}**{meta} (path: {r.get('path', '')})")
             text = r.get("text", "")[: _snippet_max_chars()]
             lines.append(f"   {text}...")
         return "\n".join(lines)
@@ -614,8 +633,8 @@ def _build_mcp_app(help_path: Path) -> Any:
         language: str | None = None,
     ) -> str:
         """Get code-ready answer from 1C help in one call. Best for: 'вывод СКД в таблицу', 'Формат', etc.
-        Combines semantic + keyword search, full topic content, and memory. Prefer over search+get_topic chain.
-        Traps: ПрочитатьJSON returns Structure by default — use ПрочитатьВСоответствие=Истина for Соответствие (Получить). HTTPСоединение.Получить — server only.
+        Combines semantic + keyword search, full topic content, and memory (include_memory=True by default). Prefer over search+get_topic chain.
+        Common 1C pitfalls: (1) ПрочитатьJSON returns Структура by default — use ПрочитатьВСоответствие=Истина for Соответствие. (2) HTTPСоединение.Получить — server-side only, not on client. (3) НачатьТранзакцию must always be wrapped in Попытка/Исключение with ОтменитьТранзакцию in exception. (4) Запрос.Выполнить() inside a loop causes N queries — use batch or query outside loop. (5) ФоновоеЗадание.ПолучитьПоследнее() returns Неопределено if no previous job — check for Неопределено before accessing result.
         query: natural language or API name. limit: max topics (default 3). include_memory: also search saved snippets. code_only: if True, return primarily code blocks from help.
         Tip: if results are irrelevant, call search_1c_help_keyword with exact API name (Тип.Метод), then get_1c_help_topic for full content."""
         err = _check_rate_limit()
@@ -686,10 +705,11 @@ def _build_mcp_app(help_path: Path) -> Any:
         limit: int = 5,
         domains: str | None = None,
     ) -> str:
-        """Search only memory (snippets and standards). Returns blocks [пример] / [стандарт] by semantic similarity.
+        """Search only memory (snippets and standards). Returns blocks [пример] / [стандарт] by hybrid BM25+semantic search.
         query: search text. limit: max items (default 5). domains: optional filter — "standards", "snippets",
         "community_help", or comma-separated e.g. "standards,snippets" to get both; if omitted, searches all.
-        Use when you need guaranteed context from standards/snippets in addition to get_1c_code_answer."""
+        Memory contains: BSP patterns, platform snippets, v8std coding standards.
+        Use when you need dedicated context from standards/snippets beyond get_1c_code_answer."""
         err = _check_rate_limit()
         if err:
             return err
@@ -700,11 +720,12 @@ def _build_mcp_app(help_path: Path) -> Any:
             from .memory import get_memory_store
 
             store = get_memory_store()
+            fetch = max(limit * 2, 10)  # fetch extra for reordering
             all_items: list[dict[str, Any]] = []
             if domains:
                 domain_list = [s.strip() for s in domains.split(",") if s.strip()]
                 if domain_list:
-                    per_domain = max(1, (limit + len(domain_list) - 1) // len(domain_list))
+                    per_domain = max(2, (fetch + len(domain_list) - 1) // len(domain_list))
                     for d in domain_list:
                         all_items.extend(store.search_long(q, limit=per_domain, domain=d))
                     # Dedupe by (title, domain)
@@ -719,11 +740,20 @@ def _build_mcp_app(help_path: Path) -> Any:
                         if key not in seen:
                             seen.add(key)
                             unique.append(m)
-                    all_items = unique[:limit]
+                    all_items = unique
                 else:
-                    all_items = store.search_long(q, limit=limit)
+                    all_items = store.search_long(q, limit=fetch)
             else:
-                all_items = store.search_long(q, limit=limit)
+                all_items = store.search_long(q, limit=fetch)
+
+            # Reorder: standards and snippets first (same logic as get_1c_code_answer)
+            all_items = _order_memory_for_display(
+                all_items,
+                max_standards=max(2, limit // 2),
+                max_snippets=max(2, limit // 2),
+                max_community=max(1, limit // 3),
+                max_total=limit,
+            )
             blocks = [_format_memory_block(m.get("payload") or {}) for m in all_items]
             if not blocks:
                 return (
@@ -786,7 +816,8 @@ def _build_mcp_app(help_path: Path) -> Any:
     ) -> str:
         """Save a 1C code snippet to user memory for future context.
         code_snippet: the code to remember. description: short explanation. title: optional short label for search.
-        write_to_files: if True, also write to SNIPPETS_DIR as .md (default: SAVE_SNIPPET_TO_FILES env)."""
+        write_to_files: if True, also write to SNIPPETS_DIR as .md (default: SAVE_SNIPPET_TO_FILES env).
+        Note: snippet becomes searchable via search_1c_memory after memory flush (usually within seconds when MEMORY_ENABLED=1)."""
         err = _check_rate_limit()
         if err:
             return err
@@ -866,13 +897,21 @@ def _build_mcp_app(help_path: Path) -> Any:
         Returns: module_type (FormModule|ObjectModule|...), form_name, object_name if detectable."""
         parts = _path_parts(uri_or_path)
         name = parts[-1] if parts else ""
-        module_type = (
-            "ObjectModule"
-            if name == "ObjectModule.bsl"
-            else "FormModule"
-            if name == "Module.bsl"
-            else "Unknown"
-        )
+        _MODULE_NAMES = {
+            "ObjectModule.bsl": "ObjectModule",
+            "Module.bsl": "FormModule",
+            "ManagerModule.bsl": "ManagerModule",
+            "RecordSetModule.bsl": "RecordSetModule",
+            "CommonModule.bsl": "CommonModule",
+            "ManagedApplicationModule.bsl": "ManagedApplicationModule",
+            "OrdinaryApplicationModule.bsl": "OrdinaryApplicationModule",
+            "SessionModule.bsl": "SessionModule",
+            "ExternalConnectionModule.bsl": "ExternalConnectionModule",
+            "CommandModule.bsl": "CommandModule",
+            "HTTPServiceModule.bsl": "HTTPServiceModule",
+            "WSDLModule.bsl": "WSDLModule",
+        }
+        module_type = _MODULE_NAMES.get(name, "Unknown")
         form_name = ""
         object_name = ""
         if "Forms" in parts:
@@ -881,7 +920,16 @@ def _build_mcp_app(help_path: Path) -> Any:
                 form_name = parts[idx + 1]
             if module_type == "Unknown":
                 module_type = "FormModule"
-        for obj_type in ("DataProcessors", "Catalogs", "Documents"):
+        _OBJ_TYPES = (
+            "Catalogs", "Documents", "DataProcessors", "Reports",
+            "CommonModules", "ExchangePlans", "InformationRegisters",
+            "AccumulationRegisters", "AccountingRegisters", "CalculationRegisters",
+            "BusinessProcesses", "Tasks", "ChartsOfCharacteristicTypes",
+            "ChartsOfAccounts", "ChartsOfCalculationTypes", "Constants",
+            "Enumerations", "SettingsStorages", "Subsystems", "Sequences",
+            "ScheduledJobs", "WebServices", "HTTPServices", "ExternalDataSources",
+        )
+        for obj_type in _OBJ_TYPES:
             if obj_type in parts:
                 idx = parts.index(obj_type)
                 if idx + 1 < len(parts):
@@ -904,12 +952,11 @@ def _build_mcp_app(help_path: Path) -> Any:
         object_type: str | None = None,
         limit: int = 20,
     ) -> str:
-        """Search 1C configuration metadata graph (objects) by name (semantic + keyword).
-
-        query: поисковый запрос (естественный язык или часть имени объекта).
-        config_version: версия конфигурации (опционально: при одной версии в графе подставляется автоматически).
-        object_type: фильтр по типу объекта (Document, Catalog, Register..., опционально).
-        """
+        """Search 1C configuration metadata graph (Documents, Catalogs, Registers, etc.) by name.
+        Requires prior run of metadata-graph-build CLI command for your config export.
+        query: natural language or partial object name (e.g. 'Реализация', 'Document').
+        config_version: config version from the export (e.g. '3.0.184.16'); auto-detected if only one config loaded.
+        object_type: optional filter — 'Document', 'Catalog', 'InformationRegister', etc."""
         err = _check_rate_limit()
         if err:
             return err
@@ -1010,7 +1057,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         """Get detailed info about a single configuration object from metadata graph.
 
         object_id: identifier from search_1c_metadata (payload.id, e.g. 'Document/РеализацияТоваровУслуг').
-        config_version: optional — version of the configuration (e.g. 3.0.184.16). Required if the collection has multiple configs.
+        config_version: optional filter (e.g. '3.0.184.16'). If omitted, returns first match across all loaded configs.
         """
         err = _check_rate_limit()
         if err:
@@ -1025,13 +1072,9 @@ def _build_mcp_app(help_path: Path) -> Any:
         cfg_ver = (config_version or "").strip()
         if not cfg_ver:
             versions = get_metadata_config_versions()
-            if len(versions) > 1:
-                return (
-                    "Specify config_version (e.g. 3.0.184.16). "
-                    "The metadata collection has multiple configurations."
-                )
             if len(versions) == 1:
                 cfg_ver = versions[0]
+            # Если версий несколько — ищем без фильтра (вернёт первое совпадение).
 
         obj = get_metadata_object(
             object_id.strip(),
@@ -1174,14 +1217,31 @@ def _build_mcp_app(help_path: Path) -> Any:
             language=language,
         )
         if not items:
-            return "No related topics found for this path."
+            # Fallback: surface unresolved link titles so the AI can follow up
+            from .indexer import get_1c_help_unresolved_links as _get_unresolved
+
+            unresolved = _get_unresolved(topic, version=version, language=language)
+            if unresolved:
+                lines = ["No resolved topic paths found for outgoing links, but these titles may be searchable:"]
+                for lnk in unresolved[:10]:
+                    title = lnk.get("target_title") or lnk.get("link_text", "")
+                    if title:
+                        lines.append(f"- **{title}** (use search_1c_help_keyword to find)")
+                return "\n".join(lines)
+            stem = topic.split("/")[-1].replace(".html", "").replace(".md", "")
+            return (
+                "No related topics found for this path. outgoing_links may not be populated for all topics. "
+                f"Try: search_1c_help_keyword(query=\"{stem}\") to find related topics by name."
+            )
         lines = [f"- **{r.get('title', '')}** — `{r.get('path', '')}`" for r in items]
         return "\n".join(lines)
 
     @mcp.tool()
     @_record_mcp_tool
     def list_1c_help_titles(limit: int = 100, path_prefix: str = "") -> str:
-        """List topic titles and paths for browsing. path_prefix: filter by path start (e.g. 'zif' for command-line params)."""
+        """List topic titles and paths for browsing. path_prefix: filter by path start.
+        Paths in index have format '<version>/<stem>/<rel_path>' (e.g. '8.3.27.1859/shcntx_ru/zif/...').
+        Use path_prefix like '8.3' to filter by version, or leave empty to browse all topics."""
         items = _list_titles(limit=limit, path_prefix=path_prefix)
         if not items:
             return "No topics in index or prefix filter too strict."
@@ -1352,12 +1412,12 @@ def _build_mcp_app(help_path: Path) -> Any:
         symbol_name: str | None = None,
         limit: int = 5,
     ) -> str:
-        """Build combined context (help topics, snippets/standards, metadata) for a 1C task.
-
-        query: текст запроса или имя API.
-        config_version: версия конфигурации, для которой нужно подбирать объекты (как в выгрузке).
-        file_uri, symbol_name: опциональные подсказки (текущий модуль/символ) — пока используются только как метаданные.
-        """
+        """Build combined context (help topics, snippets/standards, metadata) for a 1C task in one call.
+        Use instead of calling search_1c_help + search_1c_memory + search_1c_metadata separately.
+        query: main search text or API name — the primary search term.
+        config_version: configuration version for metadata lookup (e.g. '3.0.184.16'); optional if one config loaded.
+        file_uri, symbol_name: accepted but not yet used for navigation — pass query as the main search term.
+        limit: max items per source (default 5)."""
         err = _check_rate_limit()
         if err:
             return err
@@ -1510,23 +1570,104 @@ def _build_mcp_app(help_path: Path) -> Any:
                 return content
         return "No topic found for this name. Try search_1c_help or search_1c_help_keyword first."
 
+    @mcp.tool()
+    @_record_mcp_tool
+    def get_1c_help_topics_bulk(
+        paths: _StrList,
+        max_chars_per_topic: int = 4000,
+        version: str | None = None,
+        language: str | None = None,
+    ) -> str:
+        """Get full content of multiple help topics in one call. More efficient than N separate get_1c_help_topic calls.
+        paths: list of topic paths from search results (up to 10). Silently skips paths not found.
+        max_chars_per_topic: truncation limit per topic (default 4000, same as get_1c_code_answer). 0 = no limit.
+        version, language: optional filters when reading from index.
+        Tip: get paths from search_1c_help_keyword or search_1c_help first."""
+        err = _check_rate_limit()
+        if err:
+            return err
+        if not paths:
+            return "Provide at least one path in paths list."
+        paths = paths[:10]  # hard limit
+        parts: list[str] = []
+        not_found: list[str] = []
+        for p in paths:
+            p = (p or "").strip()
+            if not p:
+                continue
+            content = _get_topic(p, version=version, language=language, prefer_index=False)
+            if content:
+                if max_chars_per_topic > 0 and len(content) > max_chars_per_topic:
+                    content = content[:max_chars_per_topic] + "\n\n..."
+                parts.append(f"---\n## {p}\n\n{content}")
+            else:
+                not_found.append(p)
+        if not parts:
+            return "No topics found for the provided paths. Check paths from search results."
+        result = "\n\n".join(parts)
+        if not_found:
+            result += f"\n\n*Not found ({len(not_found)}): {', '.join(not_found[:5])}*"
+        return result
+
+    @mcp.tool()
+    @_record_mcp_tool
+    def get_1c_quick_guide(task: str = "develop") -> str:
+        """Returns a compact action guide for working with 1C/BSL using this MCP. Call this at the start of a 1C task to get the recommended workflow.
+        task: 'develop' (default) — code examples, API lookup, snippets; 'refactor' — navigation and rename; 'test' — diagnostics and commit checklist; 'all' — full guide.
+        This tool is designed for autonomous AI invocation (unlike the prompt version which targets user invocation)."""
+        _guide_develop = (
+            "1C-HELP DEVELOP WORKFLOW:\n"
+            "1. get_1c_code_answer(query, include_memory=True) — start here for any code question.\n"
+            "2. If weak: search_1c_help_keyword('Тип.Метод') → get_1c_help_topic(topic_path=<path>). Note: param is topic_path, not path.\n"
+            "3. Need multiple topics: get_1c_help_topics_bulk(paths=[...]).\n"
+            "4. Need standards: search_1c_memory(query, domains='standards,snippets').\n"
+            "5. Check index health: get_1c_help_index_status.\n"
+            "6. After working code: save_1c_snippet(code_snippet, description, title).\n"
+            "Key pitfalls: ПрочитатьJSON→Структура (use ПрочитатьВСоответствие=Истина for Соответствие); "
+            "HTTPСоединение.Получить server-only; НачатьТранзакцию needs Попытка+ОтменитьТранзакцию."
+        )
+        _guide_refactor = (
+            "1C-HELP REFACTOR WORKFLOW:\n"
+            "1. project_analysis(analysis_type='workspace_symbols', query='Name') — find symbol.\n"
+            "2. symbol_explore(query='Name') or get_range_content(uri, start_line, ...) — see code.\n"
+            "3. document_diagnostics(uri) — check after each edit.\n"
+            "4. Rename: prepare_rename(uri, line, char) → rename(..., apply=True). Coords are 0-based.\n"
+            "5. Batch edits: did_change_watched_files(language='bsl', changes_json=[{uri, type:2}]).\n"
+            "URI: Docker → file:///projects/<path>. Cyrillic → URL-encode."
+        )
+        _guide_test = (
+            "1C-HELP TEST WORKFLOW:\n"
+            "1. document_diagnostics(uri) after every code edit — fix all ERROR/WARNING.\n"
+            "2. URI: Docker → file:///projects/<path>; local → full file URI. Cyrillic → URL-encode.\n"
+            "3. Before commit: (a) справка использована? (b) diagnostics без ERROR? (c) save_1c_snippet для нового кода?"
+        )
+        if task == "develop":
+            return _guide_develop
+        if task == "refactor":
+            return _guide_refactor
+        if task == "test":
+            return _guide_test
+        return f"{_guide_develop}\n\n{_guide_refactor}\n\n{_guide_test}"
+
     @mcp.prompt
     def how_to_use_1c_help_and_bsl_bridge(task: str = "all") -> str:
         """Returns instructions for using 1c-help and lsp-bsl-bridge MCP. task: 'all' (default) = full text; 'develop' | 'refactor' | 'test' = only the relevant block (fewer tokens). Call in a new 1C chat and paste the result into the first message."""
         block_develop = """1c-HELP + LSP — DEVELOP (code examples, API, snippets)
-- get_1c_code_answer(query, include_memory=True) first. If weak/irrelevant → search_1c_help_keyword(\"Тип.Метод\") → get_1c_help_topic(topic_path) using the path from results. Parameter is topic_path, not path.
-- Need standards/snippets explicitly: search_1c_memory(query, domains=\"standards,snippets\") in addition to get_1c_code_answer.
-- Empty or poor help results: get_1c_help_index_status → then search_1c_help_keyword with exact API name (Тип.Метод).
+- get_1c_code_answer(query, include_memory=True) first. If weak/irrelevant → search_1c_help_keyword("Тип.Метод") → get_1c_help_topic(topic_path=<path>) using the path from results. Correct: get_1c_help_topic(topic_path="Format971.md"). Wrong: get_1c_help_topic(path=...).
+- Need standards/snippets explicitly: search_1c_memory(query, domains="standards,snippets") in addition to get_1c_code_answer.
+- Empty or poor help results: first call get_1c_help_index_status to verify index → then search_1c_help_keyword with exact API name (Тип.Метод).
 - After working code: save_1c_snippet(code_snippet, description, title).
-- get_form_metadata(xml_content): full Form.xml with xmlns. get_module_info(uri_or_path): path to Module.bsl or ObjectModule.bsl.
-- URI (lsp): Docker → file:///projects/<path>; Cyrillic paths → URL-encoding. After edit: document_diagnostics(uri) until no ERROR/WARNING."""
+- get_form_metadata(xml_content): pass full Form.xml with all xmlns declarations. get_module_info(uri_or_path): path to Module.bsl or ObjectModule.bsl.
+- URI (lsp): Docker → file:///projects/<path>; Cyrillic in path → URL-encoding (e.g. /Менеджер/ → /%D0%9C%D0%B5%D0%BD%D0%B5%D0%B4%D0%B6%D0%B5%D1%80/). After edit: document_diagnostics(uri) until no ERROR/WARNING."""
         block_refactor = """LSP-BSL-BRIDGE — REFACTOR (navigation, rename)
-- URI: file:///projects/<path> (Docker). Cyrillic → URL-encoding. Main navigation: project_analysis(analysis_type="workspace_symbols", query="Name") → symbol_explore(query="Name") or get_range_content(uri, start_line, ...). definition/hover/call_graph often empty — use as optional.
+- URI: file:///projects/<path> (Docker). Cyrillic in path must be URL-encoded (e.g. /МойМодуль/ → /%D0%9C%D0%BE%D0%B9%D0%9C%D0%BE%D0%B4%D1%83%D0%BB%D1%8C/).
+- Main navigation: project_analysis(analysis_type="workspace_symbols", query="Name") → symbol_explore(query="Name") or get_range_content(uri, start_line, ...). definition/hover/call_graph often return empty — they require exact symbol position (0-based line/character) and may not find all symbols; use as optional, not primary.
+- Coordinates are 0-based (line 0 = first line). Use "Recommended hover coordinate" from project_analysis output.
 - Flow: project_analysis → edit one file → document_diagnostics(uri) → after batch: did_change_watched_files(language="bsl", changes_json=[{"uri":"file:///...", "type":2}]).
 - Rename: prepare_rename(uri, line, character) then rename(..., new_name, apply=True). Coordinates 0-based from project_analysis."""
         block_test = """LSP-BSL-BRIDGE — TEST (diagnostics)
 - After any code edit: document_diagnostics(uri) → fix until no ERROR/WARNING. URI: file:///projects/<path> (Docker) or full file URI locally; Cyrillic paths → URL-encoding.
-- Checklist before commit: get_1c_code_answer/search_1c_help_keyword used if needed? document_diagnostics clean? save_1c_snippet after new reusable code?"""
+- Checklist before commit: get_1c_code_answer/search_1c_help_keyword used if needed? document_diagnostics clean (no ERROR/WARNING)? save_1c_snippet after new reusable code?"""
         if task == "develop":
             return block_develop
         if task == "refactor":
@@ -1542,28 +1683,41 @@ def _build_mcp_app(help_path: Path) -> Any:
 
 ---
 2) 1c-HELP — ORDER OF CALLS
-- Code examples: get_1c_code_answer(query, include_memory=True) first. If irrelevant or weak → search_1c_help_keyword with exact API name (e.g. "МенеджерКриптографии.Подписать") → get_1c_help_topic(topic_path) using the path from results. Important: parameter is topic_path, not path.
+- Code examples: get_1c_code_answer(query, include_memory=True) first. If irrelevant or weak → search_1c_help_keyword with exact API name (e.g. "МенеджерКриптографии.Подписать") → get_1c_help_topic(topic_path=<path>) using path from results. IMPORTANT: parameter is topic_path, not path. Example: get_1c_help_topic(topic_path="8.3.27/shcntx_ru/...CryptoManager.html").
 - Need explicit standards/snippets: search_1c_memory(query, domains="standards,snippets") in addition to get_1c_code_answer.
-- Empty or poor results: get_1c_help_index_status (check index, memory and metadata) → then search_1c_help_keyword with exact Тип.Метод.
+- Empty or poor results: call get_1c_help_index_status first to check index health → then search_1c_help_keyword with exact Тип.Метод.
 - After working code: save_1c_snippet(code_snippet, description, title).
-- get_form_metadata(xml_content): pass full Form.xml with all xmlns; truncated XML fails. get_module_info(uri_or_path): path to Module.bsl or ObjectModule.bsl.
+- get_form_metadata(xml_content): pass full Form.xml with all xmlns; truncated XML returns empty attributes. get_module_info(uri_or_path): path to Module.bsl or ObjectModule.bsl.
 - For methods always use full Тип.Метод in search_1c_help_keyword and get_1c_function_info.
+- search_1c_memory(domains=...) is needed when: get_1c_code_answer returns no memory block, or you need standards/snippets specifically (e.g. for code review against standards). Use domains="standards" for style rules, "snippets" for code examples.
 
 ---
 3) LSP-BSL-BRIDGE — ORDER OF CALLS
 - After any code edit: document_diagnostics(uri) → fix until no ERROR/WARNING.
-- URI (single format): Docker (volume .:/projects) → file:///projects/<path>; locally → full file URI. Paths with Cyrillic must be URL-encoded in URI.
-- Navigation (primary): project_analysis(analysis_type="workspace_symbols", query="SymbolName") → symbol_explore(query="SymbolName") or get_range_content(uri, start_line, start_character, end_line, end_character). definition, hover, call_graph, call_hierarchy often return empty — treat as optional; do not rely on them as the main way to navigate.
+- URI (single format): Docker (volume .:/projects) → file:///projects/<path>; locally → full file URI. Paths with Cyrillic MUST be URL-encoded: /МойМодуль/ → /%D0%9C%D0%BE%D0%B9%D0%9C%D0%BE%D0%B4%D1%83%D0%BB%D1%8C/
+- Coordinates are 0-based (first line = 0, first character = 0). Use "Recommended hover coordinate" from project_analysis output for definition/hover/call_graph.
+- Navigation (primary): project_analysis(analysis_type="workspace_symbols", query="SymbolName") → symbol_explore(query="SymbolName") or get_range_content(uri, start_line, start_character, end_line, end_character). definition, hover, call_graph, call_hierarchy often return empty — they require exact symbol position and may fail even with correct coords; treat as optional.
 - Refactoring: project_analysis first → edit one file → document_diagnostics → after batch: did_change_watched_files(language="bsl", changes_json=[{"uri":"file:///...", "type":2}]).
 
 ---
-4) METADATA (1c-help)
-- search_1c_metadata(query, config_version=None, object_type=None, limit=20): if config_version is given — search only that config; if omitted and multiple versions exist, search across all and mark each line with config_version. Use this to compare objects between configurations/versions.
-- get_1c_metadata_object(object_id, config_version=None): details for one object (requisites, tabular sections). Prefer passing the config_version from search_1c_metadata output to avoid ambiguity.
-- get_1c_context_bundle(query, config_version=None, file_uri=None, symbol_name=None): combined context (help + memory + metadata). With multiple configs, pass config_version explicitly when you want a specific configuration.
+4) COMMON 1C PITFALLS
+- ПрочитатьJSON: returns Структура by default. For Соответствие: ПрочитатьJSON(reader, , , Истина) or use ПрочитатьВСоответствие=Истина parameter.
+- HTTPСоединение.Получить: server-side only. Not available on thin client or web client.
+- Transactions: НачатьТранзакцию MUST be in Попытка block with ОтменитьТранзакцию in Исключение.
+- Запрос in loop: avoid Запрос.Выполнить() inside loops — causes N separate DB queries. Move query outside loop.
+- ФоновоеЗадание.ПолучитьПоследнее: returns Неопределено if no previous job. Always check before accessing result.
+- РасписаниеРегламентногоЗадания: set Ложь for all unused period fields, otherwise job may not start.
+- УстановитьПривилегированныйРежим: don't use for every operation — it disables RLS for the entire procedure.
 
-5) LIMITS (1c-help)
-- query and xml_content: up to 64 KB. Topic content in get_1c_code_answer: MCP_MAX_TOPIC_CHARS (default 4000). Full report: docs/mcp-1c-help-tools-report.md."""
+---
+5) METADATA (1c-help)
+- search_1c_metadata(query, config_version=None, object_type=None, limit=20): if config_version is given — search only that config; if omitted and multiple versions exist, search across all.
+- get_1c_metadata_object(object_id, config_version=None): details for one object (requisites, tabular sections). Pass config_version from search_1c_metadata to avoid ambiguity.
+- get_1c_context_bundle(query, config_version=None): combined context (help + memory + metadata). file_uri and symbol_name are accepted but not yet used for navigation — use query as main search term.
+
+---
+6) LIMITS
+- query and xml_content: up to 64 KB. Topic content in get_1c_code_answer: MCP_MAX_TOPIC_CHARS (default 4000). Full topic: get_1c_help_topic(topic_path). Bulk topics: get_1c_help_topics_bulk(paths=[...]). Full report: docs/mcp-1c-help-tools-report.md."""
 
     @mcp.prompt
     def get_mcp_workflow_guide() -> str:
@@ -1592,7 +1746,222 @@ def _build_mcp_app(help_path: Path) -> Any:
         ]
         return "\n\n".join(parts)
 
+    @mcp.prompt
+    def get_1c_common_pitfalls() -> str:
+        """Returns a structured list of common 1C/BSL coding pitfalls with wrong vs. correct examples. Call when writing or reviewing 1C code to avoid typical mistakes."""
+        return """\
+# Типичные ловушки 1С/BSL — шпаргалка
+
+## 1. ПрочитатьJSON → Структура вместо Соответствия
+```bsl
+// Неверно — вернёт Структуру (ключи без спецсимволов, порядок потеряется):
+Рез = ПрочитатьJSON(Поток);
+
+// Верно — получить Соответствие:
+Рез = ПрочитатьJSON(Поток, , , Истина);
+// или
+Чтение = Новый ЧтениеJSON;
+Чтение.УстановитьСтроку(СтрокаJSON);
+Рез = ПрочитатьJSON(Чтение, Истина);
+```
+
+## 2. HTTPСоединение — только на сервере
+```bsl
+// Неверно — вызов с клиента или формы без директивы:
+&НаКлиенте
+Процедура ПроверитьСоединение()
+    Соед = Новый HTTPСоединение("example.com"); // ошибка на клиенте!
+
+// Верно — переносить на сервер:
+&НаСервере
+Функция ПолучитьДанные()
+    Соед = Новый HTTPСоединение("example.com");
+```
+
+## 3. НачатьТранзакцию без Попытки
+```bsl
+// Неверно:
+НачатьТранзакцию();
+ОбъектЗаписи.Записать();
+ЗафиксироватьТранзакцию();
+
+// Верно:
+НачатьТранзакцию();
+Попытка
+    ОбъектЗаписи.Записать();
+    ЗафиксироватьТранзакцию();
+Исключение
+    ОтменитьТранзакцию();
+    ВызватьИсключение;
+КонецПопытки;
+```
+
+## 4. Запрос.Выполнить() внутри цикла
+```bsl
+// Неверно — N запросов к БД:
+Для Каждого Строка Из Массив Цикл
+    Запрос = Новый Запрос("ВЫБРАТЬ ... ГДЕ Ссылка = &Ссылка");
+    Запрос.УстановитьПараметр("Ссылка", Строка);
+    Рез = Запрос.Выполнить();
+КонецЦикла;
+
+// Верно — один запрос с массивом:
+Запрос = Новый Запрос("ВЫБРАТЬ ... ГДЕ Ссылка В (&Массив)");
+Запрос.УстановитьПараметр("Массив", Массив);
+Рез = Запрос.Выполнить();
+```
+
+## 5. ФоновоеЗадание.ПолучитьПоследнее() → Неопределено
+```bsl
+// Неверно:
+ФЗ = ФоновыеЗадания.ПолучитьПоследнее(Ключ);
+Статус = ФЗ.Состояние; // ошибка если ФЗ = Неопределено
+
+// Верно:
+ФЗ = ФоновыеЗадания.ПолучитьПоследнее(Ключ);
+Если ФЗ <> Неопределено Тогда
+    Статус = ФЗ.Состояние;
+КонецЕсли;
+```
+
+## 6. РасписаниеРегламентногоЗадания — неполные настройки
+```bsl
+// Неверно — задание может не запуститься если не все поля заполнены:
+Расписание = Новый РасписаниеРегламентногоЗадания;
+Расписание.ПериодПовтораВДень = 3600;
+// Остальные поля по умолчанию Неопределено — поведение непредсказуемо
+
+// Верно — явно задать все используемые поля:
+Расписание = Новый РасписаниеРегламентногоЗадания;
+Расписание.ПериодПовтораВДень = 3600;
+Расписание.ДатаОкончания = '00010101'; // без ограничения
+Расписание.ДниНедели = 127; // все дни
+```
+
+## 7. УстановитьПривилегированныйРежим — отключает RLS для всей процедуры
+```bsl
+// Неверно — использовать везде «для удобства»:
+УстановитьПривилегированныйРежим(Истина);
+// ... весь код без RLS ...
+УстановитьПривилегированныйРежим(Ложь);
+
+// Верно — оборачивать только минимально необходимый блок:
+УстановитьПривилегированныйРежим(Истина);
+ЗначениеДляСистемы = ПолучитьСистемноеЗначение();
+УстановитьПривилегированныйРежим(Ложь);
+```
+
+## 8. СтрокаСоединения — путаница между СтрокиОчистить и Строки (метод таблицы значений)
+```bsl
+// Неверно — СтрокиОчистить очищает строки в таблице:
+ТЗ.СтрокиОчистить(); // удаляет ВСЕ строки!
+
+// Если нужно очистить значения в конкретной строке:
+Для Каждого КолонкаТЗ Из ТЗ.Колонки Цикл
+    Строка[КолонкаТЗ.Имя] = КолонкаТЗ.ТипЗначения.ПривестиЗначение(Неопределено);
+КонецЦикла;
+```
+
+## 9. ОбщийМодуль без явной директивы контекста
+```bsl
+// Неверно — без директив 1С определяет контекст по настройкам модуля:
+// В общем модуле с «Клиент» и «Сервер» — функции дублируются
+Функция МояФункция() // вызовется и на клиенте и на сервере
+
+// Верно — явно указать директиву или вынести в отдельный модуль:
+&НаСервере
+Функция МояФункцияНаСервере()
+```
+
+## 10. Сравнение дат: неправильный пустой год
+```bsl
+// Неверно — пустая дата это '00010101' в 1С, а не '':
+Если Дата = "" Тогда // всегда Ложь — дата никогда не равна строке
+
+// Верно:
+Если НЕ ЗначениеЗаполнено(Дата) Тогда
+// или
+Если Дата = '00010101' Тогда
+```
+
+## 11. get_1c_code_answer — подсказка по поиску
+Если ответ нерелевантен:
+1. search_1c_help_keyword("Тип.Метод") с точным именем API
+2. get_1c_help_topic(topic_path=<path>) из результатов
+3. get_1c_help_topics_bulk(paths=[...]) для нескольких топиков сразу
+"""
+
     return mcp
+
+
+def _create_multi_transport_app(mcp: "FastMCP", mcp_path: str = "/mcp") -> "Any":
+    """Create a single ASGI app that serves both streamable-http and SSE transports.
+
+    Routes:
+      {mcp_path}          → streamable-http (modern MCP, used by Cursor / Claude Code)
+      /sse                → SSE transport endpoint (legacy clients)
+      /messages           → SSE message POST endpoint
+
+    Both transports share the same FastMCP instance and single lifespan.
+    """
+    from contextlib import asynccontextmanager
+
+    try:
+        from fastmcp.server.http import (
+            SseServerTransport,
+            StreamableHTTPASGIApp,
+            StreamableHTTPSessionManager,
+            create_base_app,
+        )
+        from starlette.requests import Request
+        from starlette.responses import Response
+        from starlette.routing import Mount, Route
+    except ImportError as exc:  # pragma: no cover
+        raise RuntimeError("fastmcp>=2.0 required for multi-transport mode") from exc
+
+    sse_path = "/sse"
+    message_path = "/messages"
+
+    # --- streamable-http ---
+    session_manager = StreamableHTTPSessionManager(
+        app=mcp._mcp_server,
+        json_response=False,
+        stateless=False,
+    )
+    streamable_app = StreamableHTTPASGIApp(session_manager)
+
+    # --- SSE ---
+    sse_transport = SseServerTransport(message_path)
+
+    async def _handle_sse_raw(scope: "Any", receive: "Any", send: "Any") -> Response:
+        async with sse_transport.connect_sse(scope, receive, send) as streams:
+            await mcp._mcp_server.run(
+                streams[0],
+                streams[1],
+                mcp._mcp_server.create_initialization_options(),
+            )
+        return Response()
+
+    async def sse_endpoint(request: Request) -> Response:
+        return await _handle_sse_raw(request.scope, request.receive, request._send)
+
+    routes = [
+        Route(mcp_path, endpoint=streamable_app),
+        Route(sse_path, endpoint=sse_endpoint, methods=["GET"]),
+        Mount(message_path, app=sse_transport.handle_post_message),
+    ]
+    # Extra routes registered on the FastMCP instance (e.g. health-check)
+    routes.extend(mcp._get_additional_http_routes())
+
+    @asynccontextmanager
+    async def lifespan(app: "Any"):  # type: ignore[override]
+        async with mcp._lifespan_manager(), session_manager.run():
+            yield
+
+    combined = create_base_app(routes=routes, middleware=[], lifespan=lifespan)
+    combined.state.fastmcp_server = mcp
+    combined.state.transport_type = "multi"
+    return combined
 
 
 def run_mcp(
@@ -1603,12 +1972,31 @@ def run_mcp(
     path: str = "/mcp",
 ) -> None:
     """Run MCP server. help_path: directory with .md or HTML.
-    transport: stdio | sse | http | streamable-http. For http/sse, host/port/path used."""
+    transport: stdio | sse | http | streamable-http | multi.
+    'multi' serves both streamable-http (at path) and SSE (/sse + /messages) simultaneously.
+    For http/sse/streamable-http/multi, host/port/path are used."""
     mcp = _build_mcp_app(help_path)
-    if transport in ("sse", "http", "streamable-http"):
+    _log = logging.getLogger(__name__)
+    if transport == "multi":
         path_val = (path or "/mcp").rstrip("/") or "/mcp"
         port_int = int(port) if port is not None else 8050
-        _log = logging.getLogger(__name__)
+        _log.info(
+            "MCP multi-transport on %s:%s — streamable-http at %s, SSE at /sse",
+            host,
+            port_int,
+            path_val,
+        )
+        try:
+            import uvicorn
+
+            asgi_app = _create_multi_transport_app(mcp, mcp_path=path_val)
+            uvicorn.run(asgi_app, host=host, port=port_int, log_level="info")
+        except Exception as e:
+            _log.exception("MCP server exited: %s", safe_error_message(e))
+            raise
+    elif transport in ("sse", "http", "streamable-http"):
+        path_val = (path or "/mcp").rstrip("/") or "/mcp"
+        port_int = int(port) if port is not None else 8050
         _log.info("MCP listening on %s:%s%s (%s)", host, port_int, path_val, transport)
         try:
             mcp.run(transport=transport, host=host, port=port_int, path=path_val)
@@ -1636,7 +2024,7 @@ def _main() -> None:
     p.add_argument(
         "--transport",
         default=None,
-        help="MCP transport: stdio, sse, http, streamable-http (default: env MCP_TRANSPORT or streamable-http)",
+        help="MCP transport: stdio, sse, http, streamable-http, multi (default: env MCP_TRANSPORT or streamable-http). 'multi' serves streamable-http + SSE simultaneously.",
     )
     p.add_argument("--host", default=None, help="Host for HTTP (default: env MCP_HOST or 0.0.0.0)")
     p.add_argument("--port", type=int, default=None, help="Port (default: env MCP_PORT or 8050)")

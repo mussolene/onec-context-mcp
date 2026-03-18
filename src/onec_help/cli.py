@@ -1445,40 +1445,60 @@ def _bm25_vocab_dir() -> Path:
 
 
 def cmd_qdrant_backup(args: argparse.Namespace) -> int:
-    """Создать снапшот коллекции и сохранить в data/backup/; копировать BM25 vocab."""
+    """Создать снапшоты всех коллекций onec_* и сохранить в data/backup/; копировать BM25 vocab.
+
+    По умолчанию бэкапятся коллекции:
+    - onec_help
+    - onec_help_memory
+    - onec_config_metadata
+    """
     import shutil
     import urllib.request
     from datetime import datetime
 
     host = env_config.get_qdrant_host()
     port = env_config.get_qdrant_port()
-    collection = env_config.get_qdrant_collection()
     base = f"http://{host}:{port}"
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    collections = ["onec_help", "onec_help_memory", "onec_config_metadata"]
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    any_ok = False
+
     try:
-        # 1. Create snapshot
-        req = urllib.request.Request(
-            f"{base}/collections/{collection}/snapshots",
-            data=b"",
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=300) as resp:
-            data = json.loads(resp.read().decode())
-        name = data.get("result", {}).get("name")
-        if not name:
-            print("Error: no snapshot name in response", file=sys.stderr)
-            return 1
+        for coll in collections:
+            # 1. Create snapshot for collection (ignore 404/not found).
+            try:
+                req = urllib.request.Request(
+                    f"{base}/collections/{coll}/snapshots",
+                    data=b"",
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=300) as resp:
+                    data = json.loads(resp.read().decode())
+                name = data.get("result", {}).get("name")
+                if not name:
+                    print(f"Error: no snapshot name for collection {coll}", file=sys.stderr)
+                    continue
+            except Exception as e:
+                print(f"Error creating snapshot for {coll}: {e}", file=sys.stderr)
+                continue
 
-        # 2. Download snapshot
-        ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-        out_path = out_dir / f"onec_help-{ts}.snapshot"
-        req = urllib.request.Request(f"{base}/collections/{collection}/snapshots/{name}")
-        with urllib.request.urlopen(req, timeout=600) as resp:
-            out_path.write_bytes(resp.read())
+            # 2. Download snapshot
+            out_path = out_dir / f"{coll}-{ts}.snapshot"
+            try:
+                req = urllib.request.Request(
+                    f"{base}/collections/{coll}/snapshots/{name}",
+                )
+                with urllib.request.urlopen(req, timeout=600) as resp:
+                    out_path.write_bytes(resp.read())
+                print(f"Backup saved for {coll}: {out_path}")
+                any_ok = True
+            except Exception as e:
+                print(f"Error downloading snapshot for {coll}: {e}", file=sys.stderr)
 
-        # 3. Copy BM25 vocab (for keyword search after restore)
+        # 3. Copy BM25 vocab (for keyword search after restore) once
         vocab_src = _bm25_vocab_dir()
         vocab_dst = out_dir / "bm25_vocab"
         if vocab_src.is_dir():
@@ -1486,7 +1506,10 @@ def cmd_qdrant_backup(args: argparse.Namespace) -> int:
                 shutil.rmtree(vocab_dst)
             shutil.copytree(vocab_src, vocab_dst)
             print(f"BM25 vocab copied: {vocab_dst}")
-        print(f"Backup saved: {out_path}")
+
+        if not any_ok:
+            print("Error: no snapshots were created", file=sys.stderr)
+            return 1
         return 0
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -1494,47 +1517,64 @@ def cmd_qdrant_backup(args: argparse.Namespace) -> int:
 
 
 def cmd_qdrant_restore(args: argparse.Namespace) -> int:
-    """Восстановить коллекцию из снапшота и BM25 vocab при наличии."""
+    """Восстановить коллекции из снапшотов и BM25 vocab при наличии.
+
+    По умолчанию восстанавливает все коллекции onec_* из последних снапшотов в backup-dir.
+    При указании --file поведение остаётся прежним: восстанавливается только одна коллекция
+    из заданного файла снапшота (в collection из env).
+    """
     import shutil
     import urllib.request
 
     host = env_config.get_qdrant_host()
     port = env_config.get_qdrant_port()
-    collection = env_config.get_qdrant_collection()
     base = f"http://{host}:{port}"
     backup_dir = Path(args.backup_dir)
 
+    # Режим совместимости: если явно указан файл — восстановить только collection из env.
     if args.file:
+        collection = env_config.get_qdrant_collection()
         snap_path = Path(args.file)
         if not snap_path.is_file():
             print(f"Error: file not found: {snap_path}", file=sys.stderr)
             return 1
+        targets = [(collection, snap_path)]
     else:
-        snaps = sorted(backup_dir.glob("onec_help-*.snapshot"), reverse=True)
-        if not snaps:
-            print(f"Error: no snapshots in {backup_dir}", file=sys.stderr)
+        # По умолчанию: восстанавливаем все известные коллекции onec_* из последних снапшотов.
+        collections = ["onec_help", "onec_help_memory", "onec_config_metadata"]
+        targets: list[tuple[str, Path]] = []
+        for coll in collections:
+            snaps = sorted(backup_dir.glob(f"{coll}-*.snapshot"), reverse=True)
+            if not snaps:
+                print(f"No snapshots for collection {coll} in {backup_dir}", file=sys.stderr)
+                continue
+            snap_path = snaps[0]
+            print(f"Using latest for {coll}: {snap_path}")
+            targets.append((coll, snap_path))
+        if not targets:
+            print(f"Error: no snapshots found in {backup_dir}", file=sys.stderr)
             return 1
-        snap_path = snaps[0]
-        print(f"Using latest: {snap_path}")
 
     try:
-        boundary = "----WebKitFormBoundary7MA4YWxk"
-        body = (
-            f"--{boundary}\r\n"
-            'Content-Disposition: form-data; name="snapshot"; filename="snapshot.snapshot"\r\n'
-            "Content-Type: application/octet-stream\r\n\r\n"
-        ).encode()
-        body += snap_path.read_bytes()
-        body += f"\r\n--{boundary}--\r\n".encode()
+        for collection, snap_path in targets:
+            boundary = "----WebKitFormBoundary7MA4YWxk"
+            body = (
+                f"--{boundary}\r\n"
+                'Content-Disposition: form-data; name="snapshot"; filename="snapshot.snapshot"\r\n'
+                "Content-Type: application/octet-stream\r\n\r\n"
+            ).encode()
+            body += snap_path.read_bytes()
+            body += f"\r\n--{boundary}--\r\n".encode()
 
-        req = urllib.request.Request(
-            f"{base}/collections/{collection}/snapshots/upload?priority=snapshot",
-            data=body,
-            method="POST",
-            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
-        )
-        with urllib.request.urlopen(req, timeout=600) as resp:
-            json.loads(resp.read().decode())
+            req = urllib.request.Request(
+                f"{base}/collections/{collection}/snapshots/upload?priority=snapshot",
+                data=body,
+                method="POST",
+                headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+            )
+            with urllib.request.urlopen(req, timeout=600) as resp:
+                json.loads(resp.read().decode())
+            print(f"Restored collection {collection} from {snap_path}")
 
         # Restore BM25 vocab if present in backup
         vocab_src = backup_dir / "bm25_vocab"
@@ -1545,7 +1585,6 @@ def cmd_qdrant_restore(args: argparse.Namespace) -> int:
                 shutil.rmtree(vocab_dst)
             shutil.copytree(vocab_src, vocab_dst)
             print(f"BM25 vocab restored: {vocab_dst}")
-        print(f"Restored from {snap_path}")
         return 0
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)

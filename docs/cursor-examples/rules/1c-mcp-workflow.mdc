@@ -8,18 +8,19 @@ alwaysApply: false
 
 При редактировании `.bsl` этот rule даёт агенту инструкцию по двум MCP.
 
-**Новый чат по 1С:** в клиенте MCP вызвать промпт **how_to_use_1c_help_and_bsl_bridge** сервера 1c-help и вставить возвращённый текст в первое сообщение (или задать параметр `task`: develop / refactor / test для короткого блока).
+**Новый чат по 1С (AI-агент):** вызвать инструмент `get_1c_quick_guide(task="develop"|"refactor"|"test")` для компактной инструкции. Для пользователя: вызвать промпт **how_to_use_1c_help_and_bsl_bridge** и вставить результат в первое сообщение.
 
-**URI (единый формат):** Docker — `file:///projects/<путь>` (volume `.:/projects`). Локально — полный file URI. Пути с кириллицей в URI передавать в URL-encoding (например `%D0%9C%D0%B5%D0%BD%D0%B5%D0%B4%D0%B6%D0%B5%D1%80` для «Менеджер»); иначе LSP может не найти файл.
+**URI (единый формат):** Docker — `file:///projects/<путь>` (volume `.:/projects`). Локально — полный file URI. Пути с кириллицей в URI **обязательно** URL-encoding: «Менеджер» → `%D0%9C%D0%B5%D0%BD%D0%B5%D0%B4%D0%B6%D0%B5%D1%80`, «МойМодуль» → `%D0%9C%D0%BE%D0%B9%D0%9C%D0%BE%D0%B4%D1%83%D0%BB%D1%8C`. Координаты LSP **0-based** (строка 0 = первая строка).
 
 ## Краткий порядок вызовов
 
 **1c-help (справка, примеры):**
-1. Примеры кода: `get_1c_code_answer(query)` (блок «Из памяти» уже упорядочен: сначала стандарты, затем сниппеты). При необходимости явного списка стандартов/сниппетов — дополнительно `search_1c_memory(query, domains="standards,snippets")`.
-2. При нерелевантных результатах по справке: `search_1c_help_keyword("Тип.Метод")` → `get_1c_help_topic(topic_path)` по `path` из keyword-поиска (параметр **topic_path** или **path**, оба допустимы).
+1. Примеры кода: `get_1c_code_answer(query, include_memory=True)` (блок «Из памяти» уже упорядочен: сначала стандарты, затем сниппеты). При необходимости явного списка стандартов/сниппетов — дополнительно `search_1c_memory(query, domains="standards,snippets")`.
+2. При нерелевантных результатах: `search_1c_help_keyword("Тип.Метод")` → `get_1c_help_topic(topic_path=<path>)` (параметр **topic_path**, не `path`). Для нескольких топиков сразу: `get_1c_help_topics_bulk(paths=[...])`.
 3. Пустые ответы: `get_1c_help_index_status` → затем `search_1c_help_keyword` с точным именем API.
-4. Контекст по конфигурации (справка + память + объекты метаданных): `get_1c_context_bundle(query[, config_version][, limit])`. Только объекты метаданных: `search_1c_metadata(query[, config_version])` → `get_1c_metadata_object(object_id)` (после `metadata-graph-build`; config_version опционален при одной версии в графе; поиск семантический).
+4. Контекст по конфигурации (справка + память + объекты метаданных): `get_1c_context_bundle(query[, config_version])`. Только объекты: `search_1c_metadata(query[, config_version])` → `get_1c_metadata_object(object_id)`.
 5. После рабочего кода: `save_1c_snippet(code_snippet, description, title)`.
+6. Типичные ловушки 1С: промпт `get_1c_common_pitfalls()`.
 
 **lsp-bsl-bridge (проверка, навигация):**
 1. После правок: `document_diagnostics(uri)` → исправлять до отсутствия ERROR/WARNING.

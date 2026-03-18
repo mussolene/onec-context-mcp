@@ -294,7 +294,7 @@ def test_mcp_tool_search_1c_help_keyword_via_app(help_sample_dir: Path) -> None:
 
 
 def test_mcp_tool_search_1c_help_keyword_accepts_keyword_param(help_sample_dir: Path) -> None:
-    """search_1c_help_keyword accepts 'keyword' as alias for 'query' (avoids validation error)."""
+    """search_1c_help_keyword uses 'query' parameter (keyword alias removed from public API)."""
     app = mcp_server._build_mcp_app(help_sample_dir)
     with patch.object(
         mcp_server,
@@ -302,7 +302,7 @@ def test_mcp_tool_search_1c_help_keyword_accepts_keyword_param(help_sample_dir: 
         return_value=[{"title": "ОстаткиИОбороты", "path": "table12.html", "text": "virtual table"}],
     ):
         result = asyncio.run(
-            app.call_tool("search_1c_help_keyword", {"keyword": "РегистрНакопления.ОстаткиИОбороты", "limit": 5})
+            app.call_tool("search_1c_help_keyword", {"query": "РегистрНакопления.ОстаткиИОбороты", "limit": 5})
         )
     text = result.content[0].text if result.content else ""
     assert "ОстаткиИОбороты" in text or "table12" in text
@@ -595,6 +595,21 @@ def test_mcp_tool_get_module_info_via_app(help_sample_dir: Path) -> None:
     )
     text = result.content[0].text if result.content else ""
     assert "FormModule" in text or "Module" in text
+
+
+def test_mcp_tool_get_module_info_extended_types(help_sample_dir: Path) -> None:
+    """get_module_info recognises RecordSetModule, ManagerModule, and other extended module types."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    cases = [
+        ("file:///projects/App/InformationRegisters/Prices/RecordSetModule.bsl", "RecordSetModule", "Prices"),
+        ("file:///projects/App/Catalogs/Товары/ManagerModule.bsl", "ManagerModule", "Товары"),
+        ("file:///projects/App/Documents/Накладная/ObjectModule.bsl", "ObjectModule", "Накладная"),
+    ]
+    for uri, expected_type, expected_obj in cases:
+        result = asyncio.run(app.call_tool("get_module_info", {"uri_or_path": uri}))
+        text = result.content[0].text if result.content else ""
+        assert expected_type in text, f"Expected {expected_type} in output for {uri}: {text}"
+        assert expected_obj in text, f"Expected object {expected_obj} in output for {uri}: {text}"
 
 
 def test_mcp_tool_get_1c_code_answer_include_memory(help_sample_dir: Path) -> None:

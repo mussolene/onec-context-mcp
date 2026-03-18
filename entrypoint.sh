@@ -18,6 +18,8 @@ if [ "$(id -u)" = "0" ]; then
     if [ "$INGEST_WORKER" = "1" ]; then
       crontab -u app /app/crontab 2>/dev/null || true
       cron
+      # Run watchdog once immediately at startup — don't wait up to 10 min for first cron tick.
+      ( gosu app sh -c '. /app/.ingest_env 2>/dev/null; cd /app && python -m onec_help watchdog --once >> /app/var/log/watchdog.log 2>&1' ) &
     elif [ -d /opt/1cv8 ]; then
       crontab -u app /app/crontab 2>/dev/null || true
       cron

@@ -8,6 +8,8 @@ services:
   qdrant:
     image: qdrant/qdrant:v1.12.0
     restart: unless-stopped
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"
     volumes:
       - ./data/qdrant:/qdrant/storage
     healthcheck:
@@ -31,8 +33,10 @@ services:
       QDRANT_COLLECTION: ${QDRANT_COLLECTION:-onec_help}
       QDRANT_STORAGE_PATH: /qdrant_storage
       QDRANT_TIMEOUT: ${QDRANT_TIMEOUT:-300}
-      # По умолчанию streamable-http (как в env.example). При проблемах с Cursor можно задать sse в .env.
-      MCP_TRANSPORT: ${MCP_TRANSPORT:-streamable-http}
+      # multi = streamable-http (/mcp) + SSE (/sse + /messages) одновременно на одном порту.
+      # Для совместимости со всеми клиентами: Cursor, Claude Code, Claude Desktop, старые MCP-клиенты.
+      # Можно переопределить: MCP_TRANSPORT=streamable-http / sse / stdio в .env.
+      MCP_TRANSPORT: ${MCP_TRANSPORT:-multi}
       MCP_HOST: ${MCP_HOST:-0.0.0.0}
       MCP_PORT: "8050"
       MCP_PATH: ${MCP_PATH:-/mcp}
@@ -73,7 +77,7 @@ services:
       - ./data/config:/data/config:ro
       - ./data/backup:/data/backup
       - ./data/bm25_vocab:/app/data/bm25_vocab
-    # Транспорт из MCP_TRANSPORT (streamable-http или sse). Если в Cursor не отображаются tools / ECONNRESET — попробуйте MCP_TRANSPORT=sse.
+    # Транспорт из MCP_TRANSPORT (по умолчанию multi: streamable-http + SSE на одном порту).
     command: ["python", "-m", "onec_help.mcp_server", "/data", "--host", "0.0.0.0", "--port", "8050", "--path", "/mcp"]
     depends_on:
       qdrant:

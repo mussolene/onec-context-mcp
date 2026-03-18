@@ -59,6 +59,11 @@ _OBJECT_TYPE_RU: dict[str, str] = {
     "Language": "Язык",
     "Style": "Стиль",
     "Sequence": "Последовательность",
+    "DocumentJournal": "Журнал документов",
+    "ScheduledJob": "Регламентное задание",
+    "ChartOfCharacteristicTypes": "План видов характеристик",
+    "RegisterAccumulation": "Регистр накопления",   # old-style export alias
+    "RegisterInformation": "Регистр сведений",       # old-style export alias
 }
 
 # Префиксы типов из выгрузки (cfg:/xs:) → читаемое название по справке 1С (СправочникСсылка, Строка, Число и т.д.).
@@ -563,8 +568,10 @@ def get_metadata_config_versions(
 _RRF_K = 60
 
 
-# Макс. точек при scroll в substring-поиске (чтобы не прокручивать всю коллекцию — ускоряет search_1c_metadata).
-_SEARCH_METADATA_SUBSTRING_MAX_POINTS = 512
+# Макс. точек при scroll в substring-поиске.
+# Крупные конфигурации содержат 6000+ объектов; лимит 512 скрывал ~90% из них.
+# 30000 покрывает все текущие конфигурации; batch_size увеличен для сокращения числа API-вызовов.
+_SEARCH_METADATA_SUBSTRING_MAX_POINTS = 30_000
 
 
 def _search_metadata_substring(
@@ -581,7 +588,7 @@ def _search_metadata_substring(
     offset: Any | None = None
     seen = 0
     while len(results) < limit and seen < max_points:
-        batch_size = min(64, limit * 2, max_points - seen)
+        batch_size = min(500, limit * 4, max_points - seen)
         points, offset = client.scroll(
             collection_name=collection_name,
             scroll_filter=filt,
