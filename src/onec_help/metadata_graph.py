@@ -204,11 +204,26 @@ def _payload_no_none(val: Any) -> Any:
     return val
 
 
-def _node_payload_from_object(obj: ConfigObject, crawl: CrawlResult) -> dict[str, Any]:
+def _build_children_index(crawl: CrawlResult) -> dict[str, list[str]]:
+    """Build parent_id → [child object ids] index once for the whole crawl (avoids O(n²) scans)."""
+    idx: dict[str, list[str]] = {}
+    for o in crawl.objects:
+        pid = (o.attributes or {}).get("parent_id")
+        if pid:
+            idx.setdefault(pid, []).append(o.id)
+    return idx
+
+
+def _node_payload_from_object(
+    obj: ConfigObject,
+    crawl: CrawlResult,
+    children_index: "dict[str, list[str]] | None" = None,
+) -> dict[str, Any]:
     """Build Qdrant payload for a single configuration object.
 
     This helper encapsulates the schema used by the metadata graph collection.
     Qdrant returns 400 if payload contains null; we strip None and use empty string.
+    children_index: pre-built parent_id → [child ids] dict (avoids O(n²) per-object scan).
     """
 
     # При слиянии нескольких выгрузок у каждого объекта в attributes лежат config_name/config_version
@@ -230,17 +245,25 @@ def _node_payload_from_object(obj: ConfigObject, crawl: CrawlResult) -> dict[str
     parent_id = (obj.attributes or {}).get("parent_id")
     if parent_id:
         payload["parent_id"] = parent_id
-    form_ids = [o.id for o in crawl.objects if (o.attributes or {}).get("parent_id") == obj.id]
+    if children_index is not None:
+        form_ids = children_index.get(obj.id) or []
+    else:
+        form_ids = [o.id for o in crawl.objects if (o.attributes or {}).get("parent_id") == obj.id]
     if form_ids:
         payload["form_ids"] = form_ids
     # Markdown для эмбеддинга: все поля, без лимитов, по-русски — единообразно со справкой.
-    payload["text"] = _object_to_markdown(obj, crawl)
+    payload["text"] = _object_to_markdown(obj, crawl, children_index=children_index)
     return payload
 
 
-def _object_to_markdown(obj: ConfigObject, crawl: CrawlResult) -> str:
+def _object_to_markdown(
+    obj: ConfigObject,
+    crawl: CrawlResult,
+    children_index: "dict[str, list[str]] | None" = None,
+) -> str:
     """Собирает один markdown-документ по объекту метаданных (для эмбеддинга, как страницы справки).
     Все поля, без ограничений по количеству; подписи по-русски для понимания конфигурации.
+    children_index: pre-built parent_id → [child ids] dict (avoids O(n²) per-object scan).
     """
     lines: list[str] = []
     type_ru = _OBJECT_TYPE_RU.get(obj.object_type, obj.object_type)
@@ -255,7 +278,10 @@ def _object_to_markdown(obj: ConfigObject, crawl: CrawlResult) -> str:
     parent_id = attrs.get("parent_id")
     if parent_id:
         lines.append(f"\n**Родительский объект:** `{parent_id}`")
-    form_ids = [o.id for o in crawl.objects if (o.attributes or {}).get("parent_id") == obj.id]
+    if children_index is not None:
+        form_ids = children_index.get(obj.id) or []
+    else:
+        form_ids = [o.id for o in crawl.objects if (o.attributes or {}).get("parent_id") == obj.id]
     if form_ids:
         lines.append("\n**Формы:**")
         for fid in form_ids:
@@ -341,7 +367,57 @@ def _edge_payload_from_relation(rel: ConfigRelation, crawl: CrawlResult) -> dict
 _METADATA_SPARSE_VECTOR_NAME = "text-bm25"
 
 # Батч меньше 500, чтобы один upsert не упирался в QDRANT_TIMEOUT при крупных payload.
-_METADATA_UPSERT_BATCH_SIZE = 200
+_METADATA_BATCH_SIZE = 500  # объектов за один цикл embed → upsert (как batch_size в build_index)
+
+
+def _ensure_collection(
+    client: Any,
+    collection_name: str,
+    dim: int,
+    recreate: bool,
+    *,
+    qmodels: Any,
+) -> None:
+    """Create or recreate collection. Called once before first upsert (dim known from first embed)."""
+    vectors_cfg = qmodels.VectorParams(size=dim, distance=qmodels.Distance.COSINE)
+    create_kw: dict[str, Any] = {"collection_name": collection_name, "vectors_config": vectors_cfg}
+
+    collection_exists = False
+    try:
+        collection_exists = bool(client.collection_exists(collection_name))
+    except Exception:
+        pass
+
+    if not recreate and collection_exists:
+        print(
+            f"metadata-graph-build: collection {collection_name!r} exists, will upsert",
+            file=sys.stderr, flush=True,
+        )
+        return
+
+    if hasattr(client, "create_collection"):
+        try:
+            client.create_collection(**create_kw)
+            print(
+                f"metadata-graph-build: collection {collection_name!r} created",
+                file=sys.stderr, flush=True,
+            )
+        except Exception as e:
+            err = str(e).lower()
+            if "already exist" in err or "already exists" in err:
+                client.recreate_collection(collection_name=collection_name, vectors_config=vectors_cfg)
+                print(
+                    f"metadata-graph-build: collection {collection_name!r} recreated",
+                    file=sys.stderr, flush=True,
+                )
+            else:
+                raise
+    else:
+        client.recreate_collection(collection_name=collection_name, vectors_config=vectors_cfg)
+        print(
+            f"metadata-graph-build: collection {collection_name!r} recreated",
+            file=sys.stderr, flush=True,
+        )
 
 
 def build_metadata_graph_from_crawl(
@@ -353,161 +429,75 @@ def build_metadata_graph_from_crawl(
     recreate: bool = True,
     use_bm25: bool = False,
     upsert_progress_callback: Any = None,
-    on_embed_done: Any = None,
+    on_embed_done: Any = None,  # kept for API compatibility, ignored in batch mode
+    batch_size: int = _METADATA_BATCH_SIZE,
 ) -> int:
-    """Write `CrawlResult` into Qdrant using provided client and embedding batch function.
+    """Write `CrawlResult` into Qdrant in batches: embed batch → upsert → next batch.
 
-    on_embed_done: optional callback called once embedding is finished (so CLI can stop heartbeat).
-    By default creates dense-only collection (same as ingest for onec_help). To add BM25
-    sparse vectors, run afterward: add-bm25 --collection onec_config_metadata.
-    Set use_bm25=True to build dense+sparse in one go (requires Qdrant with sparse support).
+    Identical pipeline to build_index: data appears in Qdrant progressively after each batch,
+    memory usage is bounded to batch_size objects at a time instead of all N at once.
+    upsert_progress_callback(written, total): called after each batch is written to Qdrant.
     """
     from qdrant_client import models as qmodels  # type: ignore[import-not-found]
+
+    from .indexer import _upsert_batch_with_retry
 
     if not crawl.objects:
         return 0
 
-    payloads: list[dict[str, Any]] = [
-        _node_payload_from_object(obj, crawl) for obj in crawl.objects
-    ]
-    texts: list[str] = [p.get("text", "") for p in payloads]
-    vectors: Sequence[Sequence[float]] = embed_batch(texts) if texts else []
-    if not vectors:
-        print(
-            "metadata-graph-build: embedding returned 0 vectors, skipping (check EMBEDDING_API_URL / backend)",
-            file=sys.stderr,
-            flush=True,
-        )
-        return 0
-    if on_embed_done:
-        try:
-            on_embed_done()
-        except Exception:
-            pass
-    dim = len(vectors[0])
-
-    vectors_bm25: list[dict[str, Any]] = []
-    sparse_config: Any = None
-    if use_bm25 and texts:
-        try:
-            from .sparse_bm25 import bm25_vocab_path, build_bm25_vectors, save_vocab
-
-            vectors_bm25, vocab_bm25, doc_freq_bm25 = build_bm25_vectors(texts)
-            if vectors_bm25 and len(vectors_bm25) == len(payloads):
-                path = bm25_vocab_path(collection_name)
-                save_vocab(str(path), vocab_bm25, doc_freq_bm25, len(texts))
-                if hasattr(qmodels, "SparseVector") and hasattr(qmodels, "SparseVectorParams"):
-                    try:
-                        from qdrant_client.models import Modifier  # type: ignore[import-not-found]
-
-                        sparse_config = {
-                            _METADATA_SPARSE_VECTOR_NAME: qmodels.SparseVectorParams(
-                                modifier=Modifier.IDF
-                            )
-                        }
-                    except Exception:
-                        sparse_config = None
-        except Exception:
-            vectors_bm25 = []
-            sparse_config = None
-
-    use_bm25_final = bool(sparse_config and vectors_bm25 and len(vectors_bm25) == len(payloads))
-
-    # Сначала собираем точки; recreate делаем только когда есть что писать (иначе при сбое остаётся пустая коллекция).
-    # Целиком убираем None из payload (Qdrant даёт 400 на null), как в memory/indexer.
-    points: list[Any] = []
-    for idx, (payload, vec) in enumerate(zip(payloads, vectors, strict=True)):
-        clean_payload = _payload_no_none(payload)
-        if use_bm25_final and idx < len(vectors_bm25):
-            sv = vectors_bm25[idx]
-            vec_for_point: Any = {
-                "": list(vec),
-                _METADATA_SPARSE_VECTOR_NAME: qmodels.SparseVector(
-                    indices=sv.get("indices", []),
-                    values=sv.get("values", []),
-                ),
-            }
-        else:
-            vec_for_point = list(vec)
-        points.append(
-            qmodels.PointStruct(
-                id=idx,
-                vector=vec_for_point,
-                payload=clean_payload,
-            )
-        )
-
-    total = len(points)
-    print(
-        f"metadata-graph-build: built {total} points, writing to Qdrant ({collection_name})...",
-        file=sys.stderr,
-        flush=True,
-    )
-    # Recreate только когда точки готовы — не оставляем пустую коллекцию при сбое до upsert.
-    if recreate:
-        vectors_cfg = qmodels.VectorParams(size=dim, distance=qmodels.Distance.COSINE)
-        sparse_cfg = sparse_config if (use_bm25_final and sparse_config) else None
-        create_kw: dict[str, Any] = {
-            "collection_name": collection_name,
-            "vectors_config": vectors_cfg,
-        }
-        if sparse_cfg is not None:
-            create_kw["sparse_vectors_config"] = sparse_cfg
-        if hasattr(client, "create_collection"):
-            try:
-                client.create_collection(**create_kw)
-            except Exception as e:
-                err = str(e).lower()
-                if "already exist" in err or "already exists" in err:
-                    if sparse_cfg is not None:
-                        client.recreate_collection(
-                            collection_name=collection_name,
-                            vectors_config=vectors_cfg,
-                            sparse_vectors_config=sparse_cfg,
-                        )
-                    else:
-                        client.recreate_collection(
-                            collection_name=collection_name,
-                            vectors_config=vectors_cfg,
-                        )
-                else:
-                    raise
-        else:
-            if sparse_cfg is not None:
-                client.recreate_collection(
-                    collection_name=collection_name,
-                    vectors_config=vectors_cfg,
-                    sparse_vectors_config=sparse_cfg,
-                )
-            else:
-                client.recreate_collection(
-                    collection_name=collection_name,
-                    vectors_config=vectors_cfg,
-                )
-        print(
-            f"metadata-graph-build: collection {collection_name!r} recreated, upserting {total} points",
-            file=sys.stderr,
-            flush=True,
-        )
-
-    from .indexer import _upsert_batch_with_retry
-
+    # children_index строим один раз — O(N), иначе каждый объект сканирует весь crawl O(N²).
+    children_index = _build_children_index(crawl)
+    total = len(crawl.objects)
     written = 0
-    for start in range(0, total, _METADATA_UPSERT_BATCH_SIZE):
-        batch = points[start : start + _METADATA_UPSERT_BATCH_SIZE]
-        _upsert_batch_with_retry(client, collection_name, batch)
-        written += len(batch)
+    collection_ready = False
+    dim: int = 0
+
+    for batch_start in range(0, total, batch_size):
+        batch_objects = crawl.objects[batch_start : batch_start + batch_size]
+
+        # Payload + text только для текущего батча — не держим все N в памяти одновременно.
+        batch_payloads = [
+            _node_payload_from_object(obj, crawl, children_index=children_index)
+            for obj in batch_objects
+        ]
+        batch_texts = [p.get("text", "") for p in batch_payloads]
+
+        batch_vectors = embed_batch(batch_texts)
+        if not batch_vectors:
+            print(
+                f"metadata-graph-build: embedding returned 0 vectors at offset {batch_start}, skipping batch",
+                file=sys.stderr, flush=True,
+            )
+            continue
+
+        # Создаём коллекцию по размерности первого батча (dim известен только после embed).
+        if not collection_ready:
+            dim = len(batch_vectors[0])
+            _ensure_collection(client, collection_name, dim, recreate, qmodels=qmodels)
+            collection_ready = True
+
+        batch_points: list[Any] = [
+            qmodels.PointStruct(
+                id=batch_start + i,
+                vector=list(vec),
+                payload=_payload_no_none(payload),
+            )
+            for i, (payload, vec) in enumerate(zip(batch_payloads, batch_vectors))
+        ]
+
+        _upsert_batch_with_retry(client, collection_name, batch_points)
+        written += len(batch_points)
         print(
-            f"metadata-graph-build: upserted {written}/{total} → {collection_name}",
-            file=sys.stderr,
-            flush=True,
+            f"metadata-graph-build: {written}/{total} → {collection_name}",
+            file=sys.stderr, flush=True,
         )
         if upsert_progress_callback:
             try:
                 upsert_progress_callback(written, total)
             except Exception:
                 pass
-    return total
+
+    return written
 
 
 def _get_default_client() -> Any:
