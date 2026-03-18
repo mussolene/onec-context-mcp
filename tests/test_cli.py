@@ -852,11 +852,16 @@ def test_cmd_qdrant_backup_success(mock_urlopen, tmp_path: Path) -> None:
         m.__exit__ = lambda *a: None
         return m
 
+    # GET /collections → returns onec_help, onec_help_memory, onec_config_metadata
+    list_resp = make_ctx_mock(
+        b'{"result":{"collections":[{"name":"onec_help"},{"name":"onec_help_memory"},{"name":"onec_config_metadata"}]}}'
+    )
     # onec_help: success (create + download)
     create_resp = make_ctx_mock(b'{"result":{"name":"abc-123.snapshot"}}')
     download_resp = make_ctx_mock(b"snapshot-data")
     # onec_help_memory and onec_config_metadata: not present → URLError on create
     mock_urlopen.side_effect = [
+        list_resp,
         create_resp,
         download_resp,
         urllib.error.URLError("not found"),
@@ -868,7 +873,7 @@ def test_cmd_qdrant_backup_success(mock_urlopen, tmp_path: Path) -> None:
     with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
         assert cmd_qdrant_backup(args) == 0
 
-    assert mock_urlopen.call_count == 4
+    assert mock_urlopen.call_count == 5
     snaps = list(out_dir.glob("onec_help-*.snapshot"))
     assert len(snaps) == 1
     assert snaps[0].read_bytes() == b"snapshot-data"

@@ -1490,7 +1490,22 @@ def cmd_qdrant_backup(args: argparse.Namespace) -> int:
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    collections = ["onec_help", "onec_help_memory", "onec_config_metadata"]
+    # Discover all existing collections from Qdrant.
+    try:
+        req_list = urllib.request.Request(f"{base}/collections")
+        with urllib.request.urlopen(req_list, timeout=30) as resp:
+            data_list = json.loads(resp.read().decode())
+        collections = [
+            c["name"]
+            for c in (data_list.get("result", {}).get("collections") or [])
+        ]
+        if not collections:
+            print("No collections found in Qdrant", file=sys.stderr)
+            return 1
+    except Exception as e:
+        print(f"Error: listing collections: {e}", file=sys.stderr)
+        return 1
+
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     any_ok = False
 
@@ -1568,17 +1583,20 @@ def cmd_qdrant_restore(args: argparse.Namespace) -> int:
             return 1
         targets = [(collection, snap_path)]
     else:
-        # По умолчанию: восстанавливаем все известные коллекции onec_* из последних снапшотов.
-        collections = ["onec_help", "onec_help_memory", "onec_config_metadata"]
+        # По умолчанию: восстанавливаем все коллекции из последних снапшотов в backup-dir.
+        # Имя коллекции — всё до последнего «-YYYYmmdd-HHMMSS» в имени файла.
+        import re
+
+        all_snaps = sorted(backup_dir.glob("*.snapshot"), reverse=True)
+        seen_colls: set[str] = set()
         targets: list[tuple[str, Path]] = []
-        for coll in collections:
-            snaps = sorted(backup_dir.glob(f"{coll}-*.snapshot"), reverse=True)
-            if not snaps:
-                print(f"No snapshots for collection {coll} in {backup_dir}", file=sys.stderr)
-                continue
-            snap_path = snaps[0]
-            print(f"Using latest for {coll}: {snap_path}")
-            targets.append((coll, snap_path))
+        _ts_re = re.compile(r"-\d{8}-\d{6}\.snapshot$")
+        for snap_path in all_snaps:
+            coll = _ts_re.sub("", snap_path.name)
+            if coll and coll not in seen_colls:
+                seen_colls.add(coll)
+                print(f"Using latest for {coll}: {snap_path}")
+                targets.append((coll, snap_path))
         if not targets:
             print(f"Error: no snapshots found in {backup_dir}", file=sys.stderr)
             return 1
