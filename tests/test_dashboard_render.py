@@ -217,6 +217,37 @@ def test_render_dashboard_ingest_in_progress_eta_zero_division_handled() -> None
     assert "in progress" in out and "0/5" in out
 
 
+def test_render_dashboard_mcp_per_tool_table() -> None:
+    """MCP panel shows per-tool call counts table when per_tool is non-empty."""
+    from rich.console import Console
+
+    data = {
+        "ingest": None,
+        "ingest_last_run": None,
+        "failed_tasks": [],
+        "index_status": {},
+        "collections": [],
+        "snippets": None,
+        "standards_loading": False,
+        "snippets_loading": False,
+        "storage_path_mb": None,
+        "mcp_metrics": {
+            "total": 10,
+            "last_hour": 4,
+            "per_tool": {"search_1c_help": 7, "get_1c_help_topic": 3},
+        },
+        "metadata_loading": False,
+    }
+    result = render_dashboard(data)
+    console = Console(force_terminal=True, no_color=True)
+    with console.capture() as cap:
+        console.print(result)
+    out = cap.get()
+    assert "search_1c_help" in out
+    assert "get_1c_help_topic" in out
+    assert "Calls by tool" in out or "search_1c_help" in out
+
+
 def test_render_dashboard_ingest_in_progress_single_task_progress_bar() -> None:
     """Tasks panel shows single progress bar from current_task_points/current_task_estimated_total when no current list."""
     from rich.console import Console

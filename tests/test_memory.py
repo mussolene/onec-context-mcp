@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from onec_help.memory import (
     MemoryStore,
     _is_memory_enabled,
@@ -302,21 +304,23 @@ def test_process_pending_invalid_data(tmp_path: Path) -> None:
 
 
 def test_search_long(tmp_path: Path) -> None:
-    """search_long queries Qdrant and returns results."""
+    """search_long queries Qdrant and returns results with RRF score."""
     with patch("onec_help.embedding.get_embedding", return_value=[0.1] * 768):
         with patch("qdrant_client.QdrantClient") as mock_qc:
-            mock_client = MagicMock()
-            mock_client.collection_exists.return_value = True
-            mock_point = MagicMock()
-            mock_point.payload = {"topic_path": "a.md"}
-            mock_point.score = 0.9
-            mock_client.query_points.return_value = MagicMock(points=[mock_point])
-            mock_qc.return_value = mock_client
-            store = MemoryStore(tmp_path, short_limit=5, medium_limit=100, medium_ttl_days=7)
-            results = store.search_long("query", limit=5)
-            assert len(results) == 1
-            assert results[0]["payload"]["topic_path"] == "a.md"
-            assert results[0]["score"] == 0.9
+            with patch("onec_help.sparse_bm25.bm25_vocab_path", return_value=tmp_path / "no_vocab"):
+                mock_client = MagicMock()
+                mock_client.collection_exists.return_value = True
+                mock_point = MagicMock()
+                mock_point.payload = {"topic_path": "a.md"}
+                mock_point.score = 0.9
+                mock_client.query_points.return_value = MagicMock(points=[mock_point])
+                mock_qc.return_value = mock_client
+                store = MemoryStore(tmp_path, short_limit=5, medium_limit=100, medium_ttl_days=7)
+                results = store.search_long("query", limit=5)
+                assert len(results) == 1
+                assert results[0]["payload"]["topic_path"] == "a.md"
+                # RRF score: 1/(60+1) for rank-1 result from semantic leg only
+                assert results[0]["score"] == pytest.approx(1 / 61)
 
 
 def test_search_long_no_collection(tmp_path: Path) -> None:
@@ -599,20 +603,16 @@ def test_upsert_curated_upsert_exception(tmp_path: Path) -> None:
 
 
 def test_search_long_fallback_search(tmp_path: Path) -> None:
-    """search_long uses client.search when query_points is not available."""
+    """search_long returns [] when query_points raises (no fallback to client.search)."""
     with patch("onec_help.embedding.get_embedding", return_value=[0.1] * 768):
         with patch("qdrant_client.QdrantClient") as mock_qc:
             mock_client = MagicMock()
             mock_client.collection_exists.return_value = True
             del mock_client.query_points
-            mock_client.search.return_value = [
-                MagicMock(payload={"topic_path": "a.md"}, score=0.8),
-            ]
             mock_qc.return_value = mock_client
             store = MemoryStore(tmp_path, short_limit=5, medium_limit=100, medium_ttl_days=7)
             results = store.search_long("query", limit=3)
-            assert len(results) == 1
-            assert results[0]["payload"]["topic_path"] == "a.md"
+            assert results == []
 
 
 def test_search_long_exception(tmp_path: Path) -> None:

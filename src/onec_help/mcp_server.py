@@ -29,8 +29,8 @@ def _coerce_str_to_list(v: Any) -> Any:
 
 _StrList = Annotated[list[str], BeforeValidator(_coerce_str_to_list)]
 
-from ._utils import format_duration, safe_error_message
-from .mcp_metrics import record_request as _record_mcp_request
+from ._utils import format_duration, safe_error_message  # noqa: E402
+from .mcp_metrics import record_request as _record_mcp_request  # noqa: E402
 
 
 def _record_mcp_tool(f):
@@ -1011,7 +1011,7 @@ def _build_mcp_app(help_path: Path) -> Any:
                 query_vector: list[float] | None = None
                 if (q or "").strip():
                     try:
-                        from . import embedding
+                        from . import embedding, env_config
                         from .indexer import get_collection_vector_size
                         coll_dim = get_collection_vector_size(
                             collection="onec_config_metadata",
@@ -1234,12 +1234,19 @@ def _build_mcp_app(help_path: Path) -> Any:
 
             unresolved = _get_unresolved(topic, version=version, language=language)
             if unresolved:
-                lines = ["No resolved topic paths found for outgoing links, but these titles may be searchable:"]
-                for lnk in unresolved[:10]:
+                lines = []
+                for lnk in unresolved[:8]:
                     title = lnk.get("target_title") or lnk.get("link_text", "")
-                    if title:
-                        lines.append(f"- **{title}** (use search_1c_help_keyword to find)")
-                return "\n".join(lines)
+                    if not title:
+                        continue
+                    hits = _search_keyword(title, limit=1, version=version, language=language)
+                    if hits and hits[0].get("path"):
+                        lines.append(f"- **{title}** — `{hits[0]['path']}`")
+                    else:
+                        lines.append(f"- **{title}** (not found in index — try search_1c_help_keyword)")
+                if lines:
+                    return "Related topics (resolved from link titles):\n" + "\n".join(lines)
+                return "No related topics found. Try search_1c_help_keyword with the topic name."
             stem = topic.split("/")[-1].replace(".html", "").replace(".md", "")
             return (
                 "No related topics found for this path. outgoing_links may not be populated for all topics. "
@@ -1338,6 +1345,17 @@ def _build_mcp_app(help_path: Path) -> Any:
                         lines.append(
                             f"Metadata (**onec_config_metadata**): **{_meta_count}** points"
                         )
+        except Exception:
+            pass
+        try:
+            from .metadata_graph import get_metadata_config_summaries
+
+            summaries = get_metadata_config_summaries()
+            if summaries:
+                lines.append("")
+                lines.append("Configs loaded:")
+                for s in summaries:
+                    lines.append(f"  - {s['config_name']} (v{s['config_version']})")
         except Exception:
             pass
 
@@ -1517,6 +1535,12 @@ def _build_mcp_app(help_path: Path) -> Any:
             return 2
         return 3
 
+    def _is_member_title(name_lower: str, title_lower: str) -> bool:
+        """True if the title looks like 'Type.Name ...' (object property/method).
+        Used as secondary sort key: global functions (False) sort before object members (True)."""
+        idx = title_lower.find(name_lower)
+        return idx > 0 and title_lower[idx - 1] == "."
+
     @mcp.tool()
     @_record_mcp_tool
     def get_1c_function_info(
@@ -1534,15 +1558,15 @@ def _build_mcp_app(help_path: Path) -> Any:
         if path:
             content = _get_topic(path)
             return content or "Topic not found."
-        results = _search_keyword(name_clean, limit=20)
+        results = _search_keyword(name_clean, limit=40)
         if not results:
-            results = _search(name_clean, limit=20)
+            results = _search(name_clean, limit=40)
         name_lower = name_clean.lower()
         scored = [(r, _match_priority(name_lower, (r.get("title") or "").lower())) for r in results]
         relevant = [(r, p) for r, p in scored if p <= 2]
         if not relevant:
             relevant = scored
-        relevant.sort(key=lambda x: x[1])
+        relevant.sort(key=lambda x: (x[1], _is_member_title(name_lower, (x[0].get("title") or "").lower())))
         best_priority = relevant[0][1] if relevant else 3
         best = [r for r, p in relevant if p == best_priority]
         if best_priority == 3:

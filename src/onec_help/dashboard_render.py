@@ -549,39 +549,38 @@ def render_dashboard(data: dict[str, Any]) -> Any:
     max_sec = mcp.get("max_response_sec")
     errors_total = mcp.get("errors_total", 0) or 0
     errors_recent = mcp.get("errors_recent") or []
+    per_tool: dict[str, int] = mcp.get("per_tool") or {}
     mcp_line = f"Total: {total}  │  Last hour: {last_hour}"
     if max_sec is not None and isinstance(max_sec, (int, float)) and max_sec > 0:
         mcp_line += f"  │  Max response: {format_duration(max_sec)}"
     if errors_total > 0:
         mcp_line += f"  │  Errors: {errors_total}"
-    mcp_content = Text(mcp_line)
+    mcp_parts: list[Any] = [Text(mcp_line)]
+    if per_tool:
+        tool_table = Table(show_header=False, box=None, padding=(0, 1))
+        tool_table.add_column(style="dim", min_width=36)
+        tool_table.add_column(justify="right")
+        for tool, count in list(per_tool.items())[:15]:
+            tool_table.add_row(tool, str(count))
+        mcp_parts += [Text(""), _dim("Calls by tool:"), tool_table]
     if errors_recent:
-        mcp_content = Group(
-            mcp_content,
+        mcp_parts += [
             Text(""),
             _dim("Last errors:"),
             *[
                 Text(f"  {e.get('tool', '?')}: {(e.get('error') or '')[:80]}")
                 for e in errors_recent[:5]
             ],
-            Text(""),
-            _dim("Full MCP logs: docker compose logs mcp."),
-        )
+        ]
+    mcp_parts += [Text(""), _dim("Full MCP logs: docker compose logs mcp.")]
     if total == 0 and last_hour == 0:
-        mcp_content = Group(
-            mcp_content,
-            Text(""),
+        mcp_parts += [
             _dim(
                 "0 requests — call an MCP tool from Cursor (e.g. get_1c_help_index_status). Same REDIS_URL for MCP and dashboard (Docker: redis://redis:6379/0)."
             ),
             _dim("MCP errors (tools + protocol) appear here; full logs: docker compose logs mcp."),
-        )
-    elif errors_total == 0 and (total > 0 or last_hour > 0):
-        mcp_content = Group(
-            mcp_content,
-            Text(""),
-            _dim("Full MCP logs: docker compose logs mcp."),
-        )
+        ]
+    mcp_content = Group(*mcp_parts)
     panels.append(Panel(mcp_content, title="[bold]MCP requests[/bold]", border_style="cyan"))
 
     return Group(*panels)

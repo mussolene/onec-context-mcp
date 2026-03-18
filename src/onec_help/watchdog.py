@@ -554,6 +554,7 @@ def _run_build_metadata_graph(config_dir: str) -> bool:
     # Не запускаем повторно если операция уже идёт (маркер свежий — обновлялся heartbeat-ом).
     try:
         import time as _time
+
         from .ingest import _ingest_cache_path
         marker = Path(_ingest_cache_path()).parent / "load_metadata.running"
         if marker.exists():

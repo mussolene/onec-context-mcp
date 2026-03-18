@@ -46,6 +46,7 @@ def _watchdog_loop_mocks(
         patch("onec_help.watchdog._run_load_snippets"),
         patch("onec_help.watchdog._run_build_metadata_graph"),
         patch("onec_help.watchdog._process_pending_memory"),
+        patch("onec_help.watchdog._scan_config_dir_stable", return_value={}),
     ):
         yield
 
@@ -120,7 +121,7 @@ def test_run_watchdog_triggers_ingest_on_hbk_change(tmp_path: Path) -> None:
     (tmp_path / "8.3.27" / "1cv8_ru.hbk").write_bytes(b"x")
     ingest_called: list[int] = []
 
-    with _watchdog_loop_mocks(run_ingest=lambda: ingest_called.append(1)):
+    with _watchdog_loop_mocks(run_ingest=lambda *_: ingest_called.append(1)):
         try:
             run_watchdog(
                 help_source_base=tmp_path,

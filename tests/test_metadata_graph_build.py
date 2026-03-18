@@ -29,6 +29,9 @@ class FakeQdrantClient:
     def set_scroll_data(self, points: list[Any]) -> None:
         self._scroll_data = points
 
+    def collection_exists(self, collection_name: str) -> bool:
+        return bool(self._scroll_data)
+
     def scroll(self, collection_name: str, scroll_filter=None, limit: int = 64, offset=None):
         # Ignore collection_name/scroll_filter in tests; return all in one batch.
         if not self._scroll_data:
@@ -188,3 +191,39 @@ def test_get_metadata_object_uses_scroll() -> None:
     assert obj is not None
     assert obj["name"] == "Sales"
     assert obj["id"] == "Document/Sales"
+
+
+def test_get_metadata_config_summaries_returns_pairs() -> None:
+    """get_metadata_config_summaries returns distinct config_name/config_version pairs."""
+    client = FakeQdrantClient()
+
+    class P:
+        def __init__(self, payload: dict, pid: int) -> None:
+            self.payload = payload
+            self.id = pid
+
+    client.set_scroll_data([
+        P({"config_name": "MyCfg", "config_version": "1.0.0.1"}, 1),
+        P({"config_name": "MyCfg", "config_version": "1.0.0.1"}, 2),
+        P({"config_name": "OtherCfg", "config_version": "2.0.0.5"}, 3),
+    ])
+
+    summaries = metadata_graph.get_metadata_config_summaries(
+        client=client, collection_name="onec_config_metadata"
+    )
+    assert len(summaries) == 2
+    versions = {s["config_version"] for s in summaries}
+    assert "1.0.0.1" in versions
+    assert "2.0.0.5" in versions
+    names = {s["config_name"] for s in summaries}
+    assert "MyCfg" in names
+    assert "OtherCfg" in names
+
+
+def test_get_metadata_config_summaries_empty_collection() -> None:
+    """get_metadata_config_summaries returns [] when collection is empty."""
+    client = FakeQdrantClient()
+    summaries = metadata_graph.get_metadata_config_summaries(
+        client=client, collection_name="onec_config_metadata"
+    )
+    assert summaries == []

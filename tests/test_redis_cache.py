@@ -56,6 +56,12 @@ def _make_redis_mock():
         storage[key] = int(storage.get(key) or 0) + 1
         return storage[key]
 
+    def hincrby(key, field, amount):
+        if key not in storage:
+            storage[key] = {}
+        storage[key][field] = int(storage[key].get(field) or 0) + amount
+        return storage[key][field]
+
     def scan_iter(match):
         prefix = match.replace("*", "")
         return (k for k in list(storage.keys()) + list(lists.keys()) if k.startswith(prefix))
@@ -82,6 +88,7 @@ def _make_redis_mock():
     client.lrange.side_effect = lrange
     client.rpush.side_effect = rpush
     client.incr.side_effect = incr
+    client.hincrby.side_effect = hincrby
     client.scan_iter.side_effect = scan_iter
     client.zadd.side_effect = zadd
     client.zremrangebyscore.side_effect = zremrangebyscore
@@ -169,6 +176,29 @@ def test_mcp_request_record_and_metrics(fake_redis) -> None:
     m = redis_cache.mcp_metrics_get()
     assert m.get("total", 0) >= 2
     assert m.get("last_hour", 0) >= 2
+
+
+def test_mcp_request_record_tracks_per_tool(fake_redis) -> None:
+    """mcp_request_record increments per-tool counter; mcp_metrics_get returns per_tool dict."""
+    redis_cache.mcp_request_record("search_1c_help", success=True)
+    redis_cache.mcp_request_record("search_1c_help", success=True)
+    redis_cache.mcp_request_record("get_1c_help_topic", success=True)
+    m = redis_cache.mcp_metrics_get()
+    per_tool = m.get("per_tool", {})
+    assert per_tool.get("search_1c_help", 0) == 2
+    assert per_tool.get("get_1c_help_topic", 0) == 1
+
+
+def test_mcp_metrics_get_per_tool_sorted_descending(fake_redis) -> None:
+    """per_tool in mcp_metrics_get is sorted by count descending."""
+    redis_cache.mcp_request_record("tool_a", success=True)
+    redis_cache.mcp_request_record("tool_b", success=True)
+    redis_cache.mcp_request_record("tool_b", success=True)
+    redis_cache.mcp_request_record("tool_b", success=True)
+    m = redis_cache.mcp_metrics_get()
+    per_tool = m.get("per_tool", {})
+    keys = list(per_tool.keys())
+    assert keys[0] == "tool_b"  # highest count first
 
 
 def test_snippets_run_record_and_last_run(fake_redis) -> None:

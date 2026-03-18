@@ -46,7 +46,7 @@ def _get_http_client() -> Any:
                 )
     return _http_client
 
-from . import env_config as _env_config
+from . import env_config as _env_config  # noqa: E402
 
 
 def sanitize_text_for_embedding(text: str) -> str:

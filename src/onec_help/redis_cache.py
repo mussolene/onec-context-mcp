@@ -701,6 +701,7 @@ _MCP_MAX_RESPONSE_SEC = "mcp:max_response_sec"
 _MCP_ERRORS_TOTAL = "mcp:errors_total"
 _MCP_ERRORS_RECENT = "mcp:errors_recent"
 _MCP_ERRORS_RECENT_MAX = 20
+_MCP_TOOL_COUNTS = "mcp:tool_counts"  # hash: tool_name -> call count
 
 
 def mcp_request_record(
@@ -716,6 +717,8 @@ def mcp_request_record(
         r.incr(_MCP_TOTAL)
         r.zadd(_MCP_TS_ZSET, {str(now): now})
         r.zremrangebyscore(_MCP_TS_ZSET, "-inf", now - _MCP_LAST_HOUR)
+        if tool_name:
+            r.hincrby(_MCP_TOOL_COUNTS, tool_name, 1)
         if duration_sec is not None and duration_sec > 0:
             cur = r.get(_MCP_MAX_RESPONSE_SEC)
             if cur is None or float(cur) < duration_sec:
@@ -737,13 +740,14 @@ def mcp_request_record(
 
 
 def mcp_metrics_get() -> dict[str, Any]:
-    """Return total, last_hour, max_response_sec, errors_total, errors_recent for dashboard."""
+    """Return total, last_hour, max_response_sec, errors_total, errors_recent, per_tool for dashboard."""
     out: dict[str, Any] = {
         "total": 0,
         "last_hour": 0,
         "max_response_sec": None,
         "errors_total": 0,
         "errors_recent": [],
+        "per_tool": {},
     }
     try:
         r = get_redis()
@@ -772,6 +776,15 @@ def mcp_metrics_get() -> dict[str, Any]:
                 )
             except (TypeError, ValueError, json.JSONDecodeError):
                 pass
+        raw_counts = r.hgetall(_MCP_TOOL_COUNTS) or {}
+        per_tool: dict[str, int] = {}
+        for k, v in raw_counts.items():
+            try:
+                key = k.decode() if isinstance(k, bytes) else str(k)
+                per_tool[key] = int(v)
+            except (ValueError, AttributeError):
+                pass
+        out["per_tool"] = dict(sorted(per_tool.items(), key=lambda x: x[1], reverse=True))
     except Exception as e:
         _LOG.debug("mcp_metrics_get: %s", e)
     return out

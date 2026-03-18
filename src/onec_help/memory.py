@@ -19,7 +19,7 @@ _store: Optional["MemoryStore"] = None
 _store_lock = threading.Lock()
 
 # Shared QdrantClient for memory operations (thread-safe, avoids new TCP conn per write/search).
-_memory_qdrant_client: Optional[Any] = None
+_memory_qdrant_client: Any | None = None
 _memory_qdrant_client_lock = threading.Lock()
 
 
@@ -421,7 +421,6 @@ class MemoryStore:
             # BM25 hybrid leg
             bm25_pts: list[Any] = []
             try:
-                from . import env_config as _ec
                 from .sparse_bm25 import bm25_vocab_path, load_vocab, query_vector
 
                 vp = bm25_vocab_path(_MEMORY_COLLECTION)

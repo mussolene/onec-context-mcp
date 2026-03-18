@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import re
 import sys
-from collections.abc import Sequence
 from typing import Any, cast
 
 from . import env_config
@@ -217,7 +216,7 @@ def _build_children_index(crawl: CrawlResult) -> dict[str, list[str]]:
 def _node_payload_from_object(
     obj: ConfigObject,
     crawl: CrawlResult,
-    children_index: "dict[str, list[str]] | None" = None,
+    children_index: dict[str, list[str]] | None = None,
 ) -> dict[str, Any]:
     """Build Qdrant payload for a single configuration object.
 
@@ -259,7 +258,7 @@ def _node_payload_from_object(
 def _object_to_markdown(
     obj: ConfigObject,
     crawl: CrawlResult,
-    children_index: "dict[str, list[str]] | None" = None,
+    children_index: dict[str, list[str]] | None = None,
 ) -> str:
     """Собирает один markdown-документ по объекту метаданных (для эмбеддинга, как страницы справки).
     Все поля, без ограничений по количеству; подписи по-русски для понимания конфигурации.
@@ -482,7 +481,7 @@ def build_metadata_graph_from_crawl(
                 vector=list(vec),
                 payload=_payload_no_none(payload),
             )
-            for i, (payload, vec) in enumerate(zip(batch_payloads, batch_vectors))
+            for i, (payload, vec) in enumerate(zip(batch_payloads, batch_vectors, strict=False))
         ]
 
         _upsert_batch_with_retry(client, collection_name, batch_points)
@@ -553,6 +552,43 @@ def get_metadata_config_versions(
         if offset is None:
             break
     return sorted(seen)
+
+
+def get_metadata_config_summaries(
+    *,
+    client: Any | None = None,
+    collection_name: str = "onec_config_metadata",
+    max_points: int = 500,
+) -> list[dict[str, str]]:
+    """Return distinct (config_name, config_version) pairs from the metadata collection.
+
+    Used to show which configurations are loaded in get_1c_help_index_status.
+    """
+    client = client or _get_default_client()
+    try:
+        if not client.collection_exists(collection_name):
+            return []
+    except Exception:
+        return []
+    seen: dict[str, str] = {}  # version -> name
+    offset: Any | None = None
+    while len(seen) < 100:
+        points, offset = client.scroll(
+            collection_name=collection_name,
+            limit=min(64, max_points),
+            offset=offset,
+        )
+        if not points:
+            break
+        for pt in points:
+            payload = getattr(pt, "payload", None) or {}
+            v = payload.get("config_version")
+            n = payload.get("config_name") or ""
+            if v is not None and str(v).strip():
+                seen[str(v).strip()] = str(n).strip()
+        if offset is None:
+            break
+    return [{"config_name": n, "config_version": v} for v, n in sorted(seen.items())]
 
 
 _RRF_K = 60
