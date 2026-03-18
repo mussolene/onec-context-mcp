@@ -18,10 +18,13 @@ docs/cursor-examples/
 │   └── reference.md
 ├── 1c-mcp-tools-report/     # Skill: отчёт о полноте инструментов MCP
 │   └── SKILL.md
+├── 1c-explain-object/        # Skill: авто-документирование объектов конфигурации
+│   └── SKILL.md
 └── rules/                    # Rules (.mdc)
     ├── 1c-bsl-standards.mdc
     ├── 1c-mcp-workflow.mdc
     ├── 1c-mcp-tools-report.mdc   # Рекомендации по отчёту (пустые ответы, URI, координаты)
+    ├── 1c-explain-object.mdc     # Авто-документирование: как работает поле/кнопка/объект
     ├── 1c-project-conventions.mdc
     └── 1c-testing-workflow.mdc
 ```
@@ -31,6 +34,7 @@ docs/cursor-examples/
 1. **Копирование в .cursor:** при первом клонировании или настройке Cursor скопируйте:
    - `docs/cursor-examples/1c-mcp-development/` → `.cursor/skills/1c-mcp-development/`
    - `docs/cursor-examples/1c-mcp-tools-report/` → `.cursor/skills/1c-mcp-tools-report/`
+   - `docs/cursor-examples/1c-explain-object/` → `.cursor/skills/1c-explain-object/`
    - `docs/cursor-examples/rules/*.mdc` → `.cursor/rules/`
 
 2. **Обновление после изменений:** если вы изменили skill или rules в `.cursor/` и хотите зафиксировать их в репозитории — скопируйте обратно в `docs/cursor-examples/` и закоммитьте.
