@@ -15,10 +15,12 @@ alwaysApply: false
 ## Краткий порядок вызовов
 
 **1c-help (справка, примеры):**
-1. Примеры кода: `get_1c_code_answer(query, include_memory=True)` (блок «Из памяти» уже упорядочен: сначала стандарты, затем сниппеты). При необходимости явного списка стандартов/сниппетов — дополнительно `search_1c_memory(query, domains="standards,snippets")`.
-2. При нерелевантных результатах: `search_1c_help_keyword("Тип.Метод")` → `get_1c_help_topic(topic_path=<path>)` (параметр **topic_path**, не `path`). Для нескольких топиков сразу: `get_1c_help_topics_bulk(paths=[...])`.
-3. Пустые ответы: `get_1c_help_index_status` → затем `search_1c_help_keyword` с точным именем API.
-4. Контекст по конфигурации (справка + память + объекты метаданных): `get_1c_context_bundle(query[, config_version])`. Только объекты: `search_1c_metadata(query[, config_version])` → `get_1c_metadata_object(object_id)`.
+1. **ПЕРВЫЙ вызов для любого кодового вопроса:** `get_1c_code_answer(query, include_memory=True)`.
+   - Нужно больше деталей: добавить `max_chars_per_topic=8000`. Только код: `code_only=True`.
+   - Нужны стандарты/сниппеты явно: дополнительно `search_1c_memory(query, domains="standards,snippets")`.
+2. Нужны объекты конфигурации (Документы, Справочники, Регистры): `get_1c_context_bundle(query[, config_version])` (справка + память + метаданные в одном вызове). Только объекты: `search_1c_metadata(query)` → `get_1c_metadata_object(object_id)`.
+3. При нерелевантных результатах: `search_1c_help_keyword("Тип.Метод")` → `get_1c_help_topic(topic_path=<path>)` (параметр **topic_path**, не `path`). Несколько топиков: `get_1c_help_topics_bulk(paths=[...])`.
+4. Пустые ответы: `get_1c_help_index_status` → `search_1c_help_keyword` с точным именем API.
 5. После рабочего кода: `save_1c_snippet(code_snippet, description, title)`.
 6. Типичные ловушки 1С: промпт `get_1c_common_pitfalls()`.
 
