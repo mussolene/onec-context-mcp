@@ -20,7 +20,6 @@ import argparse
 import json
 import os
 import sys
-import time
 import urllib.error
 import urllib.request
 
@@ -55,7 +54,7 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
     """Косинусное сходство между двумя векторами."""
     if len(a) != len(b) or not a:
         return 0.0
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=False))
     na = sum(x * x for x in a) ** 0.5
     nb = sum(x * x for x in b) ** 0.5
     if na == 0 or nb == 0:
@@ -169,8 +168,6 @@ def run_batch_warmup_timed(
         env[k] = v
     proj_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     env["PYTHONPATH"] = os.path.join(proj_root, "src") + (os.pathsep + env.get("PYTHONPATH", ""))
-    flat = [t for pair in RU_SAMPLES for t in pair]
-
     warmup_n = warmup_pts if warmup_pts is not None else num_texts
     test_n = test_pts if test_pts is not None else num_texts
 
@@ -609,8 +606,8 @@ def main_compare_variants(warmup_pts: int, test_pts: int) -> None:
     best_overall = 0.0
     for _, ro, rl in results:
         o = ro.get("pts_per_sec", 0) or 0 if "error" not in ro else 0
-        l = rl.get("pts_per_sec", 0) or 0 if "error" not in rl else 0
-        best_overall = max(best_overall, o, l)
+        loc = rl.get("pts_per_sec", 0) or 0 if "error" not in rl else 0
+        best_overall = max(best_overall, o, loc)
     for name, ro, rl in results:
         o_pps = ro.get("pts_per_sec", 0) if "error" not in ro else 0
         l_pps = rl.get("pts_per_sec", 0) if "error" not in rl else 0
