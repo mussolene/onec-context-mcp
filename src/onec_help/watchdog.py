@@ -22,6 +22,22 @@ _INGEST_STDERR_LOG = "ingest_stderr.log"
 _INGEST_STDERR_LOG_MAX_BYTES = 2 * 1024 * 1024  # 2 MiB; rotate to .old when exceeded
 
 
+def _get_collection_points(collection_name: str) -> int:
+    """Return points count for a Qdrant collection, 0 if missing, -1 on error."""
+    try:
+        from . import indexer
+
+        status = indexer.get_index_status(collection=collection_name)
+        if "error" in status and not status.get("exists", True):
+            return -1  # Qdrant unreachable
+        count = status.get("points_count")
+        if count is None:
+            return -1
+        return int(count)
+    except Exception:
+        return -1
+
+
 def _parse_languages() -> list[str] | None:
     raw = env_config.get_help_languages()
     if not raw or raw.lower() == "all":
@@ -203,6 +219,7 @@ def run_watchdog(
         run_standards = False
         run_snippets = False
         run_metadata = False
+        force_ingest_skip_cache = False
         metadata_ok: bool | None = None
 
         if last_ingest_failed and current:
@@ -254,10 +271,35 @@ def run_watchdog(
             # Состояние в Redis пишем только после успешного прогона (иначе при падении не перезапустим).
             run_metadata = True
 
+        # Force ingest/metadata-build when collections are empty but source files exist.
+        # This handles fresh installs, Qdrant volume wipes, and first starts where the
+        # watchdog state in Redis already matches the filesystem (no change detected).
+        if not run_ingest and current:
+            pts = _get_collection_points("onec_help")
+            if pts == 0:
+                print(
+                    "[watchdog] onec_help collection empty — forcing ingest with INGEST_SKIP_CACHE=1",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                run_ingest = True
+                force_ingest_skip_cache = True
+
+        if not run_metadata and current_meta and config_dir_str:
+            pts = _get_collection_points("onec_config_metadata")
+            if pts == 0:
+                print(
+                    "[watchdog] onec_config_metadata collection empty — forcing metadata-graph-build",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                run_metadata = True
+
         if run_ingest or run_standards or run_snippets or run_metadata:
             tasks = []
             if run_ingest:
-                tasks.append(("ingest", _run_ingest))
+                _fsc = force_ingest_skip_cache
+                tasks.append(("ingest", lambda _fsc=_fsc: _run_ingest(_fsc)))
             if run_standards:
                 tasks.append(("standards", lambda: _run_load_standards(standards_dir_str)))
             if run_snippets:
@@ -382,15 +424,23 @@ def _ingest_subprocess_timeout() -> int:
     return env_config.get_watchdog_ingest_timeout()
 
 
-def _run_ingest() -> bool:
-    """Run full ingest (python -m onec_help ingest). Returns True if exit code was 0, False otherwise."""
+def _run_ingest(force_skip_cache: bool = False) -> bool:
+    """Run full ingest (python -m onec_help ingest). Returns True if exit code was 0, False otherwise.
+
+    force_skip_cache: if True, sets INGEST_SKIP_CACHE=1 in the subprocess env so the ingest
+    ignores the SQLite cache and re-processes all files. Used when the Qdrant collection is
+    empty but the cache thinks everything is already indexed.
+    """
     timeout_sec = _ingest_subprocess_timeout()
     try:
+        env = os.environ.copy()
+        if force_skip_cache:
+            env["INGEST_SKIP_CACHE"] = "1"
         result = subprocess.run(
             [sys.executable, "-m", "onec_help", "ingest"],
             capture_output=True,
             timeout=timeout_sec if timeout_sec > 0 else None,
-            env=os.environ.copy(),
+            env=env,
         )
         # Persist full stderr (and stdout) to cache dir for diagnostics (e.g. exit -7, OOM)
         _append_ingest_run_log(
@@ -495,9 +545,28 @@ def _run_load_snippets(snippets_dir: str) -> None:
 
 
 def _run_build_metadata_graph(config_dir: str) -> bool:
-    """Run metadata-graph-build for exported configuration in config_dir. Returns True on success."""
+    """Run metadata-graph-build for exported configuration in config_dir. Returns True on success.
+
+    Skips if a fresh load_metadata.running marker exists (another process already running).
+    """
     if not config_dir:
         return False
+    # Не запускаем повторно если операция уже идёт (маркер свежий — обновлялся heartbeat-ом).
+    try:
+        import time as _time
+        from .ingest import _ingest_cache_path
+        marker = Path(_ingest_cache_path()).parent / "load_metadata.running"
+        if marker.exists():
+            age = _time.time() - marker.stat().st_mtime
+            if age < 600:
+                print(
+                    f"[watchdog] metadata-graph-build already running (marker age {int(age)}s), skipping",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                return True  # Считаем это не-ошибкой: процесс уже работает
+    except OSError:
+        pass
     try:
         result = subprocess.run(
             [sys.executable, "-m", "onec_help", "metadata-graph-build", config_dir],
