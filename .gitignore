@@ -17,6 +17,7 @@ build/
 .idea/
 .vscode/
 .cursor/
+.mcp.json
 
 # Linter / tools cache
 .ruff_cache/
