@@ -108,6 +108,19 @@ def test_extract_keyword_tokens_edge_cases() -> None:
     assert "Запрос.ВыполнитьПакет" in tokens_multi
 
 
+def test_rank_keyword_results_prefers_exact_api_match() -> None:
+    """Exact API title/path should rank ahead of partial keyword matches."""
+    ranked = mcp_server._rank_keyword_results(
+        "HTTPСоединение.Получить",
+        [
+            {"title": "HTTPСоединение.ПолучитьЗаголовки", "path": "Head.md"},
+            {"title": "HTTPСоединение.Получить", "path": "Get.md"},
+            {"title": "Получить", "path": "GetShort.md"},
+        ],
+    )
+    assert ranked[0]["title"] == "HTTPСоединение.Получить"
+
+
 def test_hybrid_search_returns_meta() -> None:
     """_hybrid_search returns (results, meta) with has_keyword_hits and top_semantic_score."""
     with (
@@ -293,6 +306,24 @@ def test_mcp_tool_search_1c_help_keyword_via_app(help_sample_dir: Path) -> None:
     assert "API" in text or "api.html" in text
 
 
+def test_mcp_tool_search_1c_help_keyword_reranks_exact_first(help_sample_dir: Path) -> None:
+    """Exact API hit should be rendered before similar keyword results."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(
+        mcp_server,
+        "_search_keyword",
+        return_value=[
+            {"title": "HTTPСоединение.ПолучитьЗаголовки", "path": "Head.md", "text": "head"},
+            {"title": "HTTPСоединение.Получить", "path": "Get.md", "text": "get"},
+        ],
+    ):
+        result = asyncio.run(
+            app.call_tool("search_1c_help_keyword", {"query": "HTTPСоединение.Получить", "limit": 5})
+        )
+    text = result.content[0].text if result.content else ""
+    assert text.splitlines()[0].startswith("1. **HTTPСоединение.Получить**")
+
+
 def test_mcp_tool_search_1c_help_keyword_accepts_keyword_param(help_sample_dir: Path) -> None:
     """search_1c_help_keyword uses 'query' parameter (keyword alias removed from public API)."""
     app = mcp_server._build_mcp_app(help_sample_dir)
@@ -462,6 +493,31 @@ def test_mcp_tool_get_1c_code_answer_code_only(help_sample_dir: Path) -> None:
             )
     text = result.content[0].text if result.content else ""
     assert "Х()" in text or "bsl" in text or "A" in text
+
+
+def test_mcp_tool_get_1c_api_answer_via_app(help_sample_dir: Path) -> None:
+    """get_1c_api_answer uses exact-first keyword route and returns compact content."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(
+        mcp_server,
+        "_search_keyword",
+        return_value=[
+            {"title": "HTTPСоединение.ПолучитьЗаголовки", "path": "Head.md", "text": "head"},
+            {"title": "HTTPСоединение.Получить", "path": "Get.md", "text": "get"},
+        ],
+    ):
+        with patch.object(
+            mcp_server,
+            "_get_topic",
+            return_value="# HTTPСоединение.Получить\n\nОписание.\n\n```bsl\nОтвет = Соединение.Получить();\n```",
+        ):
+            result = asyncio.run(
+                app.call_tool("get_1c_api_answer", {"name": "HTTPСоединение.Получить"})
+            )
+    text = result.content[0].text if result.content else ""
+    assert "HTTPСоединение.Получить" in text
+    assert "Описание" in text
+    assert "Соединение.Получить" in text
 
 
 def test_mcp_tool_list_1c_help_titles_via_app(help_sample_dir: Path) -> None:

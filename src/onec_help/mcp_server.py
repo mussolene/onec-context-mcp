@@ -307,6 +307,63 @@ def _extract_keyword_tokens(query: str) -> list[str]:
     return tokens[:8]
 
 
+def _looks_like_exact_api_query(query: str) -> bool:
+    return bool(re.fullmatch(r"[A-Za-zА-Яа-я_][\wА-Яа-я]*\.[\wА-Яа-я]+", (query or "").strip()))
+
+
+def _result_path_stem(result: dict[str, Any]) -> str:
+    path = (result.get("path") or "").strip().lower()
+    if not path:
+        return ""
+    return Path(path).stem.lower()
+
+
+def _match_priority(query_lower: str, title_lower: str, path_stem_lower: str = "") -> int:
+    """Lower = better. 0=exact, 1=startswith, 2=contains, 3=no match."""
+    candidates = [item for item in (title_lower, path_stem_lower) if item]
+    if any(candidate == query_lower for candidate in candidates):
+        return 0
+    if any(candidate.startswith(query_lower + " ") or candidate.startswith(query_lower + "(") for candidate in candidates):
+        return 1
+    if any(candidate.startswith(query_lower) for candidate in candidates):
+        return 1
+    if any(query_lower in candidate for candidate in candidates):
+        return 2
+    return 3
+
+
+def _is_member_title(query_lower: str, title_lower: str) -> bool:
+    """True if the title looks like 'Type.Name ...' (object property/method)."""
+    idx = title_lower.find(query_lower)
+    return idx > 0 and title_lower[idx - 1] == "."
+
+
+def _member_sort_key(query_lower: str, title_lower: str) -> bool:
+    is_member = _is_member_title(query_lower, title_lower)
+    if "." in query_lower:
+        return not is_member
+    return is_member
+
+
+def _rank_keyword_results(query: str, results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    query_lower = (query or "").strip().lower()
+    if not query_lower:
+        return results
+    indexed = list(enumerate(results))
+    indexed.sort(
+        key=lambda item: (
+            _match_priority(
+                query_lower,
+                (item[1].get("title") or "").strip().lower(),
+                _result_path_stem(item[1]),
+            ),
+            _member_sort_key(query_lower, (item[1].get("title") or "").strip().lower()),
+            item[0],
+        )
+    )
+    return [result for _, result in indexed]
+
+
 # Порог score семантики: ниже — добавлять подсказку про keyword-поиск
 _SEMANTIC_LOW_SCORE_THRESHOLD = 0.48
 
@@ -448,6 +505,15 @@ def _compact_help_block(
     if len(excerpt) > max_chars:
         excerpt = excerpt[:max_chars].rstrip() + "\n\n..."
     return f"{header}\n\n{excerpt}"
+
+
+def _compact_api_answer(result: dict[str, Any], content: str, *, max_chars: int = 1200) -> str:
+    lines = [_compact_help_block(result, content, code_only=False, max_chars=max_chars)]
+    blocks = _extract_code_blocks(content)
+    if blocks:
+        lines.append("#### Код")
+        lines.append(f"```bsl\n{_compact_code(blocks[0], 700)}\n```")
+    return "\n\n".join(lines)
 
 
 def _order_memory_for_display(
@@ -659,6 +725,7 @@ def _build_mcp_app(help_path: Path) -> Any:
             version=version,
             language=language,
         )
+        results = _rank_keyword_results(q, results)
         if not results:
             return "No keyword matches. Try search_1c_help for semantic search."
         lines = []
@@ -779,6 +846,66 @@ def _build_mcp_app(help_path: Path) -> Any:
             if help_blocks:
                 parts.append("\n### Из справки\n\n" + "\n\n".join(help_blocks))
         return "\n".join(parts)
+
+    @mcp.tool()
+    @_record_mcp_tool
+    def get_1c_api_answer(
+        name: str,
+        version: str | None = None,
+        language: str | None = None,
+        detail: str = "compact",
+    ) -> str:
+        """Compact exact-first answer for a 1C API/function/method.
+        Use for exact API names like HTTPСоединение.Получить or Формат.
+        detail: compact (default) or full."""
+        err = _check_rate_limit()
+        if err:
+            return err
+        name_clean, err = _truncate_if_needed((name or "").strip(), MAX_QUERY_CHARS, "name")
+        if err:
+            return err
+        if not name_clean:
+            return "Provide API name, for example HTTPСоединение.Получить."
+        results = _rank_keyword_results(
+            name_clean,
+            _search_keyword(name_clean, limit=15, version=version, language=language),
+        )
+        if not results:
+            return (
+                f"No exact keyword matches for «{name_clean}». "
+                f'Try search_1c_help_keyword(query="{name_clean}") or get_1c_code_answer(query="{name_clean}").'
+            )
+        best_priority = _match_priority(
+            name_clean.lower(),
+            (results[0].get("title") or "").strip().lower(),
+            _result_path_stem(results[0]),
+        )
+        best = [
+            result
+            for result in results
+            if _match_priority(
+                name_clean.lower(),
+                (result.get("title") or "").strip().lower(),
+                _result_path_stem(result),
+            )
+            == best_priority
+        ]
+        if len(best) > 1 and best_priority <= 1 and not version:
+            lines = [f"Several exact API matches for «{name_clean}». Refine by version or use get_1c_help_topic:"]
+            for idx, result in enumerate(best[:5], 1):
+                meta = _format_result_meta(result)
+                lines.append(f"{idx}. **{result.get('title', '')}**{meta} (path: {result.get('path', '')})")
+            return "\n".join(lines)
+        topic = best[0]
+        path = topic.get("path", "")
+        if not path:
+            return "Exact keyword hit has no topic path."
+        content = _get_topic(path, version=version, language=language, prefer_index=False)
+        if not content:
+            return f"Topic content not found for {path}."
+        if detail == "full":
+            return content
+        return _compact_api_answer(topic, content, max_chars=1200)
 
     @mcp.tool()
     @_record_mcp_tool
@@ -1602,22 +1729,6 @@ def _build_mcp_app(help_path: Path) -> Any:
 
         return "\n".join(parts)
 
-    def _match_priority(name_lower: str, title_lower: str) -> int:
-        """Lower = better. 0=exact, 1=startswith+space/(, 2=in, 3=no match."""
-        if title_lower == name_lower:
-            return 0
-        if title_lower.startswith(name_lower + " ") or title_lower.startswith(name_lower + "("):
-            return 1
-        if name_lower in title_lower:
-            return 2
-        return 3
-
-    def _is_member_title(name_lower: str, title_lower: str) -> bool:
-        """True if the title looks like 'Type.Name ...' (object property/method).
-        Used as secondary sort key: global functions (False) sort before object members (True)."""
-        idx = title_lower.find(name_lower)
-        return idx > 0 and title_lower[idx - 1] == "."
-
     @mcp.tool()
     @_record_mcp_tool
     def get_1c_function_info(
@@ -1635,15 +1746,30 @@ def _build_mcp_app(help_path: Path) -> Any:
         if path:
             content = _get_topic(path)
             return content or "Topic not found."
-        results = _search_keyword(name_clean, limit=40)
+        results = _rank_keyword_results(name_clean, _search_keyword(name_clean, limit=40))
         if not results:
             results = _search(name_clean, limit=40)
         name_lower = name_clean.lower()
-        scored = [(r, _match_priority(name_lower, (r.get("title") or "").lower())) for r in results]
+        scored = [
+            (
+                result,
+                _match_priority(
+                    name_lower,
+                    (result.get("title") or "").lower(),
+                    _result_path_stem(result),
+                ),
+            )
+            for result in results
+        ]
         relevant = [(r, p) for r, p in scored if p <= 2]
         if not relevant:
             relevant = scored
-        relevant.sort(key=lambda x: (x[1], _is_member_title(name_lower, (x[0].get("title") or "").lower())))
+        relevant.sort(
+            key=lambda x: (
+                x[1],
+                _member_sort_key(name_lower, (x[0].get("title") or "").lower()),
+            )
+        )
         best_priority = relevant[0][1] if relevant else 3
         best = [r for r, p in relevant if p == best_priority]
         if best_priority == 3:
