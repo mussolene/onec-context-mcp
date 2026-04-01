@@ -883,3 +883,39 @@ def test_mcp_tool_get_1c_context_bundle_via_app(mock_build_ctx, help_sample_dir:
     assert "Из справки" in text
     assert "Сниппеты" in text or "стандарты" in text
     assert "Объекты конфигурации" in text
+
+
+@patch("onec_help.context_builder.build_context")
+def test_mcp_tool_get_1c_task_context_via_app(mock_build_ctx, help_sample_dir: Path) -> None:
+    """get_1c_task_context returns compact local context and top results."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    mock_build_ctx.return_value = {
+        "query_type": "metadata",
+        "local_context": {
+            "module_type": "ObjectModule",
+            "object_type": "Document",
+            "object_name": "Sales",
+            "form_name": "",
+            "symbol_name": "ОбработкаПроведения",
+        },
+        "help_topics": [{"title": "Проведение", "path": "post.md", "text": "Описание проведения документа"}],
+        "memory": [{"payload": {"title": "Стандарт", "domain": "standards", "description": "Проверяйте движения"}}],
+        "metadata_objects": [{"id": "Document/Sales", "object_type": "Document", "name": "Sales"}],
+    }
+    result = asyncio.run(
+        app.call_tool(
+            "get_1c_task_context",
+            {
+                "query": "провести документ",
+                "file_uri": "file:///projects/Documents/Sales/ObjectModule.bsl",
+                "symbol_name": "ОбработкаПроведения",
+                "diagnostics_json": '[{"severity":"warning"}]',
+                "config_version": "CfgVer",
+            },
+        )
+    )
+    text = result.content[0].text if result.content else ""
+    assert "Task context" in text
+    assert "ObjectModule" in text
+    assert "Document Sales" in text
+    assert "diagnostics" in text

@@ -516,6 +516,32 @@ def _compact_api_answer(result: dict[str, Any], content: str, *, max_chars: int 
     return "\n\n".join(lines)
 
 
+def _summarize_diagnostics_json(diagnostics_json: str | None) -> str:
+    if not diagnostics_json:
+        return ""
+    try:
+        payload = json.loads(diagnostics_json)
+    except Exception:
+        return ""
+    items = payload if isinstance(payload, list) else payload.get("diagnostics", []) if isinstance(payload, dict) else []
+    if not isinstance(items, list):
+        return ""
+    errors = 0
+    warnings = 0
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        severity = str(item.get("severity", "")).lower()
+        code = str(item.get("code", "")).lower()
+        if severity in {"1", "error"} or "error" in code:
+            errors += 1
+        elif severity in {"2", "warning"} or "warn" in code:
+            warnings += 1
+    if not (errors or warnings):
+        return ""
+    return f"errors: {errors}, warnings: {warnings}"
+
+
 def _order_memory_for_display(
     items: list[dict[str, Any]],
     max_standards: int = 2,
@@ -1728,6 +1754,99 @@ def _build_mcp_app(help_path: Path) -> Any:
             parts.append("\n### Объекты конфигурации\n\n" + "\n".join(lines))
 
         return "\n".join(parts)
+
+    @mcp.tool()
+    @_record_mcp_tool
+    def get_1c_task_context(
+        query: str,
+        file_uri: str | None = None,
+        symbol_name: str | None = None,
+        diagnostics_json: str | None = None,
+        config_version: str | None = None,
+    ) -> str:
+        """Build minimal AI task context from local file hints, metadata, help and memory.
+        Use when you need a compact anti-hallucination context for a concrete 1C task."""
+        err = _check_rate_limit()
+        if err:
+            return err
+        q, err = _truncate_if_needed(query or "", MAX_QUERY_CHARS, "query")
+        if err:
+            return err
+        try:
+            from .context_builder import ContextRequest, build_context
+        except Exception as e:  # pragma: no cover - import/runtime guard
+            return f"Context builder is not available: {safe_error_message(e)}"
+
+        ctx = build_context(
+            ContextRequest(
+                query=q,
+                config_version=config_version,
+                file_uri=file_uri,
+                symbol_name=symbol_name,
+                limit=2,
+            )
+        )
+        help_topics = ctx.get("help_topics") or []
+        memory_items = ctx.get("memory") or []
+        metadata_objects = ctx.get("metadata_objects") or []
+        local_context = ctx.get("local_context") or {}
+        if not (help_topics or memory_items or metadata_objects or local_context):
+            return "No task context found."
+
+        parts = [f"## Task context: {q}"]
+        query_type = ctx.get("query_type")
+        if query_type:
+            parts.append(f"type: {query_type}")
+        context_lines: list[str] = []
+        if local_context.get("module_type") and local_context.get("module_type") != "Unknown":
+            context_lines.append(f"module: {local_context.get('module_type')}")
+        if local_context.get("object_type") and local_context.get("object_name"):
+            context_lines.append(f"object: {local_context.get('object_type')} {local_context.get('object_name')}")
+        if local_context.get("form_name"):
+            context_lines.append(f"form: {local_context.get('form_name')}")
+        if local_context.get("symbol_name"):
+            context_lines.append(f"symbol: {local_context.get('symbol_name')}")
+        if context_lines:
+            parts.append("context: " + "; ".join(context_lines))
+        diagnostics_summary = _summarize_diagnostics_json(diagnostics_json)
+        if diagnostics_summary:
+            parts.append("diagnostics: " + diagnostics_summary)
+
+        if metadata_objects:
+            lines = []
+            for item in metadata_objects[:2]:
+                line = f"- {item.get('object_type', '')} {item.get('name', '')}".strip()
+                if item.get("id"):
+                    line += f" ({item.get('id')})"
+                if item.get("full_name"):
+                    line += f" — {item.get('full_name')}"
+                lines.append(line)
+            parts.append("### Metadata\n" + "\n".join(lines))
+
+        if help_topics:
+            lines = []
+            for item in help_topics[:2]:
+                title = item.get("title", "")
+                path = item.get("path", "")
+                meta = _format_result_meta(item)
+                text = _compact_text(item.get("text", ""), 220)
+                lines.append(f"- **{title}**{meta} ({path})")
+                if text:
+                    lines.append(f"  {text}")
+            parts.append("### Help\n" + "\n".join(lines))
+
+        if memory_items:
+            blocks = [
+                _format_memory_block(
+                    (item.get("payload") or item),
+                    compact=True,
+                    include_code=False,
+                )
+                for item in memory_items[:1]
+            ]
+            parts.append("### Memory\n" + "\n\n".join(blocks))
+
+        return "\n\n".join(parts)
 
     @mcp.tool()
     @_record_mcp_tool
