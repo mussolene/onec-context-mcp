@@ -1,38 +1,36 @@
 ---
-description: MCP workflow при редактировании кода 1С (1c-help + lsp-bsl-bridge). Циклические проверки с diagnostics. При открытии .bsl эта инструкция подставляется в контекст по умолчанию.
+description: AI-first workflow при редактировании кода 1С: наш 1c-help + внешний lsp-bsl-bridge. Минимальный маршрут без лишних ветвлений.
 globs: "**/*.bsl"
 alwaysApply: false
 ---
 
 # 1C MCP Workflow (инструкция по умолчанию при работе с .bsl)
 
-При редактировании `.bsl` этот rule даёт агенту инструкцию по двум MCP.
+При редактировании `.bsl` этот rule даёт агенту минимальный маршрут: `1c-help` как основной MCP этого репозитория и внешний `lsp-bsl-bridge` только как сервер проверки/навигации.
 
-**Новый чат по 1С (AI-агент):** вызвать инструмент `get_1c_quick_guide(task="develop"|"refactor"|"test")` для компактной инструкции. Для пользователя: вызвать промпт **how_to_use_1c_help_and_bsl_bridge** и вставить результат в первое сообщение.
+**Новый чат по 1С (AI-агент):** вызвать только `get_1c_quick_guide(task="develop"|"refactor"|"test")`. Длинные prompt-based guides не считать обязательной частью AI workflow.
 
 **URI (единый формат):** Docker — `file:///projects/<путь>` (volume `.:/projects`). Локально — полный file URI. Пути с кириллицей в URI **обязательно** URL-encoding: «Менеджер» → `%D0%9C%D0%B5%D0%BD%D0%B5%D0%B4%D0%B6%D0%B5%D1%80`, «МойМодуль» → `%D0%9C%D0%BE%D0%B9%D0%9C%D0%BE%D0%B4%D1%83%D0%BB%D1%8C`. Координаты LSP **0-based** (строка 0 = первая строка).
 
-## Краткий порядок вызовов
+## Канонический маршрут
 
-**1c-help (справка, примеры):**
-1. **ПЕРВЫЙ вызов для любого кодового вопроса:** `get_1c_code_answer(query, include_memory=True)`.
-   - Нужно больше деталей: добавить `max_chars_per_topic=8000`. Только код: `code_only=True`.
-   - Нужны стандарты/сниппеты явно: дополнительно `search_1c_memory(query, domains="standards,snippets")`.
-2. Нужны объекты конфигурации (Документы, Справочники, Регистры): `get_1c_context_bundle(query[, config_version])` (справка + память + метаданные в одном вызове). Только объекты: `search_1c_metadata(query)` → `get_1c_metadata_object(object_id)`.
-3. При нерелевантных результатах: `search_1c_help_keyword("Тип.Метод")` → `get_1c_help_topic(topic_path=<path>)` (параметр **topic_path**, не `path`). Несколько топиков: `get_1c_help_topics_bulk(paths=[...])`.
-4. Пустые ответы: `get_1c_help_index_status` → `search_1c_help_keyword` с точным именем API.
-5. После рабочего кода: `save_1c_snippet(code_snippet, description, title)`.
-6. Типичные ловушки 1С: промпт `get_1c_common_pitfalls()`.
+**1c-help (наш MCP):**
+1. Точный API/идентификатор: `search_1c_help_keyword("Тип.Метод")`.
+2. Неточный вопрос по коду или сценарию: `get_1c_code_answer(query)`.
+3. Если нужен полный текст статьи: `get_1c_help_topic(topic_path=<path>)`.
+4. Если нужны стандарты или сниппеты явно: `search_1c_memory(query, domains="standards,snippets")`.
+5. Если нужен объектный контекст: `search_1c_metadata(query)` → `get_1c_metadata_object(object_id)`.
+6. Если ответы кажутся неполными: `get_1c_help_index_status`.
 
-**lsp-bsl-bridge (проверка, навигация):**
+**Внешний lsp-bsl-bridge:**
 1. После правок: `document_diagnostics(uri)` → исправлять до отсутствия ERROR/WARNING.
-2. **Навигация (основной способ):** `project_analysis(analysis_type="workspace_symbols", query="Имя")` → `symbol_explore(query="Имя")` или `get_range_content(uri, start_line, ...)`. Инструменты definition, hover, call_graph, call_hierarchy часто возвращают пустой результат — считать их опциональными; не полагаться на них как основной способ.
+2. **Навигация (основной способ):** `project_analysis(analysis_type="workspace_symbols", query="Имя")` → `symbol_explore(query="Имя")` или `get_range_content(uri, start_line, ...)`.
+3. `definition`, `hover`, `call_graph`, `call_hierarchy` считать вторичными probe-инструментами: они часто зависят от точной позиции и не входят в базовый маршрут.
 3. После массовых правок: `did_change_watched_files(language="bsl", changes_json=[...])`.
-
-- **Рефакторинг:** `project_analysis` → правка по одному файлу → `document_diagnostics` → после batch: `did_change_watched_files`.
 
 ## Чек-лист перед коммитом / ревью
 
-- [ ] При необходимости использованы `get_1c_code_answer` или `search_1c_help_keyword` (справка/примеры)?
+- [ ] Использован минимальный route `1c-help` без broad/legacy tools по умолчанию?
+- [ ] При необходимости использованы `get_1c_code_answer` или `search_1c_help_keyword`?
 - [ ] Вызван `document_diagnostics(uri)` по изменённым модулям — нет ERROR и WARNING?
-- [ ] После добавления переиспользуемого кода вызван `save_1c_snippet`?
+- [ ] `save_1c_snippet` вызывался только для действительно переиспользуемого и проверенного кода?

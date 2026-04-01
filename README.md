@@ -208,7 +208,7 @@ python -m onec_help mcp . --transport streamable-http --host 0.0.0.0 --port 8050
 
 ### BSL LS (диагностика и рефакторинг 1С)
 
-Для статического анализа и навигации по коду 1С используется **BSL Language Server** через отдельный MCP — **lsp-bsl-bridge**. Запуск: `make bsl-start` (или `docker compose -f docker-compose.bsl.yml up -d`). Требуется клон репозитория mcp-bsl-lsp-bridge в `deps/` (`make fetch-bsl-bridge`). В Cursor в `.cursor/mcp.json` добавляют оба сервера: 1c-help (справка, сниппеты) и lsp-bsl-bridge (document_diagnostics, code_actions, call_graph и др.). Подробнее: [docs/bsl-ls-mcp-setup.md](docs/bsl-ls-mcp-setup.md), [docs/cursor-examples/](docs/cursor-examples/README.md).
+Для статического анализа и навигации по коду 1С используется **BSL Language Server** через отдельный внешний MCP — **lsp-bsl-bridge**. Этот репозиторий **не разрабатывает** lsp-bsl-bridge и не меняет его API или поведение: здесь поддерживается только интеграционный контракт и guidance по совместному использованию с `1c-help`. Запуск: `make bsl-start` (или `docker compose -f docker-compose.bsl.yml up -d`). Требуется клон репозитория mcp-bsl-lsp-bridge в `deps/` (`make fetch-bsl-bridge`). В Cursor в `.cursor/mcp.json` добавляют оба сервера: 1c-help (справка, память, метаданные) и внешний lsp-bsl-bridge (document_diagnostics, project_analysis, symbol_explore и др.). Подробнее: [docs/bsl-ls-mcp-setup.md](docs/bsl-ls-mcp-setup.md), [docs/cursor-examples/](docs/cursor-examples/README.md).
 
 ---
 

@@ -58,15 +58,15 @@
 
 ## MCP и конфиг Cursor
 
-- MCP работает **в контейнере** по протоколу **streamable-http** (порт 8050). Рабочий конфиг: **`.cursor/mcp.json`** с полем `url: "http://localhost:8050/mcp"` (без command/stdio). Пример — `docs/mcp.json.example`. Полный справочник инструментов (параметры, лимиты): `docs/mcp-tools-reference.md`. Исчерпывающий отчёт по полноте 1c-help и lsp-bsl-bridge, результаты прогонов и рекомендации: **`docs/mcp-1c-help-tools-report.md`**. Промпт MCP `how_to_use_1c_help_and_bsl_bridge` — готовая инструкция для вставки в чат (вызвать из клиента MCP). При `MCP_CURSOR_DOCS_PATH` (в Docker по умолчанию `/app/docs`) MCP отдаёт руководства через промпты `get_mcp_workflow_guide`, `get_mcp_tools_tips`, `get_mcp_tools_summary`, `get_mcp_guides_bundle` (самодокументируемый MCP).
+- MCP работает **в контейнере** по протоколу **streamable-http** (порт 8050). Рабочий конфиг: **`.cursor/mcp.json`** с полем `url: "http://localhost:8050/mcp"` (без command/stdio). Пример — `docs/mcp.json.example`. Полный справочник инструментов (параметры, лимиты): `docs/mcp-tools-reference.md`. Исчерпывающий отчёт по полноте 1c-help и внешнего `lsp-bsl-bridge`, результаты прогонов и рекомендации: **`docs/mcp-1c-help-tools-report.md`**. `lsp-bsl-bridge` считается **внешним подключаемым MCP**, а не частью продукта этого репозитория: здесь меняются только `1c-help`, self-documentation и интеграционный workflow. Для AI-агента канонический entry point — `get_1c_quick_guide`; длинные guide/prompts оставлять для человека и onboarding. При `MCP_CURSOR_DOCS_PATH` (в Docker по умолчанию `/app/docs`) MCP отдаёт руководства через промпты `get_mcp_workflow_guide`, `get_mcp_tools_tips`, `get_mcp_tools_summary`, `get_mcp_guides_bundle` (самодокументируемый MCP).
 - **Skill и Rules:** примеры для индексации и синхронизации — `docs/cursor-examples/`. Папка `.cursor/` исключена из git; при настройке Cursor скопируйте содержимое `docs/cursor-examples/` в `.cursor/skills/` и `.cursor/rules/`. При доработке MCP или workflow — обновляйте `docs/cursor-examples/` как зависимость.
 - **Рекомендуемый порядок вызовов:**
-  1. Ответ с кодом — `get_1c_code_answer` (при необходимости `code_only=True`).
-  2. **При нерелевантных результатах get_1c_code_answer** — вызвать `search_1c_help_keyword` с точным именем API (например `Тип.Метод`), затем `get_1c_help_topic(topic_path)` по `path` из результата.
-  3. Недостаток деталей — `get_1c_help_topic(topic_path)` (параметр `topic_path`, не `path`).
-  4. Точные имена API — `search_1c_help_keyword` с полным именем (в т.ч. `Тип.Метод`).
-  5. Несколько совпадений в `get_1c_function_info` — указывать `choose_index`.
-  6. После генерации рабочего кода — обязательно вызывать `save_1c_snippet` для сохранения полезных примеров (улучшает последующие ответы get_1c_code_answer).
+  1. Для AI-сессии — `get_1c_quick_guide(task="develop"|"refactor"|"test")`.
+  2. Точный API/идентификатор — `search_1c_help_keyword` с полным именем (`Тип.Метод`), затем `get_1c_help_topic(topic_path)` по `path` из результата.
+  3. Неточный вопрос по коду — `get_1c_code_answer`.
+  4. Нужны стандарты/сниппеты явно — `search_1c_memory(query, domains="standards,snippets")`.
+  5. Нужны объекты конфигурации — `search_1c_metadata` → `get_1c_metadata_object`.
+  6. Внешняя проверка/навигация по коду — `document_diagnostics`, `project_analysis`, `symbol_explore`, `get_range_content`. Не проектировать workflow так, будто этот репозиторий управляет поведением `lsp-bsl-bridge`.
 - **Типовые ловушки:** ПрочитатьJSON возвращает Структуру по умолчанию — для Соответствия указывать `ПрочитатьВСоответствие=Истина`. HTTPСоединение.Получить — только на сервере. Имена методов вида `Тип.Метод` передавать целиком в `search_1c_help_keyword`.
 - **Качество ответов и индексация:** при частичной индексации в выдаче только уже проиндексированные версии/разделы; для точных фактов и имён API предпочитать `search_1c_help_keyword` + `get_1c_help_topic`. Подробно: `docs/quality-and-pitfalls-analysis.md`.
 - **Почему в ответах нет сниппетов и стандартов:** блок «Из памяти» (примеры кода, стандарты v8std, community_help) формируется из коллекции Qdrant **onec_help_memory**. Её заполняют команды **load-snippets** (SNIPPETS_DIR, parse-fastcode/parse-helpf) и **load-standards** (v8-code-style, v8std). Если эти команды не запускались или завершились с ошибкой (например, нет embedding API), коллекция пуста и в `get_1c_code_answer` / `search_1c_help(include_user_memory=True)` сниппеты и стандарты не появятся. Проверка: `get_1c_help_index_status` — в выводе должна быть строка «Memory (**onec_help_memory**): **N** points». При N=0 или отсутствии такой строки выполните `make load-snippets` и `make load-standards` (или через init/watchdog); убедитесь, что EMBEDDING_API_URL доступен при загрузке.
@@ -101,13 +101,13 @@
 ## Правила
 
 - Язык кода и комментариев — по контексту (рус/англ). Пути и конфигурация — только через аргументы и env, без хардкода.
-- **Сохранять рабочий код 1С:** при выдаче исполняемого примера 1С, которого нет в базовых сниппетах, **обязательно** вызывать `save_1c_snippet` с кодом и описанием — это улучшит `get_1c_code_answer` в следующих сессиях. Если результат использован как финальный код — вызвать save_1c_snippet после проверки (например после document_diagnostics).
+- **Сохранять рабочий код 1С:** `save_1c_snippet` использовать только для реально переиспользуемого и уже проверенного результата. Не считать сохранение каждого ответа обязательным шагом.
 - Не трогать план в `.cursor/plans/`. При доработках сохранять совместимость с docker-compose и Qdrant. При изменении MCP или workflow — проверить и обновить `docs/cursor-examples/` (skill, rules).
 - Использовать subagent'ы при необходимости для объёмных задач.
 
 ### Работа с 1С-кодом
 
-- **Два MCP:** при генерации кода — 1c-help (`get_1c_code_answer`, `search_1c_help_keyword`); при проверке/рефакторинге — lsp-bsl-bridge (`document_diagnostics`, `code_actions`). Если 1c-help недоступен (нет индекса) — опереться на BSL LS и memory.
+- **Два MCP:** `1c-help` — основной MCP этого репозитория; внешний `lsp-bsl-bridge` подключается для проверки/навигации (`document_diagnostics`, `project_analysis`, `symbol_explore`, `get_range_content`). Если 1c-help недоступен (нет индекса) — опереться на внешний LSP и memory, но не считать это основным маршрутом.
 - **После правок 1С:** вызывать `document_diagnostics` для проверки ошибок, предупреждений и соответствия стандартам BSL LS. URI для Docker: `file:///projects/<path>/Module.bsl` (volume `.:/projects`).
 - **Стандарты:** учитывать правила 1С (BSL LS diagnostics + v8-code-style и v8std из `load-standards`).
 
@@ -115,16 +115,16 @@
 
 Циклы с проверками; при ошибках — возврат к шагу исправления.
 
-1. **Индексация.** `make up` или `docker compose up -d`. BSL LS: `make bsl-start` (отдельно), volume `.:/projects`. Дождаться индексации (`lsp_status`).
-2. **Ориентирование.** `project_analysis` — поиск символов/файлов; `symbol_explore` — детали по символу; `call_graph` — граф вызовов перед рефакторингом (обязательно перед правками).
+1. **Индексация.** `make up` или `docker compose up -d`. Внешний BSL LS: `make bsl-start` (отдельно), volume `.:/projects`. Дождаться готовности LSP.
+2. **Ориентирование.** `project_analysis` — поиск символов/файлов; `symbol_explore` — детали по символу; `get_range_content` — устойчивый способ взять локальный фрагмент. `call_graph` не считать обязательным шагом.
 
 ### Цикл «Написание кода»
 
-`get_1c_code_answer` / `search_1c_help_keyword` → реализация → `document_diagnostics` → при ERROR/WARNING: исправить и повторить diagnostics до чистоты → `save_1c_snippet` (если переиспользуемо) → опционально unit-тест 1С (YaxUnit) или BDD/сценарий (Vanessa-Automation). См. `docs/1c-testing-guide.md`.
+`search_1c_help_keyword` (для точного API) или `get_1c_code_answer` (для неточного вопроса) → реализация → внешний `document_diagnostics` → при ERROR/WARNING: исправить и повторить diagnostics до чистоты → `save_1c_snippet` только если код действительно переиспользуемый → опционально unit-тест 1С (YaxUnit) или BDD/сценарий (Vanessa-Automation). См. `docs/1c-testing-guide.md`.
 
 ### Цикл «Рефакторинг»
 
-`call_graph` + `project_analysis` → `document_diagnostics` (базовое состояние) → правка одного файла → `document_diagnostics` → при ERROR: исправить и повторить → после batch: `did_change_watched_files` → следующий файл.
+`project_analysis` + `symbol_explore` + `get_range_content` → `document_diagnostics` (базовое состояние) → правка одного файла → `document_diagnostics` → при ERROR: исправить и повторить → после batch: `did_change_watched_files` → следующий файл.
 
 ### Слой тестирования
 
