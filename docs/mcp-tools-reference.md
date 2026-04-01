@@ -4,13 +4,13 @@
 
 ## Рекомендуемый порядок вызовов
 
-1. **Ответ с кодом** — `get_1c_code_answer` (при необходимости `code_only=True`).
-2. **При нерелевантных результатах** — вызвать `search_1c_help_keyword` с точным именем API (например `Тип.Метод`), затем `get_1c_help_topic(topic_path)` по `path` из результата.
-3. **Недостаток деталей по топику** — `get_1c_help_topic(topic_path)` (параметр **topic_path**, не `path`).
-4. **Точные имена API** — `search_1c_help_keyword` с полным именем (в т.ч. `Тип.Метод`).
-5. **Несколько совпадений в get_1c_function_info** — указывать `choose_index` (1-based).
-6. **Гарантированно стандарты и сниппеты** — дополнительно вызвать `search_1c_memory(query, domains="standards,snippets")`; в `get_1c_code_answer` блок «Из памяти» уже упорядочен: сначала [стандарт], затем [пример].
-7. **После генерации рабочего кода** — `save_1c_snippet` для сохранения полезных примеров (улучшает `get_1c_code_answer` в следующих сессиях).
+1. **Старт AI-сессии** — `get_1c_quick_guide(task="develop"|"refactor"|"test")`.
+2. **Точное API `Тип.Метод`** — `get_1c_api_answer(name)`.
+3. **Неточный вопрос по коду** — `get_1c_code_answer(query)`; по умолчанию ответ компактный.
+4. **Локальный anti-hallucination context** — `get_1c_task_context(query, file_uri, symbol_name)`.
+5. **При нерелевантных результатах** — `search_1c_help_keyword` с точным именем API, затем `get_1c_help_topic(topic_path)` по `path` из результата.
+6. **Гарантированно стандарты и сниппеты** — `search_1c_memory(query, domains="standards,snippets")`.
+7. **После генерации рабочего кода** — `save_1c_snippet` только для реально переиспользуемого и уже проверенного результата.
 
 ---
 
@@ -20,14 +20,14 @@
 
 | Инструмент | Передавать | Не передавать |
 |------------|-------------|----------------|
-| **search_1c_help_keyword** | `query` **или** `keyword` (оба допустимы) | — |
+| **search_1c_help_keyword** | `query` | `keyword` |
 | **get_1c_help_topic** | `topic_path` **или** `path` (оба допустимы) | — |
 | **get_1c_help_related** | `topic_path` **или** `path` (оба допустимы) | — |
 | **get_1c_help_index_status** | без параметров (пустой объект `{}`) | — |
 | **get_1c_metadata_object** | `object_id`, при нескольких конфигурациях — `config_version` | — |
 | **search_1c_metadata** | `query`, при нескольких конфигурациях — `config_version` | — |
 
-Ошибка вида `query: Missing required argument` / `keyword: Unexpected keyword argument` при вызове `search_1c_help_keyword` означает, что был передан параметр **keyword** в среде, которая ожидает только **query**. В текущей версии сервера принимаются **оба**: можно передавать либо `{"query": "..."}`, либо `{"keyword": "..."}`.
+Ошибка вида `query: Missing required argument` / `keyword: Unexpected keyword argument` при вызове `search_1c_help_keyword` означает, что был передан параметр **keyword** в среде, которая ожидает только **query**. В текущей версии публичный контракт — только `{"query": "..."}`.
 
 ---
 
@@ -36,9 +36,10 @@
 | Инструмент | Параметры | Описание | Лимиты / примечания |
 |------------|-----------|----------|---------------------|
 | **search_1c_help** | `query`, `limit=8`, `version`, `language`, `include_user_memory=False` | Семантический поиск по справке. Для кода предпочтительнее `get_1c_code_answer`; для точных имён API — `search_1c_help_keyword`. | query до 64 KB (MAX_QUERY_CHARS). При нерелевантности — попробовать `search_1c_help_keyword` с точным именем. |
-| **search_1c_help_keyword** | `query` **или** `keyword` (строка поиска), `limit=10`, `version`, `language` | Поиск по подстроке/BM25 в заголовке и тексте. Идеален для точных имён: `РегистрНакопления.ОстаткиИОбороты`, `Тип.Метод`. | Передавать **query** или **keyword** — оба параметра принимаются. query/keyword до 64 KB. |
-| **search_1c_help_with_content** | `query`, `limit=3`, `version`, `language` | Гибридный поиск + полный контент топ-результатов в одном вызове. | limit — число топиков с полным контентом; контент обрезается до MCP_MAX_TOPIC_CHARS (по умолчанию 4000). При нерелевантности — `search_1c_help_keyword` с точным API. |
-| **get_1c_code_answer** | `query`, `limit=3`, `include_memory=True`, `code_only=False`, `version`, `language` | Готовый ответ с кодом: семантика + keyword + контент топиков + память. Основной инструмент для примеров и API. | Блок «Из памяти» упорядочен: сначала [стандарт] (до 2), затем [пример] (до 2), затем остальное (до 6 блоков). Данные из **onec_help_memory** (load-snippets, load-standards). Для гарантированного контекста по стандартам/сниппетам дополнительно вызвать **search_1c_memory**. Контент топиков до MCP_MAX_TOPIC_CHARS (4000). |
+| **search_1c_help_keyword** | `query`, `limit=10`, `version`, `language` | Поиск по подстроке/BM25 в заголовке и тексте с локальным exact-first rerank. Идеален для точных имён: `РегистрНакопления.ОстаткиИОбороты`, `Тип.Метод`. | Передавать только `query`. До 64 KB. |
+| **search_1c_help_with_content** | `query`, `limit=3`, `version`, `language` | Legacy/deprecated: гибридный поиск + полный контент топ-результатов. | Для AI по умолчанию не использовать; предпочитать `get_1c_code_answer`. |
+| **get_1c_api_answer** | `name`, `version=None`, `language=None`, `detail="compact"` | Compact exact-first ответ по точному API/функции/методу. | Первый выбор для `Тип.Метод`; `detail="full"` возвращает полный топик. |
+| **get_1c_code_answer** | `query`, `limit=1`, `include_memory=True`, `code_only=False`, `version`, `language` | Готовый компактный ответ с кодом: семантика + keyword + контент топиков + память. Основной инструмент для неточных вопросов. | По умолчанию 1 топик и компактный output. Для большего контекста повышать `max_chars_per_topic`. |
 | **search_1c_memory** | `query`, `limit=5`, `domains=None` | Поиск только по памяти (сниппеты, стандарты, community_help). Возвращает блоки [пример] / [стандарт] по смыслу запроса. | `domains`: фильтр — `"standards"`, `"snippets"`, `"community_help"` или через запятую `"standards,snippets"`; без параметра — по всей памяти. Использовать, когда нужен гарантированный контекст из стандартов и сниппетов в дополнение к get_1c_code_answer. |
 | **get_1c_help_topic** | `topic_path` **или** `path`, `version`, `language`, `prefer_index=False` | Полный контент топика по пути (Markdown). Путь брать из результатов поиска (напр. `zif3_CryptoManager.md`). | Оба параметра допустимы: **topic_path** или **path**. `prefer_index=True` — читать только из индекса. |
 | **get_1c_function_info** | `name`, `path=None`, `choose_index=None` | Описание, синтаксис, параметры функции/метода 1С. | `path` — точный путь топика (если известен). При нескольких совпадениях — `choose_index=1,2,...` (1-based). Имена методов — полные `Тип.Метод`. |
@@ -54,6 +55,7 @@
 | **save_1c_snippet** | `code_snippet`, `description=""`, `title=""`, `write_to_files=None` | Сохранить фрагмент кода 1С в память пользователя. | code_snippet до 64 KB. `write_to_files`: при `None` используется SAVE_SNIPPET_TO_FILES из env; при True — также запись в SNIPPETS_DIR. |
 | **get_form_metadata** | `xml_content` | Разбор Form.xml: атрибуты и команды. | xml_content до 64 KB. Ожидаемая структура: элементы с локальными именами **Attribute** (атрибуты формы) и **Command** (команды); при формате с другими тегами (напр. только FormAttribute) результат может быть пустым. См. раздел «Формат Form.xml» ниже. |
 | **get_module_info** | `uri_or_path` | Тип модуля и контекст по пути к Module.bsl / ObjectModule.bsl. | Возвращает FormModule, ObjectModule и т.д., имя формы/объекта при возможности. |
+| **get_1c_task_context** | `query`, `file_uri=None`, `symbol_name=None`, `diagnostics_json=None`, `config_version=None` | Компактный task-local контекст: file/module hints + metadata + help + memory. | Предпочтителен для AI вместо широкого bundle-контекста. |
 
 ---
 
@@ -71,7 +73,7 @@
 |------------|-----------|----------|---------------------|
 | **search_1c_metadata** | `query` (обяз.), `config_version=None`, `object_type=None`, `limit=20` | Поиск объектов конфигурации по запросу (семантика + подстрока по имени/синониму). | `config_version` опционален. Если в графе одна версия — поиск идёт только по ней. Если версий несколько и `config_version` не указан, поиск выполняется **по всем доступным версиям**; в выдаче каждая строка помечается `config_version: '...'`. Без `metadata-graph-build` — «Metadata graph is empty». |
 | **get_1c_metadata_object** | `object_id` (обяз.), `config_version=None` | Детали объекта по id из search_1c_metadata (id, type, name, full_name, path, attributes: requisites, tabular_sections). | При нескольких конфигурациях в графе нужно передать `config_version`. При отсутствии графа или объекта — «Metadata object not found». |
-| **get_1c_context_bundle** | `query`, `config_version=None`, `file_uri=None`, `symbol_name=None`, `limit=5` | Комбинированный контекст: справка + память + объекты метаданных. | При одной версии в графе `config_version` можно не передавать. При пустом графе возвращает только справку и память. |
+| **get_1c_context_bundle** | `query`, `config_version=None`, `file_uri=None`, `symbol_name=None`, `limit=5` | Legacy broad context: справка + память + объекты метаданных. | Использовать только когда нужен расширенный bundle; для AI по умолчанию предпочитать `get_1c_task_context`. |
 
 ---
 
