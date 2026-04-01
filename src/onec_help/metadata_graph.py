@@ -597,7 +597,57 @@ _RRF_K = 60
 # Макс. точек при scroll в substring-поиске.
 # Крупные конфигурации содержат 6000+ объектов; лимит 512 скрывал ~90% из них.
 # 30000 покрывает все текущие конфигурации; batch_size увеличен для сокращения числа API-вызовов.
-_SEARCH_METADATA_SUBSTRING_MAX_POINTS = 30_000
+_SEARCH_METADATA_SUBSTRING_MAX_POINTS = 5_000
+
+_TYPE_FILTER_HINTS: dict[str, tuple[str, ...]] = {
+    "Document": ("документ", "document"),
+    "Catalog": ("справочник", "catalog"),
+    "InformationRegister": ("регистр сведений", "informationregister"),
+    "AccumulationRegister": ("регистр накопления", "accumulationregister"),
+    "Report": ("отчет", "отчёт", "report"),
+    "DataProcessor": ("обработка", "dataprocessor"),
+    "Enumeration": ("перечисление", "enumeration", "enum"),
+}
+
+
+def _guess_type_filter(query: str, type_filter: str | None) -> str | None:
+    if type_filter:
+        return type_filter
+    q = (query or "").strip().lower()
+    for object_type, hints in _TYPE_FILTER_HINTS.items():
+        if any(hint in q for hint in hints):
+            return object_type
+    return None
+
+
+def _metadata_query_variants(query: str) -> list[str]:
+    q = (query or "").strip().lower()
+    if not q:
+        return []
+    no_spaces = q.replace(" ", "")
+    variants = [q]
+    if no_spaces != q:
+        variants.append(no_spaces)
+    if "/" in q:
+        variants.extend(part for part in q.split("/") if part)
+    return list(dict.fromkeys(variants))
+
+
+def _metadata_match_priority(payload: dict[str, Any], variants: list[str]) -> int:
+    fields = [
+        str(payload.get("id") or "").lower(),
+        str(payload.get("name") or "").lower(),
+        str(payload.get("full_name") or "").lower(),
+    ]
+    if not variants:
+        return 2
+    if any(field == variant for field in fields for variant in variants):
+        return 0
+    if any(field.startswith(variant) for field in fields for variant in variants):
+        return 1
+    if any(variant in field for field in fields for variant in variants):
+        return 2
+    return 3
 
 
 def _search_metadata_substring(
@@ -610,10 +660,13 @@ def _search_metadata_substring(
     max_points: int = _SEARCH_METADATA_SUBSTRING_MAX_POINTS,
 ) -> list[dict[str, Any]]:
     """Scroll + substring match by name/full_name. Stops after max_points to avoid slow full scan."""
-    results: list[dict[str, Any]] = []
+    variants = _metadata_query_variants(q)
+    exact: list[dict[str, Any]] = []
+    startswith: list[dict[str, Any]] = []
+    contains: list[dict[str, Any]] = []
     offset: Any | None = None
     seen = 0
-    while len(results) < limit and seen < max_points:
+    while seen < max_points:
         batch_size = min(500, limit * 4, max_points - seen)
         points, offset = client.scroll(
             collection_name=collection_name,
@@ -628,18 +681,23 @@ def _search_metadata_substring(
             payload = getattr(pt, "payload", None) or {}
             if type_filter and payload.get("object_type") != type_filter:
                 continue
-            name = str(payload.get("name") or "").lower()
-            full = str(payload.get("full_name") or "").lower()
-            if q and (q not in name and q not in full):
+            priority = _metadata_match_priority(payload, variants)
+            if priority > 2:
                 continue
             if "id" not in payload:
                 payload["id"] = getattr(pt, "id", None)
-            results.append(cast(dict[str, Any], dict(payload)))
-            if len(results) >= limit:
-                break
+            item = cast(dict[str, Any], dict(payload))
+            if priority == 0:
+                exact.append(item)
+            elif priority == 1:
+                startswith.append(item)
+            else:
+                contains.append(item)
+        if len(exact) >= limit:
+            break
         if offset is None:
             break
-    return results
+    return (exact + startswith + contains)[:limit]
 
 
 def search_metadata_by_name(
@@ -671,6 +729,7 @@ def search_metadata_by_name(
 
     client = client or _get_default_client()
     q = (query or "").strip().lower()
+    effective_type_filter = _guess_type_filter(q, type_filter)
     filt = qmodels.Filter(
         must=[
             qmodels.FieldCondition(
@@ -712,7 +771,7 @@ def search_metadata_by_name(
                     hits = client.search(**kwargs)
                 for h in hits:
                     payload = getattr(h, "payload", None) or {}
-                    if type_filter and payload.get("object_type") != type_filter:
+                    if effective_type_filter and payload.get("object_type") != effective_type_filter:
                         continue
                     out = dict(payload)
                     if "id" not in out:
@@ -726,7 +785,7 @@ def search_metadata_by_name(
         return (
             vector_results[:limit]
             if vector_results
-            else _search_metadata_substring(client, collection_name, q, type_filter, filt, limit)
+            else _search_metadata_substring(client, collection_name, q, effective_type_filter, filt, limit)
         )
 
     substring_results: list[dict[str, Any]] = []
@@ -735,7 +794,7 @@ def search_metadata_by_name(
             client,
             collection_name,
             q,
-            type_filter,
+            effective_type_filter,
             filt,
             limit * 2,
         )
