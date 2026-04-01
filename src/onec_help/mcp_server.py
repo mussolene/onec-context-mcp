@@ -783,6 +783,9 @@ def _build_mcp_app(help_path: Path) -> Any:
         if not results:
             return "No results found. Ensure build-index was run and Qdrant is available."
         parts = []
+        parts.append(
+            "[DEPRECATED] Prefer get_1c_code_answer for AI work. Use this legacy tool only for broad manual reading."
+        )
         for _i, r in enumerate(results, 1):
             path = r.get("path", "")
             if not path:
@@ -1672,12 +1675,12 @@ def _build_mcp_app(help_path: Path) -> Any:
         symbol_name: str | None = None,
         limit: int = 5,
     ) -> str:
-        """Build combined context (help topics + snippets/standards + config metadata objects) for a 1C task in one call.
+        """Legacy broad context: combine help topics, memory and configuration metadata objects.
         Use when you need all three sources: help docs, memory (snippets/standards), AND config objects (Documents, Catalogs, Registers).
-        For code questions without config metadata, prefer get_1c_code_answer (includes full topic content + code_only mode).
+        For AI work prefer get_1c_task_context or get_1c_code_answer; this tool is intentionally broader and more verbose.
         Returns topic snippets (not full content) — call get_1c_help_topic or get_1c_help_topics_bulk for full text.
         query: main search text or API name. config_version: e.g. '3.0.184.16'; optional if one config loaded.
-        file_uri, symbol_name: accepted but not yet used for navigation — pass query as the main search term.
+        file_uri, symbol_name: accepted for context narrowing.
         limit: max items per source (default 5)."""
         err = _check_rate_limit()
         if err:
@@ -1707,7 +1710,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         if not (help_topics or memory_items or metadata_objects):
             return "No context found: help index, memory and metadata graph returned no results."
 
-        parts: list[str] = [f"## Контекст для запроса: {q}"]
+        parts: list[str] = [f"## Legacy context bundle: {q}"]
 
         if help_topics:
             lines = []
@@ -1976,14 +1979,14 @@ def _build_mcp_app(help_path: Path) -> Any:
         This tool is designed for autonomous AI invocation (unlike the prompt version which targets user invocation)."""
         _guide_develop = (
             "1C-HELP DEVELOP WORKFLOW:\n"
-            "1. get_1c_code_answer(query, include_memory=True) — FIRST call for any 1C/BSL code question.\n"
-            "   Use max_chars_per_topic=8000 for more detail, or code_only=True for code blocks only.\n"
-            "2. Need config objects too? → get_1c_context_bundle(query, config_version=...) adds Documents/Catalogs/etc.\n"
-            "3. If results are weak: search_1c_help_keyword('Тип.Метод') → get_1c_help_topic(topic_path=<path>).\n"
-            "   Note: param is topic_path, not path. Bulk: get_1c_help_topics_bulk(paths=[...]).\n"
-            "4. Standards/snippets only: search_1c_memory(query, domains='standards,snippets').\n"
-            "5. Check index health: get_1c_help_index_status.\n"
-            "6. After working code: save_1c_snippet(code_snippet, description, title).\n"
+            "1. Exact API (Тип.Метод) → get_1c_api_answer(name).\n"
+            "2. General code question → get_1c_code_answer(query, include_memory=True).\n"
+            "3. Local task context → get_1c_task_context(query, file_uri=..., symbol_name=...).\n"
+            "4. If results are weak: search_1c_help_keyword('Тип.Метод') → get_1c_help_topic(topic_path=<path>).\n"
+            "5. Standards/snippets only: search_1c_memory(query, domains='standards,snippets').\n"
+            "6. Check index health: get_1c_help_index_status.\n"
+            "7. Code validation happens in external lsp-bsl-bridge via document_diagnostics(uri).\n"
+            "8. Save reusable verified code only: save_1c_snippet(code_snippet, description, title).\n"
             "Key pitfalls: ПрочитатьJSON→Структура (use ПрочитатьВСоответствие=Истина for Соответствие); "
             "HTTPСоединение.Получить server-only; НачатьТранзакцию needs Попытка+ОтменитьТранзакцию."
         )
@@ -2012,42 +2015,47 @@ def _build_mcp_app(help_path: Path) -> Any:
 
     @mcp.prompt
     def how_to_use_1c_help_and_bsl_bridge(task: str = "all") -> str:
-        """Returns instructions for using 1c-help and lsp-bsl-bridge MCP. task: 'all' (default) = full text; 'develop' | 'refactor' | 'test' = only the relevant block (fewer tokens). Call in a new 1C chat and paste the result into the first message."""
-        block_develop = """1c-HELP + LSP — DEVELOP (code examples, API, snippets)
-- get_1c_code_answer(query, include_memory=True) first. If weak/irrelevant → search_1c_help_keyword("Тип.Метод") → get_1c_help_topic(topic_path=<path>) using the path from results. Correct: get_1c_help_topic(topic_path="Format971.md"). Wrong: get_1c_help_topic(path=...).
-- Need standards/snippets explicitly: search_1c_memory(query, domains="standards,snippets") in addition to get_1c_code_answer.
-- Empty or poor help results: first call get_1c_help_index_status to verify index → then search_1c_help_keyword with exact API name (Тип.Метод).
-- After working code: save_1c_snippet(code_snippet, description, title).
+        """Human/onboarding prompt for using 1c-help with external lsp-bsl-bridge.
+        Not the default AI route; for autonomous workflow use get_1c_quick_guide instead."""
+        block_develop = """1c-HELP + external LSP — DEVELOP (human/onboarding prompt)
+- AI-first route: get_1c_quick_guide(task="develop") first.
+- Exact API: get_1c_api_answer(name). General question: get_1c_code_answer(query, include_memory=True).
+- Local anti-hallucination context: get_1c_task_context(query, file_uri=..., symbol_name=...).
+- Weak results: search_1c_help_keyword("Тип.Метод") → get_1c_help_topic(topic_path=<path>). Correct: get_1c_help_topic(topic_path="Format971.md"). Wrong: get_1c_help_topic(path=...).
+- Need standards/snippets explicitly: search_1c_memory(query, domains="standards,snippets").
+- Empty or poor help results: first call get_1c_help_index_status to verify index.
+- Save reusable verified code only: save_1c_snippet(code_snippet, description, title).
 - get_form_metadata(xml_content): pass full Form.xml with all xmlns declarations. get_module_info(uri_or_path): path to Module.bsl or ObjectModule.bsl.
-- URI (lsp): Docker → file:///projects/<path>; Cyrillic in path → URL-encoding (e.g. /Менеджер/ → /%D0%9C%D0%B5%D0%BD%D0%B5%D0%B4%D0%B6%D0%B5%D1%80/). After edit: document_diagnostics(uri) until no ERROR/WARNING."""
-        block_refactor = """LSP-BSL-BRIDGE — REFACTOR (navigation, rename)
+- URI (external lsp-bsl-bridge): Docker → file:///projects/<path>; Cyrillic in path → URL-encoding. After edit: document_diagnostics(uri) until no ERROR/WARNING."""
+        block_refactor = """external LSP-BSL-BRIDGE — REFACTOR (human/onboarding prompt)
 - URI: file:///projects/<path> (Docker). Cyrillic in path must be URL-encoded (e.g. /МойМодуль/ → /%D0%9C%D0%BE%D0%B9%D0%9C%D0%BE%D0%B4%D1%83%D0%BB%D1%8C/).
 - Main navigation: project_analysis(analysis_type="workspace_symbols", query="Name") → symbol_explore(query="Name") or get_range_content(uri, start_line, ...). definition/hover/call_graph often return empty — they require exact symbol position (0-based line/character) and may not find all symbols; use as optional, not primary.
 - Coordinates are 0-based (line 0 = first line). Use "Recommended hover coordinate" from project_analysis output.
 - Flow: project_analysis → edit one file → document_diagnostics(uri) → after batch: did_change_watched_files(language="bsl", changes_json=[{"uri":"file:///...", "type":2}]).
 - Rename: prepare_rename(uri, line, character) then rename(..., new_name, apply=True). Coordinates 0-based from project_analysis."""
-        block_test = """LSP-BSL-BRIDGE — TEST (diagnostics)
+        block_test = """external LSP-BSL-BRIDGE — TEST (human/onboarding prompt)
 - After any code edit: document_diagnostics(uri) → fix until no ERROR/WARNING. URI: file:///projects/<path> (Docker) or full file URI locally; Cyrillic paths → URL-encoding.
-- Checklist before commit: get_1c_code_answer/search_1c_help_keyword used if needed? document_diagnostics clean (no ERROR/WARNING)? save_1c_snippet after new reusable code?"""
+- Checklist before commit: get_1c_quick_guide used? document_diagnostics clean (no ERROR/WARNING)? save_1c_snippet only for reusable verified code?"""
         if task == "develop":
             return block_develop
         if task == "refactor":
             return block_refactor
         if task == "test":
             return block_test
-        return """Use the following when working with 1C/BSL and the two MCPs (1c-help and lsp-bsl-bridge). For a shorter block pass task=develop|refactor|test.
+        return """Human/onboarding guide for 1c-help + external lsp-bsl-bridge. For AI work prefer get_1c_quick_guide and call this prompt only when you need a long manual reference. For a shorter block pass task=develop|refactor|test.
 
 ---
 1) WHEN TO USE WHICH MCP
 - Only 1c-help: API reference, code examples, form/module metadata (get_module_info, get_form_metadata), version comparison (compare_1c_help), saving snippets (save_1c_snippet).
-- Also use lsp-bsl-bridge: after editing code (document_diagnostics), navigation (project_analysis, symbol_explore), refactoring (prepare_rename, rename), after batch edits (did_change_watched_files).
+- Also use external lsp-bsl-bridge: after editing code (document_diagnostics), navigation (project_analysis, symbol_explore), refactoring (prepare_rename, rename), after batch edits (did_change_watched_files).
 
 ---
 2) 1c-HELP — ORDER OF CALLS
-- Code examples: get_1c_code_answer(query, include_memory=True) first. If irrelevant or weak → search_1c_help_keyword with exact API name (e.g. "МенеджерКриптографии.Подписать") → get_1c_help_topic(topic_path=<path>) using path from results. IMPORTANT: parameter is topic_path, not path. Example: get_1c_help_topic(topic_path="8.3.27/shcntx_ru/...CryptoManager.html").
+- Exact API: get_1c_api_answer(name) first for Тип.Метод. General code examples: get_1c_code_answer(query, include_memory=True). If irrelevant or weak → search_1c_help_keyword with exact API name (e.g. "МенеджерКриптографии.Подписать") → get_1c_help_topic(topic_path=<path>) using path from results. IMPORTANT: parameter is topic_path, not path. Example: get_1c_help_topic(topic_path="8.3.27/shcntx_ru/...CryptoManager.html").
+- Task-local context: get_1c_task_context(query, file_uri=..., symbol_name=...) before broad get_1c_context_bundle.
 - Need explicit standards/snippets: search_1c_memory(query, domains="standards,snippets") in addition to get_1c_code_answer.
 - Empty or poor results: call get_1c_help_index_status first to check index health → then search_1c_help_keyword with exact Тип.Метод.
-- After working code: save_1c_snippet(code_snippet, description, title).
+- After working code: save_1c_snippet(code_snippet, description, title) only for reusable verified code.
 - get_form_metadata(xml_content): pass full Form.xml with all xmlns; truncated XML returns empty attributes. get_module_info(uri_or_path): path to Module.bsl or ObjectModule.bsl.
 - For methods always use full Тип.Метод in search_1c_help_keyword and get_1c_function_info.
 - search_1c_memory(domains=...) is needed when: get_1c_code_answer returns no memory block, or you need standards/snippets specifically (e.g. for code review against standards). Use domains="standards" for style rules, "snippets" for code examples.
@@ -2074,7 +2082,8 @@ def _build_mcp_app(help_path: Path) -> Any:
 5) METADATA (1c-help)
 - search_1c_metadata(query, config_version=None, object_type=None, limit=20): if config_version is given — search only that config; if omitted and multiple versions exist, search across all.
 - get_1c_metadata_object(object_id, config_version=None): details for one object (requisites, tabular sections). Pass config_version from search_1c_metadata to avoid ambiguity.
-- get_1c_context_bundle(query, config_version=None): combined context (help + memory + metadata). file_uri and symbol_name are accepted but not yet used for navigation — use query as main search term.
+- get_1c_task_context(query, file_uri=None, symbol_name=None, diagnostics_json=None): compact anti-hallucination context for AI.
+- get_1c_context_bundle(query, config_version=None): legacy broad context when you explicitly need a wider bundle.
 
 ---
 6) LIMITS
@@ -2082,7 +2091,8 @@ def _build_mcp_app(help_path: Path) -> Any:
 
     @mcp.prompt
     def get_mcp_guides_bundle() -> str:
-        """Returns all guides in one block (workflow, tools tips, tools summary). Use for onboarding or to restore IDE config. Needs MCP_CURSOR_DOCS_PATH or run from repo with docs/."""
+        """Returns all guides in one block for human onboarding or IDE restore.
+        Not part of the default AI workflow; prefer get_1c_quick_guide for autonomous use."""
         parts = [
             "=== workflow ===\n" + _read_cursor_doc("cursor-examples/rules/1c-mcp-workflow.mdc"),
             "=== tools_tips ===\n"

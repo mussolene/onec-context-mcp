@@ -443,6 +443,7 @@ def test_mcp_tool_search_1c_help_with_content_via_app(help_sample_dir: Path) -> 
                 app.call_tool("search_1c_help_with_content", {"query": "test", "limit": 1})
             )
     text = result.content[0].text if result.content else ""
+    assert "DEPRECATED" in text
     assert "A" in text or "content" in text
 
 
@@ -919,3 +920,13 @@ def test_mcp_tool_get_1c_task_context_via_app(mock_build_ctx, help_sample_dir: P
     assert "ObjectModule" in text
     assert "Document Sales" in text
     assert "diagnostics" in text
+
+
+def test_mcp_tool_get_1c_quick_guide_develop_via_app(help_sample_dir: Path) -> None:
+    """Quick guide should expose the AI-first route and external LSP boundary."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    result = asyncio.run(app.call_tool("get_1c_quick_guide", {"task": "develop"}))
+    text = result.content[0].text if result.content else ""
+    assert "get_1c_api_answer" in text
+    assert "get_1c_task_context" in text
+    assert "external lsp-bsl-bridge" in text
