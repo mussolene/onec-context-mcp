@@ -337,27 +337,44 @@ def _format_result_meta(r: dict[str, Any]) -> str:
     return f" [{', '.join(parts)}]" if parts else ""
 
 
-def _format_memory_block(payload: dict[str, Any]) -> str:
-    """Format one memory item (payload) as markdown block (title, [стандарт/пример], body, code, link)."""
+def _memory_domain_label(domain: str) -> str:
+    if domain == "snippets":
+        return "пример"
+    if domain == "community_help":
+        return "инструкция"
+    if domain == "standards":
+        return "стандарт"
+    return domain.strip()
+
+
+def _compact_text(value: str, max_chars: int) -> str:
+    text = " ".join((value or "").split())
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 3].rstrip() + "..."
+
+
+def _compact_code(value: str, max_chars: int) -> str:
+    text = (value or "").strip()
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 3].rstrip() + "..."
+
+
+def _format_memory_block(payload: dict[str, Any], *, compact: bool = False, include_code: bool = True) -> str:
+    """Format one memory item as markdown block; compact mode trims prose and omits code by default."""
     code = payload.get("code_snippet", "")
     instruction = payload.get("instruction", "")
     desc = payload.get("description", "") or (payload.get("summary", "") or "")[:200]
     title = payload.get("title", "") or desc[:60]
     d = payload.get("domain", "")
-    src = (
-        " [пример]"
-        if d == "snippets"
-        else (
-            " [инструкция]"
-            if d == "community_help"
-            else (" [стандарт]" if d == "standards" else "")
-        )
-    )
+    label = _memory_domain_label(d)
+    src = f" [{label}]" if label else ""
     body = instruction if instruction else desc
-    link_line = ""
     detail_url = payload.get("detail_url")
     source_site = payload.get("source_site", "")
     source = payload.get("source", "")
+    link_line = ""
     if detail_url:
         attr = (
             "FastCode"
@@ -368,13 +385,69 @@ def _format_memory_block(payload: dict[str, Any]) -> str:
                 else "Источник"
             )
         )
-        link_line = f"\n\n{attr}: {detail_url}"
-    block_base = (
-        f"### {title}{src}\n\n{body}\n\n```bsl\n{code}\n```"
-        if code
-        else f"### {title}{src}\n\n{body}"
+        link_line = f"{attr}: {detail_url}"
+    if compact:
+        lines = [f"### {title}{src}"]
+        if body:
+            lines.append(_compact_text(body, 220))
+        if include_code and code:
+            lines.append(f"```bsl\n{_compact_code(code, 500)}\n```")
+        if link_line:
+            lines.append(link_line)
+        return "\n\n".join(lines)
+    block_base = f"### {title}{src}\n\n{body}"
+    if include_code and code:
+        block_base += f"\n\n```bsl\n{code}\n```"
+    if link_line:
+        block_base += f"\n\n{link_line}"
+    return block_base
+
+
+def _memory_matches_query(payload: dict[str, Any], query: str) -> bool:
+    haystack = " ".join(
+        str(payload.get(key, ""))
+        for key in ("title", "description", "summary", "instruction", "code_snippet")
+    ).lower()
+    tokens = [token.lower() for token in _extract_keyword_tokens(query) if len(token) >= 4]
+    if not tokens:
+        return bool(haystack.strip())
+    return any(token in haystack for token in tokens)
+
+
+def _select_memory_for_code_answer(items: list[dict[str, Any]], query: str, has_help_results: bool) -> list[dict[str, Any]]:
+    ordered = _order_memory_for_display(
+        items,
+        max_standards=1 if has_help_results else 2,
+        max_snippets=1 if has_help_results else 2,
+        max_community=0 if has_help_results else 1,
+        max_total=2 if has_help_results else 3,
     )
-    return block_base + link_line
+    matched = [item for item in ordered if _memory_matches_query(item.get("payload") or {}, query)]
+    return matched or ([] if has_help_results else ordered[:2])
+
+
+def _compact_help_block(
+    result: dict[str, Any],
+    content: str,
+    *,
+    code_only: bool,
+    max_chars: int,
+) -> str:
+    title = (result.get("title") or result.get("path") or "Topic").strip()
+    path = result.get("path", "")
+    meta = _format_result_meta(result)
+    header = f"### {title}{meta}"
+    if path:
+        header += f"\npath: {path}"
+    if code_only:
+        blocks = _extract_code_blocks(content)
+        if blocks:
+            code = "\n\n".join(f"```bsl\n{block}\n```" for block in blocks[:2])
+            return f"{header}\n\n{code}"
+    excerpt = content
+    if len(excerpt) > max_chars:
+        excerpt = excerpt[:max_chars].rstrip() + "\n\n..."
+    return f"{header}\n\n{excerpt}"
 
 
 def _order_memory_for_display(
@@ -633,7 +706,7 @@ def _build_mcp_app(help_path: Path) -> Any:
     @_record_mcp_tool
     def get_1c_code_answer(
         query: str,
-        limit: int = 3,
+        limit: int = 1,
         include_memory: bool = True,
         code_only: bool = False,
         max_chars_per_topic: int = 0,
@@ -646,7 +719,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         Use get_1c_context_bundle instead when you also need config metadata objects (Documents, Catalogs, etc.).
         Use search_1c_help for lightweight topic discovery without full content.
         Common 1C pitfalls: (1) ПрочитатьJSON returns Структура by default — use ПрочитатьВСоответствие=Истина for Соответствие. (2) HTTPСоединение.Получить — server-side only, not on client. (3) НачатьТранзакцию must always be wrapped in Попытка/Исключение with ОтменитьТранзакцию in exception. (4) Запрос.Выполнить() inside a loop causes N queries — use batch or query outside loop. (5) ФоновоеЗадание.ПолучитьПоследнее() returns Неопределено if no previous job — check for Неопределено before accessing result.
-        query: natural language or API name. limit: max topics (default 3). include_memory: also search saved snippets/standards (default True). code_only: if True, return primarily code blocks from help.
+        query: natural language or API name. limit: max topics (default 1). include_memory: also search saved snippets/standards (default True). code_only: if True, return primarily code blocks from help.
         max_chars_per_topic: truncation per topic in chars (default 0 = use MCP_MAX_TOPIC_CHARS env, typically 4000). Set higher (e.g. 8000) for more detail, lower (e.g. 1500) to save tokens.
         Tip: if results are irrelevant, call search_1c_help_keyword with exact API name (Тип.Метод), then get_1c_help_topic for full content."""
         err = _check_rate_limit()
@@ -662,9 +735,13 @@ def _build_mcp_app(help_path: Path) -> Any:
                 from .memory import get_memory_store
 
                 raw = get_memory_store().search_long(q, limit=10)
-                ordered = _order_memory_for_display(raw, max_standards=2, max_snippets=2, max_community=1, max_total=6)
-                for m in ordered:
-                    memory_parts.append(_format_memory_block(m.get("payload", {}) or {}))
+                selected = _select_memory_for_code_answer(raw, q, has_help_results=bool(results))
+                for m in selected:
+                    payload = m.get("payload", {}) or {}
+                    include_code_block = code_only or (payload.get("domain") == "snippets" and not results)
+                    memory_parts.append(
+                        _format_memory_block(payload, compact=True, include_code=include_code_block)
+                    )
             except Exception as e:
                 logging.getLogger(__name__).debug("get_1c_code_answer memory block failed: %s", e)
         if not results and not memory_parts:
@@ -688,24 +765,17 @@ def _build_mcp_app(help_path: Path) -> Any:
             )
         if results:
             help_blocks = []
-            _max_chars = max_chars_per_topic if max_chars_per_topic > 0 else _max_topic_content_chars()
+            compact_default_max = min(_max_topic_content_chars(), 1600)
+            _max_chars = max_chars_per_topic if max_chars_per_topic > 0 else compact_default_max
             for r in results:
                 path = r.get("path", "")
                 if not path:
                     continue
                 content = _get_topic(path, version=version, language=language, prefer_index=False)
                 if content:
-                    if code_only:
-                        blocks = _extract_code_blocks(content)
-                        if blocks:
-                            block_text = "\n\n".join(f"```bsl\n{b}\n```" for b in blocks)
-                            help_blocks.append(f"---\n## {path}\n\n{block_text}")
-                        else:
-                            help_blocks.append(f"---\n## {path}\n\n{content[:_max_chars]}...")
-                    else:
-                        if len(content) > _max_chars:
-                            content = content[:_max_chars] + "\n\n..."
-                        help_blocks.append(f"---\n## {path}\n\n{content}")
+                    help_blocks.append(
+                        _compact_help_block(r, content, code_only=code_only, max_chars=_max_chars)
+                    )
             if help_blocks:
                 parts.append("\n### Из справки\n\n" + "\n\n".join(help_blocks))
         return "\n".join(parts)
@@ -766,7 +836,14 @@ def _build_mcp_app(help_path: Path) -> Any:
                 max_community=max(1, limit // 3),
                 max_total=limit,
             )
-            blocks = [_format_memory_block(m.get("payload") or {}) for m in all_items]
+            blocks = [
+                _format_memory_block(
+                    m.get("payload") or {},
+                    compact=True,
+                    include_code=False,
+                )
+                for m in all_items
+            ]
             if not blocks:
                 return (
                     "Ничего не найдено в памяти. Выполните load-snippets и load-standards; "
