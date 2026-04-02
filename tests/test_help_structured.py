@@ -149,6 +149,7 @@ def test_index_structured_api_members_uses_dummy_vector(tmp_path: Path) -> None:
     assert inserted == 1
     points = client.upsert.call_args.kwargs["points"]
     assert points[0].vector == [0.0]
+    assert points[0].payload["source_sections"] == {}
 
 
 def test_search_official_examples_prefers_api_name_match(tmp_path: Path) -> None:
@@ -249,7 +250,34 @@ def test_extract_structured_records_from_topic_parses_property_type_from_descrip
     assert member is not None
     assert member["returns"] == "Булево"
     assert member["summary"] == "Тип: Булево . Показывает или скрывает UI."
+    assert member["description"] == "Тип: Булево . Показывает или скрывает UI."
+    assert member["notes"] == "Истина - показан, Ложь - скрыт."
+    assert "Интеграция" in member["restrictions"]
     assert member["availability"] == "Интеграция."
+
+
+def test_extract_structured_records_from_topic_keeps_source_sections() -> None:
+    topic = {
+        "path": "8.3.27/shcntx_ru/Get.md",
+        "title": "HTTPСоединение.Получить",
+        "text": (
+            "# HTTPСоединение.Получить\n\n"
+            "Описание метода.\n\n"
+            "## Синтаксис\n\nHTTPСоединение.Получить(<Адрес>)\n\n"
+            "## Доступность\n\nСервер.\n\n"
+            "## Примечание\n\nТолько на сервере.\n"
+        ),
+        "version": "8.3.27.1859",
+        "language": "ru",
+        "entity_type": "method",
+        "breadcrumb": ["Объекты", "HTTPСоединение"],
+    }
+    _obj, member, _examples, _links = extract_structured_records_from_topic(topic)
+    assert member is not None
+    assert member["source_sections"]["syntax"] == "HTTPСоединение.Получить(<Адрес>)"
+    assert member["source_sections"]["availability"] == "Сервер."
+    assert member["source_sections"]["note"] == "Только на сервере."
+    assert "Только на сервере" in member["restrictions"]
 
 
 def test_extract_structured_records_from_html_topic_reads_v8_sections(tmp_path: Path) -> None:
@@ -281,6 +309,7 @@ def test_extract_structured_records_from_html_topic_reads_v8_sections(tmp_path: 
     assert member["syntax"] == "GetDimensions()"
     assert member["returns"] == "Тип: Число."
     assert member["availability"] == "Сервер, толстый клиент."
+    assert member["description"] == "Получает количество измерений массива."
     assert examples and "GetDimensions" in examples[0]["code"]
 
 

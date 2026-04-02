@@ -27,6 +27,7 @@ API_LINKS_COLLECTION_NAME = "onec_help_api_links"
 API_COLLECTION_NAME = API_MEMBERS_COLLECTION_NAME
 
 _SECTION_ALIASES: dict[str, str] = {
+    "Описание": "description",
     "Синтаксис": "syntax",
     "Параметры": "params",
     "Возвращаемое значение": "returns",
@@ -34,6 +35,7 @@ _SECTION_ALIASES: dict[str, str] = {
     "Доступность": "availability",
     "Использование в версии": "availability",
     "См. также": "see_also",
+    "Примечание": "note",
 }
 _GENERIC_BREADCRUMB = {
     "объекты",
@@ -341,6 +343,36 @@ def _clean_returns(text: str) -> str:
     return value
 
 
+def _clean_note(text: str) -> str:
+    return _normalize_text(text)
+
+
+def _extract_restrictions(*parts: str) -> str:
+    text = _normalize_text("\n".join(part for part in parts if part))
+    if not text:
+        return ""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    keywords = (
+        "только",
+        "недоступ",
+        "не поддерж",
+        "не использ",
+        "клиент",
+        "сервер",
+        "интерактив",
+        "внешнее соединение",
+        "мобильн",
+        "веб-клиент",
+        "тонкий клиент",
+        "толстый клиент",
+    )
+    matched = [line for line in lines if any(keyword in line.lower() for keyword in keywords)]
+    if matched:
+        return _normalize_text("\n".join(matched))
+    compact = " ".join(text.split())
+    return compact if len(compact) <= 400 else compact[:397].rstrip() + "..."
+
+
 def _returns_from_description(description: str) -> str:
     if not description:
         return ""
@@ -374,6 +406,9 @@ def _make_object_stub(
         "kind": owner_kind,
         "title": owner_name,
         "summary": "",
+        "description": "",
+        "notes": "",
+        "restrictions": "",
         "availability": "",
         "version": version,
         "language": language,
@@ -381,6 +416,7 @@ def _make_object_stub(
         "breadcrumb": breadcrumb or [],
         "aliases": [],
         "see_also": [],
+        "source_sections": {},
     }
 
 
@@ -408,6 +444,14 @@ def _build_structured_records(
         intro, inline_sections = _extract_inline_sections(intro)
         sections = inline_sections
     intro = _strip_inline_title_noise(intro, title, breadcrumb)
+    description = _normalize_text(sections.get("description") or intro)
+    notes = _clean_note(sections.get("note", ""))
+    restrictions = _extract_restrictions(sections.get("availability", ""), notes)
+    source_sections = {
+        key: _normalize_text(value)
+        for key, value in sections.items()
+        if _normalize_text(value)
+    }
     summary_source = sections.get("description") or intro or sections.get("returns") or sections.get("syntax") or title
     summary = _compact_summary(summary_source, 500)
     see_also = _extract_see_also(sections.get("see_also", ""))
@@ -428,6 +472,9 @@ def _build_structured_records(
             "kind": member_kind,
             "title": title,
             "summary": summary,
+            "description": description,
+            "notes": notes,
+            "restrictions": restrictions,
             "syntax": _clean_syntax(sections.get("syntax", "")),
             "params": _parse_param_lines(sections.get("params", "")),
             "returns": _clean_returns(sections.get("returns", "")),
@@ -438,6 +485,7 @@ def _build_structured_records(
             "breadcrumb": breadcrumb,
             "aliases": [title] if title and title != full_name else [],
             "see_also": see_also,
+            "source_sections": source_sections,
         }
         if owner_name:
             object_record = _make_object_stub(
@@ -468,6 +516,9 @@ def _build_structured_records(
             "kind": object_kind if object_kind in _STRUCTURED_OBJECT_KINDS else "type",
             "title": title,
             "summary": summary,
+            "description": description,
+            "notes": notes,
+            "restrictions": restrictions,
             "availability": sections.get("availability", ""),
             "version": version,
             "language": language,
@@ -475,6 +526,7 @@ def _build_structured_records(
             "breadcrumb": breadcrumb,
             "aliases": [title] if title and title != full_name else [],
             "see_also": see_also,
+            "source_sections": source_sections,
         }
 
     examples: list[dict[str, Any]] = []
@@ -728,6 +780,9 @@ def extract_api_records_from_topic(topic: dict[str, Any]) -> tuple[dict[str, Any
                 "kind": member_record.get("kind") or "topic",
                 "title": member_record.get("title") or "",
                 "summary": member_record.get("summary") or "",
+                "description": member_record.get("description") or "",
+                "notes": member_record.get("notes") or "",
+                "restrictions": member_record.get("restrictions") or "",
                 "syntax": member_record.get("syntax") or "",
                 "params": member_record.get("params") or [],
                 "returns": member_record.get("returns") or "",
@@ -737,6 +792,7 @@ def extract_api_records_from_topic(topic: dict[str, Any]) -> tuple[dict[str, Any
                 "topic_path": member_record.get("topic_path") or "",
                 "breadcrumb": member_record.get("breadcrumb") or [],
                 "entity_type": member_record.get("kind") or "topic",
+                "source_sections": member_record.get("source_sections") or {},
             },
             examples,
         )
@@ -748,6 +804,9 @@ def extract_api_records_from_topic(topic: dict[str, Any]) -> tuple[dict[str, Any
                 "kind": object_record.get("kind") or "topic",
                 "title": object_record.get("title") or "",
                 "summary": object_record.get("summary") or "",
+                "description": object_record.get("description") or "",
+                "notes": object_record.get("notes") or "",
+                "restrictions": object_record.get("restrictions") or "",
                 "syntax": "",
                 "params": [],
                 "returns": "",
@@ -757,6 +816,7 @@ def extract_api_records_from_topic(topic: dict[str, Any]) -> tuple[dict[str, Any
                 "topic_path": object_record.get("topic_path") or "",
                 "breadcrumb": object_record.get("breadcrumb") or [],
                 "entity_type": object_record.get("kind") or "topic",
+                "source_sections": object_record.get("source_sections") or {},
             },
             examples,
         )
@@ -767,6 +827,9 @@ def extract_api_records_from_topic(topic: dict[str, Any]) -> tuple[dict[str, Any
             "kind": "topic",
             "title": str(topic.get("title") or ""),
             "summary": _compact_summary(str(topic.get("text") or ""), 500),
+            "description": _compact_summary(str(topic.get("text") or ""), 1200),
+            "notes": "",
+            "restrictions": "",
             "syntax": "",
             "params": [],
             "returns": "",
@@ -776,6 +839,7 @@ def extract_api_records_from_topic(topic: dict[str, Any]) -> tuple[dict[str, Any
             "topic_path": topic.get("path") or "",
             "breadcrumb": list(topic.get("breadcrumb") or []),
             "entity_type": "topic",
+            "source_sections": {},
         },
         [],
     )
@@ -960,7 +1024,7 @@ def build_structured_api_snapshot(
     _write_jsonl(out_dir / API_LINKS_FILE, links)
 
     manifest = {
-        "format": "onec_help_structured_api_v2",
+        "format": "onec_help_structured_api_v3",
         "objects": len(object_items),
         "members": len(members),
         "examples": len(examples),
@@ -1020,6 +1084,9 @@ def _record_embedding_text(item: dict[str, Any], *, kind: str) -> str:
         item.get("full_name") or item.get("object_name") or "",
         item.get("title") or "",
         item.get("summary") or "",
+        item.get("description") or "",
+        item.get("notes") or "",
+        item.get("restrictions") or "",
         item.get("syntax") or "",
         params_text,
         item.get("returns") or "",
@@ -1108,6 +1175,9 @@ def index_structured_api_objects(
             "kind": item.get("kind") or "type",
             "title": item.get("title") or "",
             "summary": item.get("summary") or "",
+            "description": item.get("description") or "",
+            "notes": item.get("notes") or "",
+            "restrictions": item.get("restrictions") or "",
             "availability": item.get("availability") or "",
             "version": item.get("version") or "",
             "language": item.get("language") or "",
@@ -1117,6 +1187,7 @@ def index_structured_api_objects(
             "breadcrumb": item.get("breadcrumb") or [],
             "see_also": item.get("see_also") or [],
             "aliases": item.get("aliases") or [],
+            "source_sections": item.get("source_sections") or {},
             "text": _record_embedding_text(item, kind="object"),
         },
     )
@@ -1149,6 +1220,9 @@ def index_structured_api_members(
             "kind": item.get("kind") or "method",
             "title": item.get("title") or "",
             "summary": item.get("summary") or "",
+            "description": item.get("description") or "",
+            "notes": item.get("notes") or "",
+            "restrictions": item.get("restrictions") or "",
             "syntax": item.get("syntax") or "",
             "params": item.get("params") or [],
             "returns": item.get("returns") or "",
@@ -1161,6 +1235,7 @@ def index_structured_api_members(
             "breadcrumb": item.get("breadcrumb") or [],
             "see_also": item.get("see_also") or [],
             "aliases": item.get("aliases") or [],
+            "source_sections": item.get("source_sections") or {},
             "text": _record_embedding_text(item, kind="member"),
         },
     )
