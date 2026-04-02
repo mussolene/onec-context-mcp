@@ -223,6 +223,47 @@ def test_render_dashboard_loader_status_lines_and_active_tasks_are_separate() ->
     assert "Metadata → Qdrant 3000/15117" in out
 
 
+def test_render_dashboard_structured_help_ingest_short_label() -> None:
+    from rich.console import Console
+
+    data = {
+        "ingest": {
+            "status": "in_progress",
+            "done_tasks": 0,
+            "total_tasks": 24,
+            "elapsed_sec": 120.0,
+            "current": [
+                {
+                    "path": "/tmp/help_ingest",
+                    "version": "",
+                    "language": "",
+                    "stage": "index_structured",
+                    "points": 0,
+                    "estimated_total": 24,
+                }
+            ],
+        },
+        "ingest_last_run": None,
+        "ingest_last_run_stale": False,
+        "failed_tasks": [],
+        "index_status": {},
+        "collections": [],
+        "snippets": None,
+        "standards_loading": False,
+        "snippets_loading": False,
+        "metadata_loading": False,
+        "storage_path_mb": None,
+        "mcp_metrics": {},
+    }
+    result = render_dashboard(data)
+    console = Console(force_terminal=True, no_color=True)
+    with console.capture() as cap:
+        console.print(result)
+    out = cap.get()
+    assert "structured help index" in out or "structured help" in out
+    assert "—/help_ingest" not in out
+
+
 def test_render_dashboard_ingest_in_progress_eta_zero_division_handled() -> None:
     """Tasks panel still renders when ETA would cause ZeroDivisionError (done=0)."""
     from rich.console import Console

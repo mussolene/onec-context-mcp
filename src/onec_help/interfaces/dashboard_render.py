@@ -54,6 +54,36 @@ def _format_loader_summary(
     return f"{title}: {no_data}"
 
 
+def _format_ingest_worker_short(cur: dict[str, Any]) -> str:
+    """Compact label for current structured-help ingest worker."""
+    version = str(cur.get("version") or "").strip()
+    language = str(cur.get("language") or "").strip()
+    path_str = str(cur.get("path") or "").strip()
+    stage = str(cur.get("stage") or "indexing").strip()
+    stage_label = (
+        "embed"
+        if stage == "embedding"
+        else "Qdrant"
+        if stage == "writing"
+        else "snapshot"
+        if stage == "snapshot"
+        else "index"
+        if stage in {"indexing", "index_structured"}
+        else (stage[:16] or "index")
+    )
+    if not version and path_str:
+        base = path_str.rstrip("/").split("/")[-1] or "help"
+        if base == "help_ingest":
+            base = "structured help"
+        return f"{base} {stage_label}"
+    stem = path_str.split("/")[-1][:14] if "/" in path_str else path_str[:14]
+    if version:
+        return f"{version[:10]}/{stem or 'help'} {stage_label}"
+    if language:
+        return f"{language[:8]}/{stem or 'help'} {stage_label}"
+    return f"{stem or 'help'} {stage_label}"
+
+
 def render_dashboard(data: dict[str, Any]) -> Any:
     """Build Rich renderable from get_dashboard_data() result. Returns Group of Panels."""
     from rich.console import Group
@@ -141,10 +171,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 else (stage or "indexing")[:8]
             )
             label = f"{version}/{lang} — {path} — {stage_label}"
-            # Avoid "8.2.19.130/8.2.19.130/1cv": use stem (part after last /) when path looks like version/stem
-            path_str = cur.get("path") or "—"
-            stem = path_str.split("/")[-1][:14] if "/" in path_str else path_str[:14]
-            short = f"{version[:10]}/{stem} {stage_label}"
+            short = _format_ingest_worker_short(cur)
             active_workers.append({"label": label, "short": short, "pts": pts, "total": est})
         if not active_workers:
             pts = ingest.get("current_task_points")

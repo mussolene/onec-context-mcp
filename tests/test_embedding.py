@@ -171,6 +171,13 @@ def test_get_embedding_batch_empty() -> None:
     assert embedding_mod.get_embedding_batch([]) == []
 
 
+def test_get_embedding_batch_target_dimension_placeholder() -> None:
+    with patch.object(embedding_mod, "_EMBEDDING_BACKEND", "deterministic"):
+        result = embedding_mod.get_embedding_batch(["a", "b"], target_dimension=3)
+    assert len(result) == 2
+    assert all(len(vec) == 3 for vec in result)
+
+
 def test_get_embedding_batch_placeholder() -> None:
     """Batch with backend none returns list of placeholder vectors."""
     import importlib

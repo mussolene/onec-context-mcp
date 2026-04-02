@@ -1131,6 +1131,33 @@ def run_ingest_from_unpacked(
                 f"{counts['examples']} examples, {counts['links']} links"
             )
         return total
+    except Exception as e:
+        failed_item = {
+            "path": str(base),
+            "version": "",
+            "language": "",
+            "error": f"{type(e).__name__}: {e}",
+        }
+        with state_lock:
+            state["status"] = "failed"
+            state["current"] = []
+            state["failed"] = [failed_item]
+            state["current_task_points"] = 0
+            state["current_task_estimated_total"] = None
+        _write_ingest_status(
+            started_at=started_at,
+            embedding_backend=embedding_backend,
+            total_tasks=len(tasks),
+            done_tasks=0,
+            total_points=0,
+            folders=folders,
+            status="failed",
+            finished_at=time.time(),
+            current=[],
+            failed_tasks=[failed_item],
+            run_id=state.get("run_id"),
+        )
+        raise
     finally:
         stop_event.set()
         writer.join(timeout=interval_sec * 2)

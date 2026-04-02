@@ -874,3 +874,25 @@ def test_run_ingest_from_unpacked_one(
     assert n == 5
     mock_build_snapshot.assert_called_once()
     mock_index_snapshot.assert_called_once()
+
+
+@patch("onec_help.knowledge.help_structured.index_structured_help_snapshot", side_effect=RuntimeError("boom"))
+@patch("onec_help.knowledge.help_structured.build_structured_api_snapshot")
+def test_run_ingest_from_unpacked_marks_failed_status(
+    mock_build_snapshot: MagicMock, mock_index_snapshot: MagicMock, tmp_path: Path
+) -> None:
+    mock_build_snapshot.return_value = {"objects": 1, "members": 2, "examples": 1, "links": 1}
+    docs_dir = tmp_path / "8.3.27.1859" / "shcntx_ru"
+    docs_dir.mkdir(parents=True)
+    (docs_dir / ".hbk_info.json").write_text('{"hash":"abc"}', encoding="utf-8")
+    (docs_dir / "topic.html").write_text("<html></html>", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="boom"):
+        run_ingest_from_unpacked(
+            docs_dir.parent.parent,
+            qdrant_host="localhost",
+            qdrant_port=6333,
+            verbose=False,
+        )
+    status = read_ingest_status()
+    assert status is not None
+    assert status["status"] == "failed"

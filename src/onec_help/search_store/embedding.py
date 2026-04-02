@@ -799,6 +799,7 @@ def get_embedding_batch(
     batch_size: int | None = None,
     workers: int | None = None,
     progress_callback=None,
+    target_dimension: int | None = None,
 ) -> list[list[float]]:
     """
     Produce embeddings for a list of texts. Uses batch API where supported;
@@ -821,12 +822,17 @@ def get_embedding_batch(
                 pass
 
     if _EMBEDDING_BACKEND in ("none", "null", "off"):
-        dim = get_embedding_dimension()
+        dim = target_dimension if target_dimension is not None else get_embedding_dimension()
         return [_get_embedding_placeholder(t, dim) for t in texts]
 
     if _EMBEDDING_BACKEND == "deterministic":
         _report(0, total_count)
         out = [_get_embedding_deterministic(t) for t in texts]
+        if target_dimension is not None:
+            out = [
+                vec if len(vec) == target_dimension else _get_embedding_placeholder(text, target_dimension)
+                for text, vec in zip(texts, out, strict=True)
+            ]
         _report(total_count, total_count)
         return out
 
@@ -836,7 +842,13 @@ def get_embedding_batch(
         cached = [_embedding_cache_get(k) for k in keys]
         uncached_idx = [i for i in range(len(texts)) if cached[i] is None]
         if not uncached_idx:
-            return [list(cached[i]) for i in range(len(texts))]
+            result = [list(cached[i]) for i in range(len(texts))]
+            if target_dimension is not None:
+                return [
+                    vec if len(vec) == target_dimension else _get_embedding_placeholder(text, target_dimension)
+                    for text, vec in zip(texts, result, strict=True)
+                ]
+            return result
         uncached_texts = [texts[i] for i in uncached_idx]
     else:
         uncached_idx = list(range(len(texts)))
@@ -869,5 +881,15 @@ def get_embedding_batch(
             else:
                 result.append(uncached_vecs[j])
                 j += 1
+        if target_dimension is not None:
+            return [
+                vec if len(vec) == target_dimension else _get_embedding_placeholder(text, target_dimension)
+                for text, vec in zip(texts, result, strict=True)
+            ]
         return result
+    if target_dimension is not None:
+        return [
+            vec if len(vec) == target_dimension else _get_embedding_placeholder(text, target_dimension)
+            for text, vec in zip(texts, uncached_vecs, strict=True)
+        ]
     return uncached_vecs
