@@ -1,4 +1,4 @@
-"""1C Help: unpack, convert to Markdown, index, MCP server."""
+"""1C Help: unpack HBK, build structured JSONL, index, MCP server."""
 
 from importlib.metadata import PackageNotFoundError, version
 

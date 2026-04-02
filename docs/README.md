@@ -21,7 +21,7 @@
 - [reference/structured-help-scorecard.md](reference/structured-help-scorecard.md) - метрики качества structured help и stop criteria для extractor
 - [reference/structured-help-jsonl-first-plan.md](reference/structured-help-jsonl-first-plan.md) - план перехода к JSONL-first help
 - [reference/embedding.md](reference/embedding.md) - embedding pipeline, backends и retry
-- [reference/help-formats.md](reference/help-formats.md) - форматы `.hbk`, HTML и Markdown
+- [reference/help-formats.md](reference/help-formats.md) - форматы `.hbk`, HTML и structured JSONL
 - [reference/search-and-mcp.md](reference/search-and-mcp.md) - рекомендации по качеству поиска и MCP usage
 - [reference/bsl-ls-mcp-setup.md](reference/bsl-ls-mcp-setup.md) - подключение внешнего `lsp-bsl-bridge`
 - [reference/mcp.json.example](reference/mcp.json.example) - пример Cursor MCP config

@@ -175,59 +175,39 @@ def test_cmd_unpack_success(mock_unpack, tmp_path: Path) -> None:
     mock_unpack.assert_called_once()
 
 
-@patch("onec_help.search_store.indexer.build_index")
-def test_cmd_build_index(mock_build, help_sample_dir: Path) -> None:
-    mock_build.return_value = 5
-    args = make_args(directory=str(help_sample_dir), docs_dir=None, incremental=False, skip_api_structured=False)
+def test_cmd_build_index(help_sample_dir: Path) -> None:
+    args = make_args(directory=str(help_sample_dir), docs_dir=None, incremental=False)
     with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
         with patch("onec_help.interfaces.cli._run_api_structured_pipeline", return_value=0) as mock_struct:
             assert cmd_build_index(args) == 0
-    mock_struct.assert_called_once_with(recreate=True)
+    mock_struct.assert_called_once_with(recreate=True, unpacked_dir=str(help_sample_dir.resolve()))
 
 
-@patch("onec_help.search_store.indexer.build_index")
-def test_cmd_build_index_error(mock_build, help_sample_dir: Path) -> None:
-    mock_build.side_effect = RuntimeError("Qdrant unavailable")
-    args = make_args(directory=str(help_sample_dir), docs_dir=None, skip_api_structured=False)
+def test_cmd_build_index_error(help_sample_dir: Path) -> None:
+    args = make_args(directory=str(help_sample_dir), docs_dir=None)
     with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
-        assert cmd_build_index(args) == 1
+        with patch("onec_help.interfaces.cli._run_api_structured_pipeline", side_effect=RuntimeError("Qdrant unavailable")):
+            assert cmd_build_index(args) == 1
 
 
 def test_cmd_build_api_structured() -> None:
     with patch(
         "onec_help.knowledge.help_structured.build_structured_api_snapshot",
-        return_value={"objects": 3, "examples": 2},
+        return_value={"objects": 3, "members": 5, "examples": 2},
     ) as mock_build:
-        args = make_args(output_dir=None)
+        args = make_args(output_dir=None, unpacked_dir=None)
         assert cmd_build_api_structured(args) == 0
     mock_build.assert_called_once()
 
 
 def test_cmd_index_api_structured() -> None:
     with patch(
-        "onec_help.knowledge.help_structured.index_structured_api_objects",
-        return_value=3,
-    ) as mock_objects:
-        with patch(
-            "onec_help.knowledge.help_structured.index_structured_api_members",
-            return_value=5,
-        ) as mock_members:
-            with patch(
-            "onec_help.knowledge.help_structured.index_structured_api_examples",
-            return_value=2,
-            ) as mock_examples:
-                with patch(
-                    "onec_help.knowledge.help_structured.index_structured_api_links",
-                    return_value=7,
-                ) as mock_links:
-                    with patch("onec_help.search_store.indexer.add_bm25_to_collection", return_value=3) as mock_bm25:
-                        args = make_args(snapshot_dir=None, recreate=True)
-                        assert cmd_index_api_structured(args) == 0
-    mock_objects.assert_called_once()
-    mock_members.assert_called_once()
-    mock_examples.assert_called_once()
-    mock_links.assert_called_once()
-    assert mock_bm25.call_count == 3
+        "onec_help.knowledge.help_structured.index_structured_help_snapshot",
+        return_value={"objects": 3, "members": 5, "examples": 2, "links": 7},
+    ) as mock_index:
+        args = make_args(snapshot_dir=None, recreate=True)
+        assert cmd_index_api_structured(args) == 0
+    mock_index.assert_called_once()
 
 
 def test_run_api_structured_pipeline_stops_on_snapshot_error() -> None:
@@ -607,13 +587,11 @@ def test_cmd_unpack_sync_no_sources_error(mock_run) -> None:
     mock_run.assert_not_called()
 
 
-@patch("onec_help.search_store.indexer.build_index")
 @patch("onec_help.interfaces.cli._run_api_structured_pipeline", return_value=0)
 def test_cmd_build_index_incremental_no_bm25(
-    _mock_structured, mock_build, help_sample_dir: Path
+    mock_structured, help_sample_dir: Path
 ) -> None:
-    """cmd_build_index passes incremental and no_bm25 to build_index."""
-    mock_build.return_value = 3
+    """cmd_build_index forwards unpacked dir into structured pipeline."""
     args = make_args(
         directory=str(help_sample_dir),
         docs_dir=None,
@@ -622,9 +600,10 @@ def test_cmd_build_index_incremental_no_bm25(
     )
     with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
         assert cmd_build_index(args) == 0
-    call_kw = mock_build.call_args[1]
-    assert call_kw["incremental"] is True
-    assert call_kw["bm25"] is False
+    mock_structured.assert_called_once_with(
+        recreate=True,
+        unpacked_dir=str(help_sample_dir.resolve()),
+    )
 
 
 def test_cmd_load_snippets_path_not_found(capsys: pytest.CaptureFixture[str]) -> None:
@@ -734,8 +713,7 @@ def test_cmd_mcp_runtime_error_fastmcp(mock_run_mcp, capsys: pytest.CaptureFixtu
 
 
 @patch("onec_help.runtime.ingest.run_ingest_from_unpacked")
-@patch("onec_help.interfaces.cli._run_api_structured_pipeline", return_value=0)
-def test_cmd_ingest_from_unpacked_success(_mock_structured, mock_run, tmp_path: Path) -> None:
+def test_cmd_ingest_from_unpacked_success(mock_run, tmp_path: Path) -> None:
     """cmd_ingest_from_unpacked calls run_ingest_from_unpacked with correct dir."""
     mock_run.return_value = 10
     (tmp_path / "8.3").mkdir()
@@ -765,8 +743,7 @@ def test_cmd_ingest_from_unpacked_dir_missing(mock_run) -> None:
 
 
 @patch("onec_help.runtime.ingest.run_ingest")
-@patch("onec_help.interfaces.cli._run_api_structured_pipeline", return_value=0)
-def test_cmd_ingest_sources_file(_mock_structured, mock_run, tmp_path: Path) -> None:
+def test_cmd_ingest_sources_file(mock_run, tmp_path: Path) -> None:
     mock_run.return_value = 3
     sf = tmp_path / "sources.txt"
     sf.write_text("/path/1:ver1\n/path/2:ver2\n", encoding="utf-8")
@@ -792,8 +769,7 @@ def test_cmd_ingest_sources_file(_mock_structured, mock_run, tmp_path: Path) -> 
 
 
 @patch("onec_help.runtime.ingest.run_ingest")
-@patch("onec_help.interfaces.cli._run_api_structured_pipeline", return_value=0)
-def test_cmd_ingest_sources_file_path_only(_mock_structured, mock_run, tmp_path: Path) -> None:
+def test_cmd_ingest_sources_file_path_only(mock_run, tmp_path: Path) -> None:
     """sources_file with lines without colon uses path name as version."""
     mock_run.return_value = 1
     sf = tmp_path / "list.txt"
@@ -820,15 +796,10 @@ def test_cmd_ingest_sources_file_path_only(_mock_structured, mock_run, tmp_path:
     assert call_kw["source_dirs_with_versions"][0][0] == "/only/path"
 
 
-@patch("onec_help.runtime.ingest.run_ingest_from_unpacked")
-@patch("onec_help.runtime.ingest.run_unpack_sync")
-@patch("onec_help.interfaces.cli._run_api_structured_pipeline", return_value=0)
-def test_cmd_ingest_default_unpacked(
-    _mock_structured, mock_unpack, mock_from_unpacked, tmp_path: Path
-) -> None:
-    """By default cmd_ingest runs unpack-sync to data/unpacked + ingest-from-unpacked."""
-    mock_unpack.return_value = 1
-    mock_from_unpacked.return_value = 10
+@patch("onec_help.runtime.ingest.run_ingest")
+def test_cmd_ingest_default_unpacked(mock_run_ingest, tmp_path: Path) -> None:
+    """cmd_ingest uses runtime ingest helper directly for temporary structured pipeline."""
+    mock_run_ingest.return_value = 10
     (tmp_path / "v").mkdir()
     (tmp_path / "v" / "1cv8_ru.hbk").write_bytes(b"x")
     args = make_args(
@@ -852,15 +823,13 @@ def test_cmd_ingest_default_unpacked(
         clear=False,
     ):
         assert cmd_ingest(args) == 0
-    mock_unpack.assert_called_once()
-    mock_from_unpacked.assert_called_once()
-    assert mock_from_unpacked.call_args[1]["unpacked_base"] == (tmp_path / "unpacked").resolve()
+    mock_run_ingest.assert_called_once()
+    assert mock_run_ingest.call_args[1]["temp_base"]
 
 
 @patch("onec_help.runtime.ingest.run_ingest")
-@patch("onec_help.interfaces.cli._run_api_structured_pipeline", return_value=0)
-def test_cmd_ingest_use_temp(_mock_structured, mock_run_ingest, tmp_path: Path) -> None:
-    """When INGEST_USE_TEMP=1, cmd_ingest uses temp dir and run_ingest (no unpack_sync)."""
+def test_cmd_ingest_use_temp(mock_run_ingest, tmp_path: Path) -> None:
+    """cmd_ingest always uses temp dir and run_ingest."""
     mock_run_ingest.return_value = 5
     (tmp_path / "v").mkdir()
     (tmp_path / "v" / "1cv8_ru.hbk").write_bytes(b"x")

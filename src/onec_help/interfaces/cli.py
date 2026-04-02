@@ -487,7 +487,7 @@ def cmd_unpack_diag(args: argparse.Namespace) -> int:
 
 
 def cmd_build_docs(args: argparse.Namespace) -> int:
-    """Generate Markdown from HTML in project dir."""
+    """Generate Markdown from HTML in project dir (legacy/manual helper only)."""
     from ..help_core.html2md import build_docs
 
     out = args.output or Path(args.project_dir) / "docs_md"
@@ -502,20 +502,21 @@ def cmd_build_docs(args: argparse.Namespace) -> int:
 
 
 def cmd_build_api_structured(args: argparse.Namespace) -> int:
-    """Build derived structured API snapshot from indexed help topics."""
+    """Build structured API snapshot from unpacked HTML help."""
     from ..knowledge.help_structured import build_structured_api_snapshot
 
     output_dir = getattr(args, "output_dir", None)
+    unpacked_dir = getattr(args, "unpacked_dir", None)
     try:
         manifest = build_structured_api_snapshot(
             Path(output_dir).expanduser().resolve() if output_dir else None,
-            qdrant_host=env_config.get_qdrant_host(),
-            qdrant_port=env_config.get_qdrant_port(),
-            collection=env_config.get_qdrant_collection(),
+            unpacked_dir=Path(unpacked_dir).expanduser().resolve() if unpacked_dir else None,
         )
         print(
-            "Structured API snapshot written: "
-            f"{manifest['objects']} objects, {manifest['examples']} examples"
+            "Structured API snapshot written from unpacked HTML: "
+            f"{manifest.get('objects', 0)} objects, "
+            f"{manifest.get('members', 0)} members, "
+            f"{manifest.get('examples', 0)} examples"
         )
         return 0
     except Exception as e:
@@ -524,70 +525,25 @@ def cmd_build_api_structured(args: argparse.Namespace) -> int:
 
 
 def cmd_index_api_structured(args: argparse.Namespace) -> int:
-    """Index structured API objects into dedicated onec_help_api collection."""
-    from ..knowledge.help_structured import (
-        API_EXAMPLES_COLLECTION_NAME,
-        API_LINKS_COLLECTION_NAME,
-        API_MEMBERS_COLLECTION_NAME,
-        API_OBJECTS_COLLECTION_NAME,
-        index_structured_api_examples,
-        index_structured_api_links,
-        index_structured_api_members,
-        index_structured_api_objects,
-    )
-    from ..search_store.indexer import add_bm25_to_collection
+    """Index structured API snapshot into dedicated Qdrant collections."""
+    from ..knowledge.help_structured import index_structured_help_snapshot
 
     snapshot_dir = getattr(args, "snapshot_dir", None)
     recreate = bool(getattr(args, "recreate", False))
     try:
-        objects_inserted = index_structured_api_objects(
+        counts = index_structured_help_snapshot(
             Path(snapshot_dir).expanduser().resolve() if snapshot_dir else None,
             qdrant_host=env_config.get_qdrant_host(),
             qdrant_port=env_config.get_qdrant_port(),
-            collection=API_OBJECTS_COLLECTION_NAME,
             recreate=recreate,
-        )
-        members_inserted = index_structured_api_members(
-            Path(snapshot_dir).expanduser().resolve() if snapshot_dir else None,
-            qdrant_host=env_config.get_qdrant_host(),
-            qdrant_port=env_config.get_qdrant_port(),
-            collection=API_MEMBERS_COLLECTION_NAME,
-            recreate=recreate,
-        )
-        examples_inserted = index_structured_api_examples(
-            Path(snapshot_dir).expanduser().resolve() if snapshot_dir else None,
-            qdrant_host=env_config.get_qdrant_host(),
-            qdrant_port=env_config.get_qdrant_port(),
-            collection=API_EXAMPLES_COLLECTION_NAME,
-            recreate=recreate,
-        )
-        links_inserted = index_structured_api_links(
-            Path(snapshot_dir).expanduser().resolve() if snapshot_dir else None,
-            qdrant_host=env_config.get_qdrant_host(),
-            qdrant_port=env_config.get_qdrant_port(),
-            collection=API_LINKS_COLLECTION_NAME,
-            recreate=recreate,
+            bm25_enabled=env_config.get_bm25_enabled(),
         )
         print(
-            f"Indexed {objects_inserted} API objects into {API_OBJECTS_COLLECTION_NAME}; "
-            f"{members_inserted} API members into {API_MEMBERS_COLLECTION_NAME}; "
-            f"{examples_inserted} official examples into {API_EXAMPLES_COLLECTION_NAME}; "
-            f"{links_inserted} API links into {API_LINKS_COLLECTION_NAME}"
+            f"Indexed {counts['objects']} API objects; "
+            f"{counts['members']} API members; "
+            f"{counts['examples']} official examples; "
+            f"{counts['links']} API links"
         )
-        if env_config.get_bm25_enabled():
-            for collection_name, inserted in (
-                (API_OBJECTS_COLLECTION_NAME, objects_inserted),
-                (API_MEMBERS_COLLECTION_NAME, members_inserted),
-                (API_EXAMPLES_COLLECTION_NAME, examples_inserted),
-            ):
-                if inserted > 0:
-                    add_bm25_to_collection(
-                        qdrant_host=env_config.get_qdrant_host(),
-                        qdrant_port=env_config.get_qdrant_port(),
-                        collection=collection_name,
-                        batch_size=200,
-                        verbose=True,
-                    )
         return 0
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -626,34 +582,24 @@ def cmd_structured_help_scorecard(args: argparse.Namespace) -> int:
         return 1
 
 
-def _run_api_structured_pipeline(*, recreate: bool) -> int:
-    build_result = cmd_build_api_structured(_make_args(output_dir=None))
+def _run_api_structured_pipeline(*, recreate: bool, unpacked_dir: str | None = None) -> int:
+    build_result = cmd_build_api_structured(_make_args(output_dir=None, unpacked_dir=unpacked_dir))
     if build_result != 0:
         return build_result
     return cmd_index_api_structured(_make_args(snapshot_dir=None, recreate=recreate))
 
 
 def cmd_build_index(args: argparse.Namespace) -> int:
-    """Build Qdrant index from Markdown (or HTML) in directory."""
-    from ..search_store.indexer import build_index
-
+    """Build structured JSONL and index structured help collections from unpacked HTML."""
     docs_dir = args.docs_dir or args.directory
     try:
-        count = build_index(
-            docs_dir=Path(docs_dir),
-            qdrant_host=env_config.get_qdrant_host(),
-            qdrant_port=env_config.get_qdrant_port(),
-            collection=env_config.get_qdrant_collection(),
-            incremental=getattr(args, "incremental", False),
-            embedding_batch_size=getattr(args, "embedding_batch_size", None),
-            embedding_workers=getattr(args, "embedding_workers", None),
-            bm25=not getattr(args, "no_bm25", False),
+        rc = _run_api_structured_pipeline(
+            recreate=True,
+            unpacked_dir=str(Path(docs_dir).expanduser().resolve()),
         )
-        print(f"Indexed {count} chunks")
-        if not getattr(args, "skip_api_structured", False):
-            rc = _run_api_structured_pipeline(recreate=getattr(args, "incremental", False) is False)
-            if rc != 0:
-                return rc
+        if rc != 0:
+            return rc
+        print("Structured help rebuilt and indexed")
         return 0
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -950,7 +896,7 @@ def cmd_read_hbk_container(args: argparse.Namespace) -> int:
 
 
 def cmd_ingest(args: argparse.Namespace) -> int:
-    """Ingest .hbk from multiple read-only source dirs: unpack to temp, build docs, index, cleanup."""
+    """Ingest .hbk from multiple read-only source dirs into structured JSONL and Qdrant."""
     from pathlib import Path
 
     from ..runtime import redis_cache
@@ -1007,56 +953,24 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         print(f"Error: {e}", file=sys.stderr)
         return 1
     try:
-        # По умолчанию: распаковка в data/unpacked, индексация из неё (одна папка, без удаления).
-        # INGEST_USE_TEMP=1 — старый режим: временная папка с удалением после индексации.
-        use_temp = env_config.get_ingest_use_temp()
-        if not use_temp and not getattr(args, "dry_run", False):
-            from ..runtime.ingest import run_ingest_from_unpacked, run_unpack_sync
-
-            unpacked_dir = env_config.get_data_unpacked_dir()
-            unpacked_base = Path(unpacked_dir).resolve()
-            unpacked_base.mkdir(parents=True, exist_ok=True)
-            run_unpack_sync(
-                source_dirs_with_versions=sources,
-                output_dir=unpacked_base,
-                languages=languages,
-                max_workers=getattr(args, "workers", None) or 4,
-                verbose=not getattr(args, "quiet", False),
-            )
-            n = run_ingest_from_unpacked(
-                unpacked_base=unpacked_base,
-                qdrant_host=env_config.get_qdrant_host(),
-                qdrant_port=env_config.get_qdrant_port(),
-                collection=env_config.get_qdrant_collection(),
-                incremental=not getattr(args, "recreate", False),
-                verbose=not getattr(args, "quiet", False),
-                embedding_batch_size=getattr(args, "embedding_batch_size", None),
-                embedding_workers=getattr(args, "embedding_workers", None),
-                max_workers=getattr(args, "workers", None),
-            )
-        else:
-            _default_temp = os.path.join(tempfile.gettempdir(), "help_ingest")
-            n = run_ingest(
-                source_dirs_with_versions=sources,
-                languages=languages,
-                temp_base=args.temp_base or env_config.get_ingest_temp_dir() or _default_temp,
-                qdrant_host=env_config.get_qdrant_host(),
-                qdrant_port=env_config.get_qdrant_port(),
-                collection=env_config.get_qdrant_collection(),
-                incremental=not getattr(args, "recreate", False),
-                max_workers=getattr(args, "workers", None),
-                max_tasks=getattr(args, "max_tasks", None),
-                verbose=not getattr(args, "quiet", False),
-                dry_run=getattr(args, "dry_run", False),
-                index_batch_size=getattr(args, "index_batch_size", 500),
-                embedding_batch_size=getattr(args, "embedding_batch_size", None),
-                embedding_workers=getattr(args, "embedding_workers", None),
-            )
-        print(f"Ingested and indexed {n} chunks")
-        if not getattr(args, "dry_run", False):
-            rc = _run_api_structured_pipeline(recreate=bool(getattr(args, "recreate", False)))
-            if rc != 0:
-                return rc
+        _default_temp = os.path.join(tempfile.gettempdir(), "help_ingest")
+        n = run_ingest(
+            source_dirs_with_versions=sources,
+            languages=languages,
+            temp_base=args.temp_base or env_config.get_ingest_temp_dir() or _default_temp,
+            qdrant_host=env_config.get_qdrant_host(),
+            qdrant_port=env_config.get_qdrant_port(),
+            collection=env_config.get_qdrant_collection(),
+            incremental=False,
+            max_workers=getattr(args, "workers", None),
+            max_tasks=getattr(args, "max_tasks", None),
+            verbose=not getattr(args, "quiet", False),
+            dry_run=getattr(args, "dry_run", False),
+            index_batch_size=getattr(args, "index_batch_size", 500),
+            embedding_batch_size=getattr(args, "embedding_batch_size", None),
+            embedding_workers=getattr(args, "embedding_workers", None),
+        )
+        print(f"Ingested and indexed {n} structured records")
         return 0
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -1064,7 +978,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
 
 
 def cmd_ingest_from_unpacked(args: argparse.Namespace) -> int:
-    """Index help from unpacked dir (data/unpacked structure: version/stem)."""
+    """Build structured JSONL and index structured help from unpacked HTML dir."""
     from pathlib import Path
 
     from ..runtime.ingest import run_ingest_from_unpacked
@@ -1085,16 +999,13 @@ def cmd_ingest_from_unpacked(args: argparse.Namespace) -> int:
             qdrant_host=env_config.get_qdrant_host(),
             qdrant_port=env_config.get_qdrant_port(),
             collection=env_config.get_qdrant_collection(),
-            incremental=not getattr(args, "recreate", False),
+            incremental=False,
             verbose=not getattr(args, "quiet", False),
             embedding_batch_size=getattr(args, "embedding_batch_size", None),
             embedding_workers=getattr(args, "embedding_workers", None),
             bm25=bm25_val,
         )
-        print(f"Ingested from unpacked: {n} points")
-        rc = _run_api_structured_pipeline(recreate=bool(getattr(args, "recreate", False)))
-        if rc != 0:
-            return rc
+        print(f"Ingested from unpacked HTML: {n} structured records")
         return 0
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -1958,7 +1869,7 @@ def cmd_qdrant_restore(args: argparse.Namespace) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        prog="onec_help", description="1C Help: unpack, docs, index, MCP"
+        prog="onec_help", description="1C Help: HBK -> structured JSONL -> index -> MCP"
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -2064,7 +1975,7 @@ def main() -> int:
     p_read_hbk.set_defaults(func=cmd_read_hbk_container)
 
     # build-docs
-    p_docs = sub.add_parser("build-docs", help="Generate Markdown from HTML")
+    p_docs = sub.add_parser("build-docs", help="Generate Markdown from HTML (legacy/manual helper)")
     p_docs.add_argument("project_dir", type=str, help="Directory with HTML files")
     p_docs.add_argument(
         "--output", "-o", type=str, help="Output directory (default: project_dir/docs_md)"
@@ -2072,13 +1983,16 @@ def main() -> int:
     p_docs.set_defaults(func=cmd_build_docs)
 
     # build-index
-    p_idx = sub.add_parser("build-index", help="Build Qdrant index from Markdown/docs (recursive)")
-    p_idx.add_argument("directory", type=str, help="Directory with .md or HTML")
+    p_idx = sub.add_parser(
+        "build-index",
+        help="Build JSONL-first structured help from unpacked HTML and index it into Qdrant",
+    )
+    p_idx.add_argument("directory", type=str, help="Directory with unpacked HTML help")
     p_idx.add_argument("--docs-dir", type=str, help="Alias for directory (optional)")
     p_idx.add_argument(
         "--incremental",
         action="store_true",
-        help="Add/update only, do not recreate collection (new files in folder will be indexed)",
+        help="Accepted for compatibility; structured collections are rebuilt from the full snapshot",
     )
     p_idx.add_argument(
         "--embedding-batch-size",
@@ -2099,28 +2013,29 @@ def main() -> int:
         action="store_true",
         help="Disable BM25 sparse vectors (default: BM25_ENABLED=1)",
     )
-    p_idx.add_argument(
-        "--skip-api-structured",
-        action="store_true",
-        help="Skip derived structured API snapshot/index refresh after help indexing",
-    )
     p_idx.set_defaults(func=cmd_build_index)
 
     p_api_structured = sub.add_parser(
         "build-api-structured",
-        help="Build derived structured API snapshot from indexed platform help",
+        help="Build structured API snapshot from unpacked HTML help",
+    )
+    p_api_structured.add_argument(
+        "--unpacked-dir",
+        type=str,
+        default=None,
+        help="Unpacked HTML base dir (default: DATA_UNPACKED_DIR or data/unpacked)",
     )
     p_api_structured.add_argument(
         "--output-dir",
         type=str,
         default=None,
-        help="Output directory (default: DATA_DIR/help_structured)",
+        help="Structured snapshot directory (default: DATA_DIR/help_structured)",
     )
     p_api_structured.set_defaults(func=cmd_build_api_structured)
 
     p_api_index = sub.add_parser(
         "index-api-structured",
-        help="Index structured API objects into onec_help_api",
+        help="Index structured API snapshot into dedicated Qdrant collections",
     )
     p_api_index.add_argument(
         "--snapshot-dir",
@@ -2131,7 +2046,7 @@ def main() -> int:
     p_api_index.add_argument(
         "--recreate",
         action="store_true",
-        help="Recreate onec_help_api before indexing",
+        help="Recreate structured help collections before indexing",
     )
     p_api_index.set_defaults(func=cmd_index_api_structured)
 
@@ -2181,7 +2096,7 @@ def main() -> int:
 
     # ingest
     p_ingest = sub.add_parser(
-        "ingest", help="Ingest .hbk from multiple read-only dirs (temp unpack, index, cleanup)"
+        "ingest", help="Ingest .hbk via temporary unpacked HTML -> structured JSONL -> Qdrant"
     )
     p_ingest.add_argument(
         "--sources",
@@ -2210,14 +2125,14 @@ def main() -> int:
         type=int,
         default=None,
         metavar="N",
-        help="Parallel workers (default: half of CPUs for temp ingest; INGEST_MAX_WORKERS or 4 for from-unpacked)",
+        help="Parallel unpack workers (default: half of CPUs)",
     )
     p_ingest.add_argument(
         "--max-tasks",
         "-n",
         type=int,
         default=None,
-        help="Process only first N .hbk files (avoids timeout; run multiple times for full index)",
+        help="Process only first N .hbk files (builds a partial structured snapshot from that subset)",
     )
     p_ingest.add_argument(
         "--quiet",
@@ -2235,7 +2150,7 @@ def main() -> int:
         type=int,
         default=500,
         metavar="N",
-        help="Index N files per upsert (default 500); smaller = more progress output, less memory",
+        help="Deprecated legacy option; ignored in JSONL-first ingest",
     )
     p_ingest.add_argument(
         "--recreate",
@@ -2266,7 +2181,7 @@ def main() -> int:
     # ingest-from-unpacked — index from data/unpacked (version/stem structure)
     p_ingest_unpacked = sub.add_parser(
         "ingest-from-unpacked",
-        help="Index from unpacked dir (version/stem, path_prefix in payload)",
+        help="Build structured JSONL and index from unpacked dir (version/stem)",
     )
     p_ingest_unpacked.add_argument(
         "--dir",
@@ -2278,7 +2193,7 @@ def main() -> int:
     p_ingest_unpacked.add_argument(
         "--recreate",
         action="store_true",
-        help="Recreate Qdrant collection before indexing",
+        help="Accepted for compatibility; structured collections are rebuilt from the full snapshot",
     )
     p_ingest_unpacked.add_argument("--quiet", "-q", action="store_true", help="Less output")
     p_ingest_unpacked.add_argument(

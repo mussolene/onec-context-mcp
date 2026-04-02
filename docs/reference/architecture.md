@@ -8,14 +8,17 @@
 
 | Сервис | Роль | Ресурсы | Порт |
 |--------|------|---------|------|
-| **qdrant** | Векторная БД (onec_help, onec_help_memory) | Хранилище | 6333 |
-| **mcp** | MCP API — поиск, чтение топиков, get_1c_code_answer | I/O, embedding для memory | 8050 |
+| **qdrant** | Векторная БД (structured help, onec_help_memory, metadata) | Хранилище | 6333 |
+| **mcp** | MCP API — structured API search/answers, memory, metadata | I/O, embedding для memory | 8050 |
 | **ingest-worker** | Batch ETL: ingest, cron, load-snippets, watchdog | CPU, RAM, embedding API | — |
 | **bsl-bridge** | BSL LS MCP — диагностика, рефакторинг (отдельно: `make bsl-start`) | Java/BSL LS | — |
 
 ## Коллекции Qdrant
 
-- **onec_help** — основной индекс справки 1С (пишет ingest/indexer)
+- **onec_help_api_members** — основной runtime-индекс structured API
+- **onec_help_api_objects** — объектный слой structured help
+- **onec_help_examples** — официальные примеры
+- **onec_help_api_links** — связи между API-сущностями
 - **onec_help_memory** — snippets, standards, session events (пишут memory, load-snippets, load-standards)
 
 Подробнее об embedding, batch-пайплайне, retry и переменных — см. [embedding.md](embedding.md).

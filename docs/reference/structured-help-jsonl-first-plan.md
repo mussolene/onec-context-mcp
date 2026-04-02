@@ -1,6 +1,6 @@
 # JSONL-First Help Plan
 
-Цель: сделать `structured help` основным runtime-слоем для справки 1С, а `onec_help` оставить только как cold fallback и источник для редких полнотекстовых сценариев.
+Цель: сделать `structured help` основным и самодостаточным runtime-слоем для справки 1С, без runtime-зависимости от Markdown/topic-layer.
 
 ## Target State
 
@@ -15,10 +15,7 @@
    - `onec_help_examples`
    - `onec_help_api_links`
 
-Cold fallback:
-
-- `onec_help` с полными topic texts
-- `compare_1c_help` и редкие внутренние version-diff сценарии
+Исторический topic-layer больше не входит в основной runtime route.
 
 ## Why HTML-First
 
@@ -28,11 +25,7 @@ Cold fallback:
 - в Markdown часть этой структуры уже теряется или схлопывается
 - HTML-first extraction даёт более полный `jsonl` и требует меньше эвристик
 
-Markdown остаётся полезным:
-
-- для человека
-- для cold fallback
-- для общего topic reading
+Markdown может оставаться только как ручной derived-артефакт для отладки и проверки extractor.
 
 ## Migration Phases
 
@@ -43,7 +36,7 @@ Markdown остаётся полезным:
 - `build-api-structured` читает `data/unpacked`
 - использует `.toc.json` и `.hbk_info.json`
 - строит `api_objects.jsonl`, `api_members.jsonl`, `api_examples.jsonl`, `api_links.jsonl`
-- fallback на `onec_help` оставлен только если `data/unpacked` недоступен
+- runtime fallback на `onec_help` убран; source of truth для help runtime = structured JSONL
 
 ### Phase 2. Extractor coverage
 
@@ -72,17 +65,13 @@ Markdown остаётся полезным:
 - official examples extraction без потери описаний
 - `api_links` не только для `see_also`, но и для owner/member и type relations
 
-### Phase 4. Cold fallback
+### Phase 4. Runtime cleanup
 
 Когда scorecard выйдет на целевые пороги:
 
-- перестать использовать `onec_help` как first-line exact route
-- оставить `onec_help` только для:
-  - topic-layer runtime routes удалены из публичного surface
-  - редких general-topic запросов
-  - повторного extraction / forensic reading
-
-Полностью удалять `onec_help` не требуется.
+- topic-layer runtime routes должны быть удалены из публичного surface
+- ingest должен работать по цепочке `HBK -> temporary unpacked HTML -> structured JSONL -> Qdrant`
+- Markdown и persistent unpacked HTML не должны участвовать в runtime
 
 ## Stop Metrics
 
@@ -110,4 +99,4 @@ Extractor считаем practically sufficient, если одновременн
 
 - exact API lookup идёт через structured layer
 - человеку и агенту в большинстве API-кейсов хватает JSONL/Qdrant payload
-- full topics читаются только по требованию
+- runtime ответы строятся из structured JSONL/Qdrant payload, а не из full topics

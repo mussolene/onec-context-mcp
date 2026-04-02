@@ -70,7 +70,7 @@ services:
       ONEC_CONFIG_SOURCE_DIR: ${ONEC_CONFIG_SOURCE_DIR:-/data/kd2}
     volumes:
       - /opt/1cv8:/opt/1cv8:ro
-      - ./data/unpacked:/data
+      - ./data/help_structured:/app/data/help_structured
       - ./data/qdrant:/qdrant_storage:ro
       - ./data/ingest_cache:/app/var/ingest_cache
       - ./data/snippets:/data/snippets
@@ -81,7 +81,7 @@ services:
       - ./data/backup:/data/backup
       - ./data/bm25_vocab:/app/data/bm25_vocab
     # Транспорт из MCP_TRANSPORT (по умолчанию multi: streamable-http + SSE на одном порту).
-    command: ["python", "-m", "onec_help.interfaces.mcp_server", "/data", "--host", "0.0.0.0", "--port", "8050", "--path", "/mcp"]
+    command: ["python", "-m", "onec_help.interfaces.mcp_server", "/app/data/help_structured", "--host", "0.0.0.0", "--port", "8050", "--path", "/mcp"]
     depends_on:
       qdrant:
         condition: service_healthy

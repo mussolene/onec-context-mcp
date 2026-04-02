@@ -15,7 +15,7 @@ def get_data_dir() -> str:
 
 
 def get_data_unpacked_dir() -> str:
-    """Unpacked help output dir. Default: data/unpacked (or DATA_DIR/unpacked)."""
+    """Temporary unpacked HTML workspace. Default: data/unpacked (or DATA_DIR/unpacked)."""
     v = os.environ.get("DATA_UNPACKED_DIR", "").strip()
     if v:
         return v
@@ -30,11 +30,11 @@ def get_ingest_cache_file() -> str:
     return str(Path(get_data_dir()) / "ingest_cache" / "ingest_cache.db")
 
 
-# --- Help path (MCP: directory for get_1c_help_topic from disk) ---
+# --- Help path (legacy low-level file helpers only) ---
 def get_help_path() -> str:
-    """Base directory for MCP to read help topics from disk. Default: data (or DATA_DIR)."""
+    """Base directory for legacy low-level help files. Default: DATA_DIR/help_structured."""
     v = (os.environ.get("HELP_PATH") or "").strip()
-    return v or get_data_dir()
+    return v or get_help_structured_dir()
 
 
 def get_help_structured_dir() -> str:

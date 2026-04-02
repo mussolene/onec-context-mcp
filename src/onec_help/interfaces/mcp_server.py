@@ -1933,17 +1933,17 @@ def _build_mcp_app(help_path: Path) -> Any:
     def get_1c_help_index_status() -> str:
         """Returns index status (topics count, collection, versions, languages) and ingest progress.
         When ingest is running: current file, ETA, speed, errors."""
-        s = _index_status()
+        s = _api_index_status()
         err = s.get("error")
         if err:
             return f"Error: {err}"
         if not s.get("exists"):
             return "Index does not exist. Run ingest to index the help (e.g. docker compose exec mcp python -m onec_help ingest)."
         count = s.get("points_count")
-        name = s.get("collection", "onec_help")
+        name = s.get("collection", "onec_help_api_members")
         lines = [
             f"Collection: **{name}**",
-            f"Topics indexed: **{count}**",
+            f"Structured API entries: **{count}**",
             f"Embeddings: **{count}**",
         ]
         from ..shared import env_config

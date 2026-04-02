@@ -131,7 +131,7 @@ unpack-help:
 unpack-sync:
 	$(COMPOSE) run --rm -v "$(HELP_SOURCE_PATH):/input:ro" -e DATA_UNPACKED_DIR=/output -v "$(abspath $(UNPACK_OUTPUT)):/output" mcp python -m onec_help unpack-sync /input -o /output -l $(HELP_LANGS) $(ARGS)
 
-# Index from unpacked dir (after unpack-sync)
+# Build structured JSONL and index from unpacked dir (after unpack-sync)
 ingest-from-unpacked:
 	$(COMPOSE) exec $(INGEST_SERVICE) python -m onec_help ingest-from-unpacked $(ARGS)
 
@@ -172,7 +172,7 @@ bsl-stop:
 
 # Создать каталоги data/ для bind-mount. После потери data/qdrant: make ensure-data && make up; для индекса: make ingest-up
 ensure-data:
-	@mkdir -p data/qdrant data/unpacked data/ingest_cache data/snippets data/backup data/bm25_vocab data/standards data/config data/kd2 data/kd2_snapshot data/redis
+	@mkdir -p data/qdrant data/unpacked data/help_structured data/ingest_cache data/snippets data/backup data/bm25_vocab data/standards data/config data/kd2 data/kd2_snapshot data/redis
 	@echo "data/qdrant и остальные каталоги созданы."
 
 # При qdrant exit 101: логи и сброс данных. Использовать оба -f!
@@ -276,7 +276,7 @@ help:
 	@echo "  make unpack-help      Распаковка .hbk без индексации"
 	@echo "  make ingest           Индексация .hbk (требует make ingest-up)"
 	@echo "  make ingest-full      Индексация (full, mcp)"
-	@echo "  make build-index      Индексация из папки (ARGS=путь)"
+	@echo "  make build-index      Построение structured help из unpacked HTML (ARGS=путь)"
 	@echo "  make add-bm25         Добавить BM25 sparse. ARGS='--collection onec_config_metadata' — только эта коллекция"
 	@echo "  make dashboard        Дашборд (Tasks, Errors, Qdrant). ARGS='--once' — один кадр"
 	@echo "  make fetch-bsl-bridge  Клонировать mcp-bsl-lsp-bridge (для Windows)"

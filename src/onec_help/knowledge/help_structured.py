@@ -1,4 +1,4 @@
-"""Structured API snapshot built from indexed 1C platform help topics."""
+"""Structured API snapshot built from unpacked 1C platform HTML help."""
 
 from __future__ import annotations
 
@@ -881,13 +881,18 @@ def iter_help_topics_from_unpacked(
         for stem_dir in sorted(p for p in version_dir.iterdir() if p.is_dir() and not p.name.startswith(".")):
             info_path = stem_dir / ".hbk_info.json"
             toc_path = stem_dir / ".toc.json"
-            if not info_path.is_file() or not toc_path.is_file():
-                continue
-            try:
-                info = json.loads(info_path.read_text(encoding="utf-8"))
-                toc_items = json.loads(toc_path.read_text(encoding="utf-8"))
-            except (OSError, ValueError, TypeError):
-                continue
+            info: dict[str, Any] = {}
+            toc_items: list[dict[str, Any]] = []
+            if info_path.is_file():
+                try:
+                    info = json.loads(info_path.read_text(encoding="utf-8"))
+                except (OSError, ValueError, TypeError):
+                    info = {}
+            if toc_path.is_file():
+                try:
+                    toc_items = json.loads(toc_path.read_text(encoding="utf-8"))
+                except (OSError, ValueError, TypeError):
+                    toc_items = []
             language = str(info.get("language") or "")
             version = str(info.get("version") or version_dir.name)
             toc_map: dict[str, dict[str, Any]] = {}
@@ -909,7 +914,7 @@ def iter_help_topics_from_unpacked(
                     {
                         "html_path": html_path,
                         "path": full_path,
-                        "title": str(toc_item.get("title_ru") or toc_item.get("title_en") or ""),
+                        "title": str(toc_item.get("title_ru") or toc_item.get("title_en") or html_path.stem),
                         "version": version,
                         "language": language,
                         "entity_type": str(toc_item.get("entity_type") or "topic"),
@@ -927,19 +932,20 @@ def build_structured_api_snapshot(
     qdrant_port: int | None = None,
     collection: str = "onec_help",
 ) -> dict[str, Any]:
-    """Build structured API snapshot from unpacked HTML help or indexed topics as fallback."""
+    """Build structured API snapshot from unpacked HTML help.
+
+    qdrant_host/qdrant_port/collection are kept only for backward-compatible callers and
+    are ignored in the JSONL-first pipeline.
+    """
     out_dir = (output_dir or get_help_structured_dir()).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     html_topics = iter_help_topics_from_unpacked(unpacked_dir=unpacked_dir)
-    source_kind = "unpacked_html"
-    topics = []
     if not html_topics:
-        topics = iter_help_topics_from_index(
-            qdrant_host=qdrant_host,
-            qdrant_port=qdrant_port,
-            collection=collection,
+        source_base = (unpacked_dir or Path(env_config.get_data_unpacked_dir())).expanduser().resolve()
+        raise RuntimeError(
+            f"No unpacked HTML help topics found in {source_base}. "
+            "Run ingest or unpack .hbk before build-api-structured."
         )
-        source_kind = "indexed_topics"
 
     objects_by_key: dict[tuple[str, ...], dict[str, Any]] = {}
     members: list[dict[str, Any]] = []
@@ -956,31 +962,6 @@ def build_structured_api_snapshot(
             breadcrumb=list(topic.get("breadcrumb") or []),
             entity_type=str(topic.get("entity_type") or "topic"),
         )
-        if object_record is not None:
-            topic_path = str(object_record.get("topic_path") or "")
-            if topic_path:
-                key = (
-                    str(object_record.get("version") or ""),
-                    str(object_record.get("language") or ""),
-                    topic_path,
-                )
-            else:
-                key = (
-                    str(object_record.get("version") or ""),
-                    str(object_record.get("language") or ""),
-                    str(object_record.get("full_name") or object_record.get("object_name") or ""),
-                    "stub",
-                )
-            prev = objects_by_key.get(key)
-            if prev is None or (not prev.get("topic_path") and object_record.get("topic_path")):
-                objects_by_key[key] = object_record
-        if member_record is not None:
-            members.append(member_record)
-        examples.extend(topic_examples)
-        links.extend(topic_links)
-
-    for topic in topics:
-        object_record, member_record, topic_examples, topic_links = extract_structured_records_from_topic(topic)
         if object_record is not None:
             topic_path = str(object_record.get("topic_path") or "")
             if topic_path:
@@ -1022,22 +1003,89 @@ def build_structured_api_snapshot(
     _write_jsonl(out_dir / API_LINKS_FILE, links)
 
     manifest = {
-        "format": "onec_help_structured_api_v3",
+        "format": "onec_help_structured_api_v4",
         "objects": len(object_items),
         "members": len(members),
         "examples": len(examples),
         "links": len(links),
-        "source": source_kind,
-        "source_collection": collection if source_kind == "indexed_topics" else "",
+        "source": "unpacked_html",
+        "source_collection": "",
         "source_unpacked_dir": str((unpacked_dir or Path(env_config.get_data_unpacked_dir())).expanduser().resolve())
-        if source_kind == "unpacked_html"
-        else "",
+        ,
     }
     (out_dir / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     return manifest
+
+
+def index_structured_help_snapshot(
+    snapshot_dir: Path | None = None,
+    *,
+    qdrant_host: str | None = None,
+    qdrant_port: int | None = None,
+    recreate: bool = True,
+    batch_size: int = 200,
+    bm25_enabled: bool | None = None,
+) -> dict[str, int]:
+    """Index the structured help snapshot into dedicated Qdrant collections."""
+    from ..search_store.indexer import add_bm25_to_collection
+
+    objects_inserted = index_structured_api_objects(
+        snapshot_dir,
+        qdrant_host=qdrant_host,
+        qdrant_port=qdrant_port,
+        collection=API_OBJECTS_COLLECTION_NAME,
+        recreate=recreate,
+        batch_size=batch_size,
+    )
+    members_inserted = index_structured_api_members(
+        snapshot_dir,
+        qdrant_host=qdrant_host,
+        qdrant_port=qdrant_port,
+        collection=API_MEMBERS_COLLECTION_NAME,
+        recreate=recreate,
+        batch_size=batch_size,
+    )
+    examples_inserted = index_structured_api_examples(
+        snapshot_dir,
+        qdrant_host=qdrant_host,
+        qdrant_port=qdrant_port,
+        collection=API_EXAMPLES_COLLECTION_NAME,
+        recreate=recreate,
+        batch_size=batch_size,
+    )
+    links_inserted = index_structured_api_links(
+        snapshot_dir,
+        qdrant_host=qdrant_host,
+        qdrant_port=qdrant_port,
+        collection=API_LINKS_COLLECTION_NAME,
+        recreate=recreate,
+        batch_size=batch_size,
+    )
+
+    use_bm25 = env_config.get_bm25_enabled() if bm25_enabled is None else bm25_enabled
+    if use_bm25:
+        for collection_name, inserted in (
+            (API_OBJECTS_COLLECTION_NAME, objects_inserted),
+            (API_MEMBERS_COLLECTION_NAME, members_inserted),
+            (API_EXAMPLES_COLLECTION_NAME, examples_inserted),
+        ):
+            if inserted > 0:
+                add_bm25_to_collection(
+                    qdrant_host=qdrant_host or env_config.get_qdrant_host(),
+                    qdrant_port=qdrant_port or env_config.get_qdrant_port(),
+                    collection=collection_name,
+                    batch_size=200,
+                    verbose=True,
+                )
+    return {
+        "objects": objects_inserted,
+        "members": members_inserted,
+        "examples": examples_inserted,
+        "links": links_inserted,
+    }
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:

@@ -7,17 +7,17 @@
 Основной pipeline выглядит так:
 
 ```text
-.hbk -> unpack -> html -> markdown -> embeddings -> Qdrant -> MCP
+.hbk -> unpack html -> structured jsonl -> embeddings -> Qdrant -> MCP
 ```
 
 Что это означает на практике:
 
 1. Проект находит `.hbk` в `HELP_SOURCE_BASE`.
-2. `ingest` распаковывает архивы и собирает структуру в `data/unpacked`.
-3. HTML справки конвертируется в Markdown.
-4. Для текстов строятся embeddings.
-5. Документы и memory points попадают в Qdrant.
-6. MCP-сервер читает эти индексы и отдает tools для поиска, чтения топиков, snippets, standards и metadata.
+2. `ingest` временно распаковывает архивы в HTML workspace.
+3. Из HTML строится канонический structured snapshot `data/help_structured/*.jsonl`.
+4. Для structured help, memory и metadata строятся embeddings.
+5. Structured collections и memory points попадают в Qdrant.
+6. MCP-сервер читает эти индексы и отдает tools для поиска по API, snippets, standards и metadata.
 
 ## Роли сервисов
 
@@ -55,9 +55,11 @@
 
 По умолчанию проект использует каталог `data/`:
 
-- `data/unpacked` - распакованная справка
+- `data/help_structured` - канонический structured snapshot справки
 - `data/qdrant` - данные Qdrant
 - `data/redis` - Redis state
 - `data/snippets` и `data/standards` - входные данные для memory
+
+`data/unpacked` больше не используется как постоянное runtime-хранилище: ingest держит HTML во временной папке и удаляет её после успешной сборки `JSONL`.
 
 Если нужны operational details, recovery и расширенные команды, переходите в [../reference/run.md](../reference/run.md).

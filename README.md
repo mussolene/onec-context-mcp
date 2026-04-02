@@ -6,7 +6,7 @@
 [![Coverage](https://codecov.io/gh/mussolene/1c_hbk_helper/graph/badge.svg)](https://codecov.io/gh/mussolene/1c_hbk_helper)
 [![Release](https://github.com/mussolene/1c_hbk_helper/actions/workflows/release.yml/badge.svg)](https://github.com/mussolene/1c_hbk_helper/releases)
 
-1C Help MCP распаковывает `.hbk`, конвертирует справку в Markdown, индексирует ее в Qdrant и поднимает MCP-сервер для поиска, чтения топиков, snippets, standards и метаданных 1С.
+1C Help MCP распаковывает `.hbk`, строит structured `JSONL` из HTML-справки, индексирует его в Qdrant и поднимает MCP-сервер для поиска по API, snippets, standards и метаданным 1С.
 
 ## Что здесь есть
 

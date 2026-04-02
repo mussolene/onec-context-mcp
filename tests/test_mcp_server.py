@@ -42,11 +42,11 @@ def test_max_topic_content_chars_from_env() -> None:
 
 
 def test_get_help_path_default_when_unset() -> None:
-    """When HELP_PATH is not set, _get_help_path returns data/ resolved from cwd."""
+    """When HELP_PATH is not set, _get_help_path returns help_structured path."""
     mcp_server._HELP_PATH = None
     with patch.dict(os.environ, {"HELP_PATH": ""}, clear=False):
         p = mcp_server._get_help_path()
-    assert p.name == "data"
+    assert p.name == "help_structured"
     assert p.is_absolute()
 
 
@@ -341,11 +341,11 @@ def test_mcp_tool_get_1c_help_index_status_via_app(help_sample_dir: Path) -> Non
     """Call get_1c_help_index_status tool via app."""
     app = mcp_server._build_mcp_app(help_sample_dir)
     with patch.object(
-        mcp_server, "_index_status", return_value={"exists": True, "points_count": 10}
+        mcp_server, "_api_index_status", return_value={"exists": True, "points_count": 10}
     ):
         result = asyncio.run(app.call_tool("get_1c_help_index_status", {}))
     text = result.content[0].text if result.content else ""
-    assert "10" in text or "Topics" in text or "Collection" in text
+    assert "10" in text or "Structured API entries" in text or "Collection" in text
 
 
 def test_mcp_tool_get_1c_help_index_status_ingest_in_progress(help_sample_dir: Path) -> None:

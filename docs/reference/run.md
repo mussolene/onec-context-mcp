@@ -8,7 +8,7 @@
 
 ### Вариант A: ingest (рекомендуется)
 
-Одна команда: распаковка `.hbk`, конвертация в Markdown, индексация в Qdrant. Верхний вход проекта: [../../README.md](../../README.md).
+Одна команда: распаковка `.hbk`, сборка structured `JSONL` из HTML и индексация structured help в Qdrant. Верхний вход проекта: [../../README.md](../../README.md).
 
 ```bash
 # Qdrant уже запущен (Docker)
@@ -17,28 +17,26 @@ docker run -d -p 6333:6333 -v qdrant_data:/qdrant/storage qdrant/qdrant:v1.12.0
 # Ingest из каталога с версиями 1С
 HELP_SOURCE_BASE=/opt/1cv8 QDRANT_HOST=localhost python -m onec_help ingest
 
-# MCP (топики из Qdrant; каталог может быть пустым)
+# MCP (structured JSONL из Qdrant; каталог может быть пустым)
 python -m onec_help mcp . --transport streamable-http --host 0.0.0.0 --port 8050
 ```
 
-### Вариант B: пошагово (unpack → build-docs → build-index)
+### Вариант B: пошагово (unpack → build-index)
 
 1. Установить зависимости: `pip install -e ".[dev]"` (и при необходимости `.[mcp]` для MCP).
 2. Распаковать справку:
    - Один архив: `python -m onec_help unpack /path/to/file.hbk -o ./unpacked`
    - Все .hbk из каталога: `python -m onec_help unpack-dir /opt/1cv8 -o ./unpacked -l ru`
-3. Сгенерировать Markdown:  
-   `python -m onec_help build-docs ./unpacked -o ./docs_md`
 4. Запустить Qdrant (Docker): `docker run -d -p 6333:6333 -v qdrant_data:/qdrant/storage qdrant/qdrant:v1.12.0`
-5. Построить индекс:  
-   `QDRANT_HOST=localhost QDRANT_PORT=6333 python -m onec_help build-index ./docs_md`
+5. Построить structured snapshot и индекс:  
+   `QDRANT_HOST=localhost QDRANT_PORT=6333 python -m onec_help build-index ./unpacked`
 6. MCP локально (stdio или HTTP):  
-   `python -m onec_help mcp ./unpacked` (stdio) или  
-   `python -m onec_help mcp ./unpacked --transport streamable-http --host 0.0.0.0 --port 8050`
+   `python -m onec_help mcp data/help_structured` (stdio) или  
+   `python -m onec_help mcp data/help_structured --transport streamable-http --host 0.0.0.0 --port 8050`
 
 ## Docker Compose
 
-- Данные справки: монтируется `/opt/1cv8` в контейнер mcp, подпапки = версии 1С. Индексация вручную: `docker compose exec mcp python -m onec_help ingest`; по расписанию в mcp запущен cron (раз в сутки в 3:00). На Windows при монтировании `C:\Program Files\1cv8` учтите подпапку `bin` — поиск .hbk рекурсивный.
+- Данные справки: монтируется `/opt/1cv8` в контейнер mcp, подпапки = версии 1С. Индексация вручную: `docker compose exec mcp python -m onec_help ingest`; по расписанию в mcp запущен cron (раз в сутки в 3:00). На Windows при монтировании `C:\Program Files\1cv8` учтите подпапку `bin` — поиск `.hbk` рекурсивный. После ingest канонический runtime-layer лежит в `data/help_structured`.
 - Запуск: `make up` или `docker compose -f docker-compose.base.yml -f docker-compose.yml up -d` — поднимает Qdrant и MCP-сервер (mcp; в нём же cron для индексации). Без `-f` base-файла команда `docker compose up -d` выдаст ошибку.
 - Порты по умолчанию: 8050 (MCP, streamable-http), 6333 (Qdrant).
 - **Только распаковка:** тот же образ `mcp`, команда `unpack-dir`. Запуск вручную:  
@@ -78,11 +76,14 @@ MCP работает **в контейнере** по протоколу **strea
 
 ### Где лежит распакованная справка?
 
-По умолчанию **ingest** распаковывает все .hbk в **одну папку** — **data/unpacked** (или `DATA_UNPACKED_DIR`). Там создаётся структура **`version/stem/`** (например `8.3.27.1719/1cv8_ru/`) — один уровень под версией, без языка в пути. Эту структуру создаёт **run_unpack_sync** (внутри ingest). После распаковки идёт индексация из неё (**run_ingest_from_unpacked**). Файлы не удаляются.
+По умолчанию **ingest** больше не хранит распакованную справку постоянно. Он использует **временный HTML workspace**, затем строит `data/help_structured/*.jsonl` и удаляет временную распаковку.
 
-**Важно:** команда **ingest-from-unpacked** (и внутренний вызов при обычном ingest) ожидает каталоги в формате **version/stem**, т.е. вывод **run_unpack_sync** или основного **ingest**. Команда **unpack-dir** (run_unpack_only) пишет в структуру **version/lang/safe_name** (язык в пути) — такая структура **не совместима** с ingest-from-unpacked; для индексации из уже распакованного используйте каталог, полученный через ingest или unpack-sync.
+Если нужен ручной промежуточный HTML-каталог, используйте:
+- `unpack-sync` — структура `version/stem`
+- `ingest-from-unpacked` — сборка structured `JSONL` и индекса из такого каталога
 
-Если нужен старый режим (временная папка с удалением после индексации), задайте **INGEST_USE_TEMP=1**.
+Канонический persistent layer проекта теперь `data/help_structured`, а не `data/unpacked`.
+`data/unpacked` использовать только как временный или ручной промежуточный каталог.
 
 ### Ошибка 500 (UnexpectedResponse) при ingest
 

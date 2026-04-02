@@ -43,9 +43,9 @@ def test_get_qdrant_collection_empty_strip_returns_default() -> None:
 
 
 def test_get_help_path_default() -> None:
-    """get_help_path returns DATA_DIR when HELP_PATH unset or empty."""
+    """get_help_path returns HELP_STRUCTURED_DIR when HELP_PATH unset or empty."""
     with patch.dict(os.environ, {"HELP_PATH": "", "DATA_DIR": "data"}, clear=False):
-        assert env_config.get_help_path() == "data"
+        assert env_config.get_help_path() == "data/help_structured"
 
 
 def test_get_help_path_from_env() -> None:

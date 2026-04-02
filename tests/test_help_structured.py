@@ -60,62 +60,64 @@ def test_extract_api_records_from_topic_without_sections() -> None:
     assert examples == []
 
 
-def test_build_structured_api_snapshot_from_mocked_index(tmp_path: Path) -> None:
-    from unittest.mock import patch
-
-    topics = [
-        {
-            "path": "8.3.27/shcntx_ru/Get.md",
-            "title": "HTTPСоединение.Получить",
-            "text": "# HTTPСоединение.Получить\n\nОписание.\n\n## Пример\n\n```bsl\nОтвет = 1;\n```",
-            "version": "8.3.27.1859",
-            "language": "ru",
-            "entity_type": "method",
-            "breadcrumb": ["Объекты", "HTTPСоединение"],
-        }
-    ]
-    with patch("onec_help.knowledge.help_structured.iter_help_topics_from_index", return_value=topics):
-        manifest = build_structured_api_snapshot(tmp_path, unpacked_dir=tmp_path / "missing-unpacked")
+def test_build_structured_api_snapshot_from_unpacked_html(tmp_path: Path) -> None:
+    stem_dir = tmp_path / "8.3.27.1859" / "shcntx_ru"
+    stem_dir.mkdir(parents=True)
+    (stem_dir / ".hbk_info.json").write_text(
+        '{"version":"8.3.27.1859","language":"ru"}',
+        encoding="utf-8",
+    )
+    (stem_dir / ".toc.json").write_text(
+        '[{"path":"/Get.html","title_ru":"HTTPСоединение.Получить","breadcrumb":["Объекты","HTTPСоединение"],"entity_type":"method"}]',
+        encoding="utf-8",
+    )
+    (stem_dir / "Get.html").write_text(
+        "<html><body><h1 class='V8SH_pagetitle'>HTTPСоединение.Получить</h1>"
+        "<p class='V8SH_chapter'>Описание:</p><p>Описание.</p>"
+        "<p class='V8SH_chapter'>Пример:</p><pre>Ответ = 1;</pre>"
+        "</body></html>",
+        encoding="utf-8",
+    )
+    manifest = build_structured_api_snapshot(tmp_path / "out", unpacked_dir=tmp_path)
     assert manifest["objects"] == 1
     assert manifest["members"] == 1
     assert manifest["examples"] == 1
-    assert manifest["source"] == "indexed_topics"
-    assert len(load_api_objects(tmp_path)) == 1
-    assert len(load_api_members(tmp_path)) == 1
-    assert len(load_api_examples(tmp_path)) == 1
+    assert manifest["source"] == "unpacked_html"
+    assert len(load_api_objects(tmp_path / "out")) == 1
+    assert len(load_api_members(tmp_path / "out")) == 1
+    assert len(load_api_examples(tmp_path / "out")) == 1
 
 
 def test_build_structured_api_snapshot_skips_generic_topic(tmp_path: Path) -> None:
-    from unittest.mock import patch
-
-    topics = [
-        {
-            "path": "8.3.27/shcntx_ru/Index.md",
-            "title": "Обзор раздела",
-            "text": "# Обзор раздела\n\nПросто вводный текст без API-структуры.",
-            "version": "8.3.27.1859",
-            "language": "ru",
-            "entity_type": "topic",
-            "breadcrumb": ["Объекты"],
-        },
-        {
-            "path": "8.3.27/shcntx_ru/Get.md",
-            "title": "HTTPСоединение.Получить",
-            "text": "# HTTPСоединение.Получить\n\nОписание.\n\n## Синтаксис\n\nHTTPСоединение.Получить(<Адрес>)",
-            "version": "8.3.27.1859",
-            "language": "ru",
-            "entity_type": "topic",
-            "breadcrumb": ["Объекты", "HTTPСоединение"],
-        },
-    ]
-    with patch("onec_help.knowledge.help_structured.iter_help_topics_from_index", return_value=topics):
-        manifest = build_structured_api_snapshot(tmp_path, unpacked_dir=tmp_path / "missing-unpacked")
+    stem_dir = tmp_path / "8.3.27.1859" / "shcntx_ru"
+    stem_dir.mkdir(parents=True)
+    (stem_dir / ".hbk_info.json").write_text(
+        '{"version":"8.3.27.1859","language":"ru"}',
+        encoding="utf-8",
+    )
+    (stem_dir / ".toc.json").write_text(
+        '[{"path":"/Index.html","title_ru":"Обзор раздела","breadcrumb":["Объекты"],"entity_type":"topic"},'
+        '{"path":"/Get.html","title_ru":"HTTPСоединение.Получить","breadcrumb":["Объекты","HTTPСоединение"],"entity_type":"topic"}]',
+        encoding="utf-8",
+    )
+    (stem_dir / "Index.html").write_text(
+        "<html><body><h1 class='V8SH_pagetitle'>Обзор раздела</h1><p>Просто вводный текст без API-структуры.</p></body></html>",
+        encoding="utf-8",
+    )
+    (stem_dir / "Get.html").write_text(
+        "<html><body><h1 class='V8SH_pagetitle'>HTTPСоединение.Получить</h1>"
+        "<p class='V8SH_chapter'>Описание:</p><p>Описание.</p>"
+        "<p class='V8SH_chapter'>Синтаксис:</p><pre>HTTPСоединение.Получить(&lt;Адрес&gt;)</pre>"
+        "</body></html>",
+        encoding="utf-8",
+    )
+    manifest = build_structured_api_snapshot(tmp_path / "out", unpacked_dir=tmp_path)
     assert manifest["objects"] == 1
     assert manifest["members"] == 1
-    members = load_api_members(tmp_path)
+    members = load_api_members(tmp_path / "out")
     assert len(members) == 1
     assert members[0]["full_name"] == "HTTPСоединение.Получить"
-    assert manifest["source"] == "indexed_topics"
+    assert manifest["source"] == "unpacked_html"
 
 
 def test_index_structured_api_objects_uses_dense_vectors(tmp_path: Path) -> None:

@@ -484,26 +484,16 @@ def test_run_ingest_dry_run_many_tasks(tmp_path: Path) -> None:
     assert n == 0
 
 
-@patch("onec_help.runtime.ingest._unpack_build_and_index")
-@patch("qdrant_client.QdrantClient")
-def test_run_ingest_max_tasks(mock_qdrant: MagicMock, mock_task: MagicMock, tmp_path: Path) -> None:
-    """max_tasks limits how many .hbk are processed."""
+@patch("onec_help.runtime.ingest.run_ingest_from_unpacked")
+@patch("onec_help.runtime.ingest._unpack_one_sync")
+def test_run_ingest_max_tasks(mock_unpack_one: MagicMock, mock_from_unpacked: MagicMock, tmp_path: Path) -> None:
+    """max_tasks limits how many .hbk are unpacked into the structured rebuild."""
     (tmp_path / "v").mkdir()
     # Names must match LANG_PATTERN (*_ru.hbk) so collect_hbk_tasks returns them
     for name in ("a_ru.hbk", "b_ru.hbk", "c_ru.hbk", "d_ru.hbk", "e_ru.hbk"):
         (tmp_path / "v" / name).write_bytes(b"x")
-    mock_task.return_value = {
-        "path_hbk": tmp_path / "v" / "a_ru.hbk",
-        "version": "v",
-        "language": "ru",
-        "points": 0,
-        "cache_key": None,
-        "file_hash": None,
-        "error": "skip",
-        "html_count": 0,
-        "md_count": 0,
-    }
-    mock_qdrant.return_value.collection_exists.return_value = True
+    mock_unpack_one.return_value = (True, "ok")
+    mock_from_unpacked.return_value = 0
     with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(tmp_path / "cache.db")}, clear=False):
         n = run_ingest(
             source_dirs_with_versions=[(tmp_path, "v")],
@@ -513,7 +503,7 @@ def test_run_ingest_max_tasks(mock_qdrant: MagicMock, mock_task: MagicMock, tmp_
             max_workers=1,
             verbose=False,
         )
-    assert mock_task.call_count == 2, "_unpack_build_and_index should be called max_tasks=2 times"
+    assert mock_unpack_one.call_count == 2
     assert n == 0
 
 
@@ -587,22 +577,15 @@ def test_run_unpack_only_one_archive(mock_unpack: MagicMock, tmp_path: Path) -> 
     assert (out / "v" / "ru" / "1cv8_ru").exists()
 
 
-@patch("onec_help.search_store.indexer.build_index")
-@patch("onec_help.help_core.html2md.build_docs")
 @patch("onec_help.help_core.unpack.unpack_hbk")
-@patch("qdrant_client.QdrantClient")
 def test_run_ingest_unpack_fails_one_task(
-    mock_qdrant: MagicMock,
     mock_unpack: MagicMock,
-    mock_build_docs: MagicMock,
-    mock_build_index: MagicMock,
     tmp_path: Path,
 ) -> None:
-    """When unpack raises, task is skipped and no index call for that task."""
+    """When unpack raises for the whole source set, ingest returns 0."""
     (tmp_path / "v").mkdir()
     (tmp_path / "v" / "1cv8_ru.hbk").write_bytes(b"x")
     mock_unpack.side_effect = RuntimeError("7z failed")
-    mock_qdrant.return_value.collection_exists.return_value = True
     cache_db = tmp_path / "cache.db"
     with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_db)}, clear=False):
         n = run_ingest(
@@ -613,33 +596,23 @@ def test_run_ingest_unpack_fails_one_task(
             verbose=False,
         )
     assert n == 0
-    mock_build_index.assert_not_called()
 
 
-@patch("onec_help.search_store.indexer.build_index")
-@patch("onec_help.help_core.html2md.build_docs")
+@patch("onec_help.runtime.ingest.run_ingest_from_unpacked")
 @patch("onec_help.help_core.unpack.unpack_hbk")
-@patch("qdrant_client.QdrantClient")
 def test_run_ingest_integration_mock(
-    mock_qdrant: MagicMock,
     mock_unpack: MagicMock,
-    mock_build_docs: MagicMock,
-    mock_build_index: MagicMock,
+    mock_from_unpacked: MagicMock,
     tmp_path: Path,
 ) -> None:
-    """Run ingest with one .hbk; unpack and build_docs succeed; index is called."""
+    """Run ingest with one .hbk; unpack succeeds and structured indexing is delegated."""
     (tmp_path / "v").mkdir()
     hbk = tmp_path / "v" / "1cv8_ru.hbk"
     hbk.write_bytes(b"x")
-    md_dir = tmp_path / "temp" / "v" / "ru" / "1cv8_ru" / "md"
-    md_dir.mkdir(parents=True)
-    (md_dir / "one.md").write_text("# One\n\nBody.", encoding="utf-8")
-    mock_build_docs.side_effect = lambda src, out: (out / "one.md").write_text(
-        "# One\n\nBody.", encoding="utf-8"
-    )
-
-    mock_build_index.return_value = 1
-    mock_qdrant.return_value.collection_exists.return_value = False
+    def _write_html(_src, out):
+        (out / "Query.html").write_text("<html><body><h1 class='V8SH_pagetitle'>Query</h1></body></html>", encoding="utf-8")
+    mock_unpack.side_effect = _write_html
+    mock_from_unpacked.return_value = 11
 
     with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(tmp_path / "cache.json")}, clear=False):
         n = run_ingest(
@@ -652,8 +625,8 @@ def test_run_ingest_integration_mock(
             verbose=False,
         )
     assert mock_unpack.called
-    assert mock_build_index.return_value == 1
-    assert n >= 1
+    mock_from_unpacked.assert_called_once()
+    assert n == 11
 
 
 def test_hbk_label_from_stem() -> None:
@@ -774,22 +747,15 @@ def test_run_ingest_temp_base_creation_fails(tmp_path: Path) -> None:
             )
 
 
-@patch("onec_help.search_store.indexer.build_index")
-@patch("onec_help.help_core.html2md.build_docs")
 @patch("onec_help.help_core.unpack.unpack_hbk")
-@patch("qdrant_client.QdrantClient")
 def test_run_ingest_failed_log(
-    mock_qdrant: MagicMock,
     mock_unpack: MagicMock,
-    mock_build_docs: MagicMock,
-    mock_build_index: MagicMock,
     tmp_path: Path,
 ) -> None:
     """When some tasks fail, INGEST_FAILED_LOG is written if set."""
     (tmp_path / "v").mkdir()
     (tmp_path / "v" / "1cv8_ru.hbk").write_bytes(b"x")
     mock_unpack.side_effect = RuntimeError("7z failed")
-    mock_qdrant.return_value.collection_exists.return_value = True
     fail_log = tmp_path / "failed.txt"
     with patch.dict(
         "os.environ",
@@ -808,22 +774,15 @@ def test_run_ingest_failed_log(
     assert "1cv8_ru" in fail_log.read_text()
 
 
-@patch("onec_help.search_store.indexer.build_index")
-@patch("onec_help.help_core.html2md.build_docs")
 @patch("onec_help.help_core.unpack.unpack_hbk")
-@patch("qdrant_client.QdrantClient")
 def test_run_ingest_failed_log_write_raises(
-    mock_qdrant: MagicMock,
     mock_unpack: MagicMock,
-    mock_build_docs: MagicMock,
-    mock_build_index: MagicMock,
     tmp_path: Path,
 ) -> None:
     """When writing INGEST_FAILED_LOG raises OSError, ingest still completes and logs the error."""
     (tmp_path / "v").mkdir()
     (tmp_path / "v" / "1cv8_ru.hbk").write_bytes(b"x")
     mock_unpack.side_effect = RuntimeError("7z failed")
-    mock_qdrant.return_value.collection_exists.return_value = True
     fail_log = tmp_path / "failed.txt"
     real_open = open
 
@@ -891,14 +850,14 @@ def test_collect_unpacked_tasks_with_hbk_info(tmp_path: Path) -> None:
     assert language == "en"
 
 
-@patch("onec_help.search_store.indexer.build_index")
-@patch("qdrant_client.QdrantClient")
+@patch("onec_help.knowledge.help_structured.index_structured_help_snapshot")
+@patch("onec_help.knowledge.help_structured.build_structured_api_snapshot")
 def test_run_ingest_from_unpacked_one(
-    mock_qdrant: MagicMock, mock_build_index: MagicMock, tmp_path: Path
+    mock_build_snapshot: MagicMock, mock_index_snapshot: MagicMock, tmp_path: Path
 ) -> None:
-    """run_ingest_from_unpacked indexes version/stem dirs with path_prefix."""
-    mock_qdrant.return_value.collection_exists.return_value = True
-    mock_build_index.return_value = 5
+    """run_ingest_from_unpacked builds snapshot and indexes structured collections."""
+    mock_build_snapshot.return_value = {"objects": 1, "members": 2, "examples": 1, "links": 1}
+    mock_index_snapshot.return_value = {"objects": 1, "members": 2, "examples": 1, "links": 1}
 
     v_dir = tmp_path / "8.3"
     v_dir.mkdir()
@@ -913,9 +872,5 @@ def test_run_ingest_from_unpacked_one(
         verbose=False,
     )
     assert n == 5
-    mock_build_index.assert_called_once()
-    call_kw = mock_build_index.call_args[1]
-    assert call_kw["path_prefix"] == "8.3/1cv8_ru"
-    assert call_kw["extra_payload"]["version"] == "8.3"
-    assert call_kw["extra_payload"]["language"] == "ru"
-    assert call_kw["extra_payload"]["hbk_slug"] == "1cv8_ru"
+    mock_build_snapshot.assert_called_once()
+    mock_index_snapshot.assert_called_once()
