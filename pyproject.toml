@@ -73,6 +73,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101"]  # assert is standard in pytest
 "src/onec_help/form_metadata.py" = ["S314", "S405"]  # defusedxml fallback; XML from MCP/user
+"src/onec_help/knowledge/form_metadata.py" = ["S314", "S405"]  # defusedxml fallback; XML from MCP/user
 "src/onec_help/cli.py" = ["S324"]  # md5 for slug/filename only, not security
 "src/onec_help/interfaces/cli.py" = ["S324"]  # md5 for slug/filename only, not security
 "src/onec_help/parse_its_v8std.py" = ["S324"]  # md5 for safe_folder_name fallback only
