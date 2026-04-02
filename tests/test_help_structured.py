@@ -5,8 +5,11 @@ from pathlib import Path
 from onec_help.knowledge.help_structured import (
     build_structured_api_snapshot,
     extract_api_records_from_topic,
+    extract_structured_records_from_topic,
+    index_structured_api_members,
     index_structured_api_objects,
     load_api_examples,
+    load_api_members,
     load_api_objects,
     search_official_examples,
 )
@@ -72,8 +75,10 @@ def test_build_structured_api_snapshot_from_mocked_index(tmp_path: Path) -> None
     with patch("onec_help.knowledge.help_structured.iter_help_topics_from_index", return_value=topics):
         manifest = build_structured_api_snapshot(tmp_path)
     assert manifest["objects"] == 1
+    assert manifest["members"] == 1
     assert manifest["examples"] == 1
     assert len(load_api_objects(tmp_path)) == 1
+    assert len(load_api_members(tmp_path)) == 1
     assert len(load_api_examples(tmp_path)) == 1
 
 
@@ -103,16 +108,17 @@ def test_build_structured_api_snapshot_skips_generic_topic(tmp_path: Path) -> No
     with patch("onec_help.knowledge.help_structured.iter_help_topics_from_index", return_value=topics):
         manifest = build_structured_api_snapshot(tmp_path)
     assert manifest["objects"] == 1
-    objects = load_api_objects(tmp_path)
-    assert len(objects) == 1
-    assert objects[0]["name"] == "HTTPСоединение.Получить"
+    assert manifest["members"] == 1
+    members = load_api_members(tmp_path)
+    assert len(members) == 1
+    assert members[0]["full_name"] == "HTTPСоединение.Получить"
 
 
 def test_index_structured_api_objects_uses_dummy_vector(tmp_path: Path) -> None:
     from unittest.mock import MagicMock, patch
 
     (tmp_path / "api_objects.jsonl").write_text(
-        '{"id":1,"name":"HTTPСоединение.Получить","kind":"method","title":"HTTPСоединение.Получить","summary":"Описание","syntax":"HTTPСоединение.Получить(<Адрес>)","params":[],"returns":"HTTPОтвет","availability":"","version":"8.3.27.1859","language":"ru","topic_path":"Get.md","breadcrumb":["Объекты","HTTPСоединение"],"entity_type":"method"}\n',
+        '{"id":1,"object_name":"HTTPСоединение","full_name":"HTTPСоединение","kind":"type","title":"HTTPСоединение","summary":"Описание","availability":"","version":"8.3.27.1859","language":"ru","topic_path":"HTTPConnection.html","breadcrumb":["Объекты"]}\n',
         encoding="utf-8",
     )
     client = MagicMock()
@@ -121,6 +127,22 @@ def test_index_structured_api_objects_uses_dummy_vector(tmp_path: Path) -> None:
         inserted = index_structured_api_objects(tmp_path, recreate=True)
     assert inserted == 1
     client.recreate_collection.assert_called_once()
+    points = client.upsert.call_args.kwargs["points"]
+    assert points[0].vector == [0.0]
+
+
+def test_index_structured_api_members_uses_dummy_vector(tmp_path: Path) -> None:
+    from unittest.mock import MagicMock, patch
+
+    (tmp_path / "api_members.jsonl").write_text(
+        '{"id":1,"owner_name":"HTTPСоединение","owner_kind":"type","member_name":"Получить","full_name":"HTTPСоединение.Получить","kind":"method","title":"HTTPСоединение.Получить","summary":"Описание","syntax":"HTTPСоединение.Получить(<Адрес>)","params":[],"returns":"HTTPОтвет","availability":"","version":"8.3.27.1859","language":"ru","topic_path":"Get.md","breadcrumb":["Объекты","HTTPСоединение"],"aliases":[],"see_also":[]}\n',
+        encoding="utf-8",
+    )
+    client = MagicMock()
+    client.collection_exists.return_value = False
+    with patch("qdrant_client.QdrantClient", return_value=client):
+        inserted = index_structured_api_members(tmp_path, recreate=True)
+    assert inserted == 1
     points = client.upsert.call_args.kwargs["points"]
     assert points[0].vector == [0.0]
 
@@ -144,3 +166,28 @@ def test_search_official_examples_prefers_api_name_match(tmp_path: Path) -> None
         language="ru",
     )
     assert results[0]["api_name"] == "HTTPСоединение.Получить"
+
+
+def test_extract_structured_records_from_topic_builds_links() -> None:
+    topic = {
+        "path": "8.3.27/shcntx_ru/Get.md",
+        "title": "HTTPСоединение.Получить",
+        "text": (
+            "# HTTPСоединение.Получить\n\n"
+            "Описание.\n\n"
+            "## Синтаксис\n\nHTTPСоединение.Получить(<Адрес>)\n\n"
+            "## См. также\n\nHTTPСоединение.ПолучитьЗаголовки\nHTTPЗапрос\n"
+        ),
+        "version": "8.3.27.1859",
+        "language": "ru",
+        "entity_type": "method",
+        "breadcrumb": ["Объекты", "HTTPСоединение"],
+    }
+    obj, member, _examples, links = extract_structured_records_from_topic(topic)
+    assert obj is not None
+    assert member is not None
+    assert member["full_name"] == "HTTPСоединение.Получить"
+    assert [link["target_name"] for link in links] == [
+        "HTTPСоединение.ПолучитьЗаголовки",
+        "HTTPЗапрос",
+    ]

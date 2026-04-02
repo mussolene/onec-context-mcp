@@ -206,17 +206,27 @@ def test_cmd_index_api_structured() -> None:
     with patch(
         "onec_help.knowledge.help_structured.index_structured_api_objects",
         return_value=3,
-    ) as mock_index:
+    ) as mock_objects:
         with patch(
+            "onec_help.knowledge.help_structured.index_structured_api_members",
+            return_value=5,
+        ) as mock_members:
+            with patch(
             "onec_help.knowledge.help_structured.index_structured_api_examples",
             return_value=2,
-        ) as mock_examples:
-            with patch("onec_help.search_store.indexer.add_bm25_to_collection", return_value=3) as mock_bm25:
-                args = make_args(snapshot_dir=None, recreate=True)
-                assert cmd_index_api_structured(args) == 0
-    mock_index.assert_called_once()
+            ) as mock_examples:
+                with patch(
+                    "onec_help.knowledge.help_structured.index_structured_api_links",
+                    return_value=7,
+                ) as mock_links:
+                    with patch("onec_help.search_store.indexer.add_bm25_to_collection", return_value=3) as mock_bm25:
+                        args = make_args(snapshot_dir=None, recreate=True)
+                        assert cmd_index_api_structured(args) == 0
+    mock_objects.assert_called_once()
+    mock_members.assert_called_once()
     mock_examples.assert_called_once()
-    mock_bm25.assert_called_once()
+    mock_links.assert_called_once()
+    assert mock_bm25.call_count == 2
 
 
 def test_run_api_structured_pipeline_stops_on_snapshot_error() -> None:

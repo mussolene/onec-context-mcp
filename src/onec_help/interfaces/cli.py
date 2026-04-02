@@ -526,9 +526,13 @@ def cmd_build_api_structured(args: argparse.Namespace) -> int:
 def cmd_index_api_structured(args: argparse.Namespace) -> int:
     """Index structured API objects into dedicated onec_help_api collection."""
     from ..knowledge.help_structured import (
-        API_COLLECTION_NAME,
         API_EXAMPLES_COLLECTION_NAME,
+        API_LINKS_COLLECTION_NAME,
+        API_MEMBERS_COLLECTION_NAME,
+        API_OBJECTS_COLLECTION_NAME,
         index_structured_api_examples,
+        index_structured_api_links,
+        index_structured_api_members,
         index_structured_api_objects,
     )
     from ..search_store.indexer import add_bm25_to_collection
@@ -536,11 +540,18 @@ def cmd_index_api_structured(args: argparse.Namespace) -> int:
     snapshot_dir = getattr(args, "snapshot_dir", None)
     recreate = bool(getattr(args, "recreate", False))
     try:
-        inserted = index_structured_api_objects(
+        objects_inserted = index_structured_api_objects(
             Path(snapshot_dir).expanduser().resolve() if snapshot_dir else None,
             qdrant_host=env_config.get_qdrant_host(),
             qdrant_port=env_config.get_qdrant_port(),
-            collection=API_COLLECTION_NAME,
+            collection=API_OBJECTS_COLLECTION_NAME,
+            recreate=recreate,
+        )
+        members_inserted = index_structured_api_members(
+            Path(snapshot_dir).expanduser().resolve() if snapshot_dir else None,
+            qdrant_host=env_config.get_qdrant_host(),
+            qdrant_port=env_config.get_qdrant_port(),
+            collection=API_MEMBERS_COLLECTION_NAME,
             recreate=recreate,
         )
         examples_inserted = index_structured_api_examples(
@@ -550,18 +561,32 @@ def cmd_index_api_structured(args: argparse.Namespace) -> int:
             collection=API_EXAMPLES_COLLECTION_NAME,
             recreate=recreate,
         )
-        print(
-            f"Indexed {inserted} structured API objects into {API_COLLECTION_NAME}; "
-            f"{examples_inserted} official examples into {API_EXAMPLES_COLLECTION_NAME}"
+        links_inserted = index_structured_api_links(
+            Path(snapshot_dir).expanduser().resolve() if snapshot_dir else None,
+            qdrant_host=env_config.get_qdrant_host(),
+            qdrant_port=env_config.get_qdrant_port(),
+            collection=API_LINKS_COLLECTION_NAME,
+            recreate=recreate,
         )
-        if inserted > 0 and env_config.get_bm25_enabled():
-            add_bm25_to_collection(
-                qdrant_host=env_config.get_qdrant_host(),
-                qdrant_port=env_config.get_qdrant_port(),
-                collection=API_COLLECTION_NAME,
-                batch_size=200,
-                verbose=True,
-            )
+        print(
+            f"Indexed {objects_inserted} API objects into {API_OBJECTS_COLLECTION_NAME}; "
+            f"{members_inserted} API members into {API_MEMBERS_COLLECTION_NAME}; "
+            f"{examples_inserted} official examples into {API_EXAMPLES_COLLECTION_NAME}; "
+            f"{links_inserted} API links into {API_LINKS_COLLECTION_NAME}"
+        )
+        if env_config.get_bm25_enabled():
+            for collection_name, inserted in (
+                (API_OBJECTS_COLLECTION_NAME, objects_inserted),
+                (API_MEMBERS_COLLECTION_NAME, members_inserted),
+            ):
+                if inserted > 0:
+                    add_bm25_to_collection(
+                        qdrant_host=env_config.get_qdrant_host(),
+                        qdrant_port=env_config.get_qdrant_port(),
+                        collection=collection_name,
+                        batch_size=200,
+                        verbose=True,
+                    )
         return 0
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -1627,7 +1652,14 @@ def _clear_before_reinit(
         from qdrant_client import QdrantClient
 
         client = QdrantClient(host=qdrant_host, port=qdrant_port, check_compatibility=False)
-        for coll in (collection, "onec_help_memory", "onec_help_api", "onec_help_examples"):
+        for coll in (
+            collection,
+            "onec_help_memory",
+            "onec_help_api_members",
+            "onec_help_api_objects",
+            "onec_help_examples",
+            "onec_help_api_links",
+        ):
             if client.collection_exists(coll):
                 client.delete_collection(coll)
                 print(f"Dropped Qdrant collection: {coll}", file=sys.stderr)
