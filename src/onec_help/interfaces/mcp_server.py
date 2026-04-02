@@ -612,7 +612,12 @@ def _structured_api_sort_key(query: str, item: dict[str, Any]) -> tuple[int, boo
     )
 
 
-def _format_structured_api_object(item: dict[str, Any], *, include_path: bool = True) -> str:
+def _format_structured_api_object(
+    item: dict[str, Any],
+    *,
+    include_path: bool = True,
+    include_rich_sections: bool = False,
+) -> str:
     lines = [f"### {item.get('name') or item.get('title') or 'API'}"]
     meta: list[str] = []
     if item.get("kind"):
@@ -627,6 +632,9 @@ def _format_structured_api_object(item: dict[str, Any], *, include_path: bool = 
         lines.append(f"path: {item.get('topic_path')}")
     if item.get("summary"):
         lines.append(str(item.get("summary")))
+    if include_rich_sections and item.get("description"):
+        lines.append("#### Описание")
+        lines.append(str(item.get("description")))
     if item.get("syntax"):
         lines.append("#### Синтаксис")
         lines.append(f"```text\n{item.get('syntax')}\n```")
@@ -644,6 +652,23 @@ def _format_structured_api_object(item: dict[str, Any], *, include_path: bool = 
     if item.get("availability"):
         lines.append("#### Доступность")
         lines.append(str(item.get("availability")))
+    if include_rich_sections and item.get("restrictions"):
+        lines.append("#### Ограничения")
+        lines.append(str(item.get("restrictions")))
+    if include_rich_sections and item.get("notes"):
+        lines.append("#### Примечание")
+        lines.append(str(item.get("notes")))
+    if include_rich_sections:
+        source_sections = item.get("source_sections") or {}
+        for heading, label in (
+            ("fields", "Поля"),
+            ("see_also", "См. также"),
+            ("example", "Пример"),
+        ):
+            value = str(source_sections.get(heading) or "").strip()
+            if value:
+                lines.append(f"#### {label}")
+                lines.append(value)
     return "\n\n".join(lines)
 
 
@@ -774,6 +799,48 @@ def _extract_fact_from_topic(content: str, intent: str) -> str:
     if not compact:
         return ""
     return compact[:1200]
+
+
+def _extract_fact_from_structured(item: dict[str, Any], intent: str, *, detail: str = "compact") -> str:
+    source_sections = item.get("source_sections") or {}
+    if intent == "example":
+        return ""
+    if intent == "version":
+        for value in (
+            item.get("availability"),
+            item.get("restrictions"),
+            source_sections.get("availability"),
+            item.get("notes"),
+            source_sections.get("note"),
+            item.get("description"),
+        ):
+            text = str(value or "").strip()
+            if text:
+                return text
+        return ""
+    if intent == "restriction":
+        for value in (
+            item.get("restrictions"),
+            item.get("availability"),
+            item.get("notes"),
+            source_sections.get("note"),
+            item.get("description"),
+        ):
+            text = str(value or "").strip()
+            if text:
+                return text
+        return ""
+    if detail == "full":
+        return _format_structured_api_object(item, include_rich_sections=True)
+    parts = [
+        str(item.get("summary") or "").strip(),
+        str(item.get("description") or "").strip(),
+        str(item.get("returns") or "").strip(),
+        str(item.get("availability") or "").strip(),
+        str(item.get("restrictions") or "").strip(),
+    ]
+    text = "\n\n".join(part for part in parts if part).strip()
+    return text[:1600] if text else ""
 
 
 def _format_question_answer(
@@ -1133,56 +1200,12 @@ def _build_mcp_app(help_path: Path) -> Any:
         if structured:
             best_item = structured[0]
             if detail == "full" and best_item.get("topic_path"):
-                content = _get_topic(
-                    str(best_item.get("topic_path")),
-                    version=version,
-                    language=language,
-                    prefer_index=True,
-                )
-                if content:
-                    return content
-            if detail != "full":
-                return _format_structured_api_object(best_item)
-        results = _rank_keyword_results(
-            name_clean,
-            _search_keyword(name_clean, limit=15, version=version, language=language),
+                return _format_structured_api_object(best_item, include_rich_sections=True)
+            return _format_structured_api_object(best_item, include_rich_sections=detail == "full")
+        return (
+            f"No structured API match found for «{name_clean}». "
+            "Rebuild structured help index or уточните точное API-имя/version."
         )
-        if not results:
-            return (
-                f"No exact keyword matches for «{name_clean}». "
-                f'Try search_1c_help_keyword(query="{name_clean}") or get_1c_help_topic(topic_path=<path>).'
-            )
-        best_priority = _match_priority(
-            name_clean.lower(),
-            (results[0].get("title") or "").strip().lower(),
-            _result_path_stem(results[0]),
-        )
-        best = [
-            result
-            for result in results
-            if _match_priority(
-                name_clean.lower(),
-                (result.get("title") or "").strip().lower(),
-                _result_path_stem(result),
-            )
-            == best_priority
-        ]
-        if len(best) > 1 and best_priority <= 1 and not version:
-            lines = [f"Several exact API matches for «{name_clean}». Refine by version or use get_1c_help_topic:"]
-            for idx, result in enumerate(best[:5], 1):
-                meta = _format_result_meta(result)
-                lines.append(f"{idx}. **{result.get('title', '')}**{meta} (path: {result.get('path', '')})")
-            return "\n".join(lines)
-        topic = best[0]
-        path = topic.get("path", "")
-        if not path:
-            return "Exact keyword hit has no topic path."
-        content = _get_topic(path, version=version, language=language, prefer_index=True)
-        if not content:
-            return f"Topic content not found for {path}."
-        if detail == "full":
-            return content
-        return _compact_api_answer(topic, content, max_chars=1200)
 
     @mcp.tool()
     @_record_mcp_tool
@@ -1316,61 +1339,16 @@ def _build_mcp_app(help_path: Path) -> Any:
         )
         if candidates:
             best = candidates[0]
-            if detail == "full" and best.get("topic_path"):
-                content = _get_topic(
-                    str(best.get("topic_path")),
-                    version=version,
-                    language=language,
-                    prefer_index=True,
-                )
-                if content:
-                    fact = _extract_fact_from_topic(content, intent)
-                    if fact:
-                        return _format_question_answer(question_clean, answer=fact, candidate=best)
-            if intent in {"version", "restriction"} and best.get("availability"):
-                return _format_question_answer(
-                    question_clean,
-                    answer=str(best.get("availability")),
-                    candidate=best,
-                )
-            if best.get("summary"):
-                answer = str(best.get("summary"))
-                if detail == "compact" and best.get("availability") and intent in {"version", "restriction"}:
-                    answer = f"{answer}\n\nДоступность: {best.get('availability')}"
-                return _format_question_answer(question_clean, answer=answer, candidate=best)
-            if best.get("topic_path"):
-                content = _get_topic(
-                    str(best.get("topic_path")),
-                    version=version,
-                    language=language,
-                    prefer_index=True,
-                )
-                fact = _extract_fact_from_topic(content or "", intent)
-                if fact:
-                    return _format_question_answer(question_clean, answer=fact, candidate=best)
-
-        topic_hits = _rank_keyword_results(
-            question_clean,
-            _search_keyword(question_clean, limit=5, version=version, language=language),
-        )
-        if topic_hits:
-            best_topic = topic_hits[0]
-            path = str(best_topic.get("path") or "")
-            content = _get_topic(path, version=version, language=language, prefer_index=True)
-            fact = _extract_fact_from_topic(content or "", intent)
+            fact = _extract_fact_from_structured(best, intent, detail=detail)
             if fact:
                 return _format_question_answer(
                     question_clean,
                     answer=fact,
-                    candidate={
-                        "full_name": best_topic.get("title") or path,
-                        "version": best_topic.get("version"),
-                        "topic_path": path,
-                    },
+                    candidate=best,
                 )
 
         return (
-            "Не удалось уверенно ответить по structured и topic слоям. "
+            "Не удалось уверенно ответить по structured help layer. "
             "Уточните API-имя или передайте version, например 8.3.27.1859."
         )
 

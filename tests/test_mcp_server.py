@@ -479,7 +479,7 @@ def test_mcp_tool_get_1c_code_answer_removed_from_app(help_sample_dir: Path) -> 
 
 
 def test_mcp_tool_get_1c_api_answer_via_app(help_sample_dir: Path) -> None:
-    """get_1c_api_answer uses structured API layer before keyword/topic fallback."""
+    """get_1c_api_answer uses structured API layer only."""
     app = mcp_server._build_mcp_app(help_sample_dir)
     with patch.object(
         mcp_server,
@@ -605,7 +605,7 @@ def test_mcp_tool_answer_1c_help_question_uses_structured_availability(help_samp
 
 
 def test_mcp_tool_answer_1c_help_question_falls_back_to_topic_fact(help_sample_dir: Path) -> None:
-    """Natural-language factual question should read topic fallback when structured item lacks fact field."""
+    """Natural-language factual question should answer from structured source sections without topic fallback."""
     app = mcp_server._build_mcp_app(help_sample_dir)
     with patch.object(
         mcp_server,
@@ -616,26 +616,19 @@ def test_mcp_tool_answer_1c_help_question_falls_back_to_topic_fact(help_sample_d
                 "full_name": "МенеджерКриптографии.ИнтерактивныйВвод",
                 "summary": "",
                 "availability": "",
+                "description": "Доступно начиная с версии 8.3.27.1859.",
+                "source_sections": {"availability": "Доступно начиная с версии 8.3.27.1859."},
                 "topic_path": "CryptoInput.md",
                 "version": "8.3.27.1859",
             }
         ],
     ):
-        with patch.object(
-            mcp_server,
-            "_get_topic",
-            return_value=(
-                "# МенеджерКриптографии.ИнтерактивныйВвод\n\n"
-                "## Использование в версии\n"
-                "Доступно начиная с версии 8.3.27.1859.\n"
-            ),
-        ):
-            result = asyncio.run(
-                app.call_tool(
-                    "answer_1c_help_question",
-                    {"question": "с какой версии доступен интерактивный ввод менеджера криптографии"},
-                )
+        result = asyncio.run(
+            app.call_tool(
+                "answer_1c_help_question",
+                {"question": "с какой версии доступен интерактивный ввод менеджера криптографии"},
             )
+        )
     text = result.content[0].text if result.content else ""
     assert "8.3.27.1859" in text
     assert "Источник" in text
