@@ -88,6 +88,8 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
         crawl_kd2_xml,
         is_kd2_snapshot_dir,
         load_kd2_snapshot,
+        pick_primary_kd2_xml_export,
+        write_kd2_snapshot,
     )
     from ..runtime import redis_cache
     from ..search_store import embedding
@@ -102,12 +104,40 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
         return 1
 
     base = Path(source_dir).resolve()
+    snapshot_output_dir: Path | None = None
+    selected_kd2_xml = pick_primary_kd2_xml_export(base) if base.is_dir() else None
+
+    def _snapshot_is_fresh(snapshot_dir: Path, xml_path: Path) -> bool:
+        if not is_kd2_snapshot_dir(snapshot_dir):
+            return False
+        try:
+            snapshot_parts = (
+                snapshot_dir / "manifest.json",
+                snapshot_dir / "objects.jsonl",
+                snapshot_dir / "fields.jsonl",
+            )
+            if any(not part.exists() for part in snapshot_parts):
+                return False
+            newest_xml = xml_path.stat().st_mtime
+            oldest_snapshot = min(part.stat().st_mtime for part in snapshot_parts)
+            return oldest_snapshot >= newest_xml
+        except OSError:
+            return False
+
     if not base.exists():
         print(f"Error: metadata source not found: {base}", file=sys.stderr)
         return 1
     if source_format == "auto":
         if base.is_file() and _is_kd2_xml(base):
             source_format = "kd2-xml"
+            snapshot_output_dir = base.parent
+        elif base.is_dir() and selected_kd2_xml is not None:
+            if _snapshot_is_fresh(base, selected_kd2_xml):
+                source_format = "kd2-snapshot"
+            else:
+                source_format = "kd2-xml"
+                snapshot_output_dir = base
+                base = selected_kd2_xml
         elif is_kd2_snapshot_dir(base):
             source_format = "kd2-snapshot"
         else:
@@ -142,9 +172,18 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
             )
             return 1
     elif source_format == "kd2-xml":
-        if not base.is_file() or not _is_kd2_xml(base):
+        if base.is_dir():
+            resolved = pick_primary_kd2_xml_export(base)
+            if resolved is None:
+                print(f"Error: KD2 XML export not found or invalid: {base}", file=sys.stderr)
+                return 1
+            snapshot_output_dir = base
+            base = resolved
+        elif not base.is_file() or not _is_kd2_xml(base):
             print(f"Error: KD2 XML export not found or invalid: {base}", file=sys.stderr)
             return 1
+        else:
+            snapshot_output_dir = base.parent
         print(
             f"metadata-graph-build │ Using KD2 XML export: {base}",
             file=sys.stderr,
@@ -221,6 +260,14 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                     flush=True,
                 )
+                if snapshot_output_dir is not None:
+                    manifest = write_kd2_snapshot(crawl, snapshot_output_dir)
+                    print(
+                        "metadata-graph-build │ Refreshed in-place KD2 snapshot: "
+                        f"{snapshot_output_dir} ({manifest['objects']} objects, {manifest['fields']} fields)",
+                        file=sys.stderr,
+                        flush=True,
+                    )
             elif source_format == "kd2-snapshot":
                 crawl = load_kd2_snapshot(base)
                 print(

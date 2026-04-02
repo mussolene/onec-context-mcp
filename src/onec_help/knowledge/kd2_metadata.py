@@ -81,6 +81,25 @@ def is_kd2_snapshot_dir(path: Path) -> bool:
     )
 
 
+def find_kd2_xml_exports(path: Path) -> list[Path]:
+    """Return KD2 XML exports found directly in a directory, sorted by name."""
+    if not path.is_dir():
+        return []
+    out: list[Path] = []
+    for candidate in sorted(path.iterdir()):
+        if candidate.is_file() and candidate.suffix.lower() == ".xml" and _is_kd2_xml(candidate):
+            out.append(candidate.resolve())
+    return out
+
+
+def pick_primary_kd2_xml_export(path: Path) -> Path | None:
+    """Pick the newest KD2 XML export from a directory."""
+    exports = find_kd2_xml_exports(path)
+    if not exports:
+        return None
+    return max(exports, key=lambda item: item.stat().st_mtime)
+
+
 def _normalize_object_name(record: dict[str, str]) -> str:
     return (record.get("Имя") or record.get("Description") or "").strip()
 
@@ -389,4 +408,3 @@ def load_kd2_snapshot(snapshot_dir: str | Path) -> CrawlResult:
         objects=objects,
         relations=[],
     )
-

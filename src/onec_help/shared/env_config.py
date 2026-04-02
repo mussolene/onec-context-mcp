@@ -390,7 +390,7 @@ SNIPPETS_DIR_DEFAULT = "data/snippets"
 SAVE_SNIPPET_TO_FILES_DEFAULT = "1"
 SNIPPETS_JSON_PATH_DEFAULT = ""
 SNIPPETS_SKIP_CACHE_DEFAULT = "0"
-CONFIG_SOURCE_DIR_DEFAULT = "data/kd2_snapshot"
+CONFIG_SOURCE_DIR_DEFAULT = "data/kd2"
 
 
 def get_snippets_dir() -> str:
@@ -414,9 +414,10 @@ def get_save_snippet_to_files() -> bool:
 def get_config_source_dir() -> str:
     """Metadata source path for metadata graph.
 
-    Primary route: KD2 snapshot dir (default).
-    Also supports KD2 XML file path and deprecated file-export config dir.
-    Uses ONEC_CONFIG_SOURCE_DIR env var; falls back to data/kd2_snapshot when unset.
+    Primary route: data/kd2 directory with KD2 XML export and in-place snapshot files.
+    Also supports direct KD2 XML file path, standalone KD2 snapshot dir, and deprecated
+    file-export config dir. Uses ONEC_CONFIG_SOURCE_DIR env var; falls back to data/kd2
+    when unset.
     """
 
     return (os.environ.get("ONEC_CONFIG_SOURCE_DIR") or CONFIG_SOURCE_DIR_DEFAULT).strip()

@@ -187,6 +187,7 @@ def test_cmd_build_index_error(mock_build, help_sample_dir: Path) -> None:
 
 
 @patch("onec_help.knowledge.kd2_metadata.crawl_kd2_xml")
+@patch("onec_help.knowledge.kd2_metadata.write_kd2_snapshot")
 @patch("onec_help.knowledge.metadata_graph.build_metadata_graph_from_crawl")
 @patch("onec_help.search_store.embedding.is_embedding_available", return_value=True)
 @patch("onec_help.runtime.redis_cache.require_runtime_redis")
@@ -196,6 +197,7 @@ def test_cmd_build_metadata_graph_kd2_xml(
     _mock_redis,
     _mock_embed_available,
     mock_build_graph,
+    mock_write_snapshot,
     mock_crawl_kd2,
     tmp_path: Path,
 ) -> None:
@@ -212,9 +214,56 @@ def test_cmd_build_metadata_graph_kd2_xml(
         relations=[],
     )
     mock_build_graph.return_value = 1
+    mock_write_snapshot.return_value = {
+        "format": "onec_kd2_snapshot_v1",
+        "objects": 1,
+        "fields": 0,
+    }
     args = make_args(source_dir=str(xml_path), source_format="kd2-xml", recreate=False)
     assert cmd_build_metadata_graph(args) == 0
     mock_crawl_kd2.assert_called_once()
+    mock_write_snapshot.assert_called_once_with(mock_crawl_kd2.return_value, xml_path.parent)
+
+
+@patch("onec_help.knowledge.kd2_metadata.crawl_kd2_xml")
+@patch("onec_help.knowledge.kd2_metadata.write_kd2_snapshot")
+@patch("onec_help.knowledge.metadata_graph.build_metadata_graph_from_crawl")
+@patch("onec_help.search_store.embedding.is_embedding_available", return_value=True)
+@patch("onec_help.runtime.redis_cache.require_runtime_redis")
+@patch("qdrant_client.QdrantClient")
+def test_cmd_build_metadata_graph_auto_refreshes_snapshot_from_workdir(
+    mock_client,
+    _mock_redis,
+    _mock_embed_available,
+    mock_build_graph,
+    mock_write_snapshot,
+    mock_crawl_kd2,
+    tmp_path: Path,
+) -> None:
+    from onec_help.knowledge.config_crawler import ConfigObject, CrawlResult
+
+    work_dir = tmp_path / "kd2"
+    work_dir.mkdir()
+    xml_path = work_dir / "Cfg.xml"
+    xml_path.write_text("<Конфигурация Имя='Cfg'/>", encoding="utf-8")
+    mock_crawl_kd2.return_value = CrawlResult(
+        root_dir=xml_path,
+        config_name="Cfg",
+        config_version="1.0.0.1",
+        platform_version=None,
+        objects=[ConfigObject(id="Document/Sales", object_type="Document", name="Sales", attributes={})],
+        relations=[],
+    )
+    mock_build_graph.return_value = 1
+    mock_write_snapshot.return_value = {
+        "format": "onec_kd2_snapshot_v1",
+        "objects": 1,
+        "fields": 0,
+    }
+    args = make_args(source_dir=str(work_dir), source_format="auto", recreate=False)
+    assert cmd_build_metadata_graph(args) == 0
+    mock_crawl_kd2.assert_called_once_with(xml_path)
+    mock_write_snapshot.assert_called_once_with(mock_crawl_kd2.return_value, work_dir)
 
 
 def test_main_help() -> None:

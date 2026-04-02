@@ -184,7 +184,7 @@ ingest-logs:
 	$(COMPOSE) logs ingest-worker --tail 200
 
 # Сбросить состояние watchdog для config metadata и сразу запустить metadata-graph-build (без ожидания следующего цикла опроса).
-# Для primary route предпочитайте KD2 XML -> kd2-snapshot-build -> metadata-graph-build --source-format kd2-snapshot.
+# Для primary route используйте data/kd2: кладите туда KD2 XML, watchdog/metadata-graph-build обновят snapshot автоматически.
 reset-metadata-watchdog:
 	@echo "Сброс watchdog:state:metadata в Redis..."
 	@$(COMPOSE) exec redis redis-cli DEL "watchdog:state:metadata" || true
@@ -203,14 +203,15 @@ clear-dashboard-errors:
 	@echo "Готово. Панели Errors и MCP requests в дашборде будут пустыми по ошибкам."
 
 # Построить compact snapshot из KD2 XML выгрузки.
-# Пример: make kd2-snapshot-build XML_PATH=/data/kd2/ВыгрузкаБП30.xml OUT=data/kd2_snapshot
+# По умолчанию snapshot пишется в ту же рабочую папку data/kd2.
+# Пример: make kd2-snapshot-build XML_PATH=/data/kd2/ВыгрузкаБП30.xml OUT=data/kd2
 # XML рекомендуется получать через tools/1c/MetadataExport.epf, а не через выгрузку конфигурации в файлы.
 kd2-snapshot-build:
-	@test -n "$(XML_PATH)" || (echo "Usage: make kd2-snapshot-build XML_PATH=/path/export.xml OUT=data/kd2_snapshot" && exit 1)
-	$(COMPOSE) exec $(INGEST_SERVICE) python -m onec_help kd2-snapshot-build "$(XML_PATH)" -o "$(or $(OUT),data/kd2_snapshot)"
+	@test -n "$(XML_PATH)" || (echo "Usage: make kd2-snapshot-build XML_PATH=/path/export.xml OUT=data/kd2" && exit 1)
+	$(COMPOSE) exec $(INGEST_SERVICE) python -m onec_help kd2-snapshot-build "$(XML_PATH)" -o "$(or $(OUT),data/kd2)"
 
 # Запустить сборку графа метаданных вручную.
-# Primary route: KD2 XML or KD2 snapshot.
+# Primary route: data/kd2 (KD2 XML + in-place snapshot) or direct KD2 XML/KD2 snapshot.
 # Deprecated fallback: exported configuration in files (data/config / ONEC_CONFIG_SOURCE_DIR).
 # Требует: make ingest-up (ingest-worker запущен). Если в списке команд нет metadata-graph-build — пересоберите образ: make build.
 # Для больших конфигов (тысячи объектов) эмбеддинг и запись в Qdrant могут занять 10+ мин.
@@ -226,7 +227,7 @@ metadata-watchdog-debug:
 	$(COMPOSE) exec $(INGEST_SERVICE) python -c "\
 from pathlib import Path; \
 from onec_help.shared import env_config; \
-from onec_help.runtime.watchdog import _scan_config_dir_stable; \
+from onec_help.runtime.watchdog import _scan_metadata_source_stable; \
 from onec_help.knowledge.config_crawler import find_config_root; \
 d = env_config.get_config_source_dir(); \
 p = Path(d).resolve() if d else None; \
@@ -234,8 +235,8 @@ print('ONEC_CONFIG_SOURCE_DIR (effective):', repr(d)); \
 print('resolved path:', p, '| exists:', p.exists() if p else False); \
 root = find_config_root(p) if p and p.exists() else None; \
 print('find_config_root:', root); \
-scan = _scan_config_dir_stable(p) if p and p.exists() else {}; \
-print('scan .xml/.bsl files count:', len(scan)); \
+scan = _scan_metadata_source_stable(p) if p and p.exists() else {}; \
+print('scan metadata source files count:', len(scan)); \
 "
 	@echo "--- Redis: ключ watchdog:state:metadata ---"
 	@$(COMPOSE) exec redis redis-cli EXISTS "watchdog:state:metadata" 2>/dev/null || echo "redis недоступен или ключ не найден"
@@ -290,8 +291,8 @@ help:
 	@echo "  make qdrant-logs      Логи qdrant (при exit 101)"
 	@echo "  make ingest-logs     Логи ingest-worker (эмбеддинги, fallback)"
 	@echo "  make reset-metadata-watchdog  Сбросить metadata в watchdog и сразу запустить metadata-graph-build (нужен make ingest-up)"
-	@echo "  make kd2-snapshot-build      Построить compact snapshot из KD2 XML (источник XML: tools/1c/MetadataExport.epf)"
-	@echo "  make metadata-build          Запустить metadata-graph-build вручную (primary: KD2 XML/snapshot; files route deprecated)"
+	@echo "  make kd2-snapshot-build      Построить/обновить snapshot из KD2 XML (по умолчанию в data/kd2)"
+	@echo "  make metadata-build          Запустить metadata-graph-build вручную (primary: data/kd2; files route deprecated)"
 	@echo "  make metadata-watchdog-debug Диагностика: путь конфигурации, find_config_root, число файлов, ключ Redis"
 	@echo "  make ollama-logs      Последние 100 строк лога Ollama (~/.ollama/logs/server.log)"
 	@echo "  make qdrant-reset     Удалить data/qdrant, перезапустить с пустым индексом"

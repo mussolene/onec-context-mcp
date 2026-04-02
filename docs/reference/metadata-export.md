@@ -11,17 +11,19 @@
 ## Рекомендуемый маршрут
 
 1. Открыть в 1С обработку `tools/1c/MetadataExport.epf`.
-2. Выгрузить XML метаданных конфигурации, например в `data/kd2/<Имя>.xml`.
-3. Построить compact snapshot:
+2. Выгрузить XML метаданных конфигурации в `data/kd2/<Имя>.xml`.
+3. Основной рабочий каталог теперь один: `data/kd2`.
+   `watchdog` и `metadata-graph-build` умеют автоматически обновлять snapshot в этой же папке.
+4. При необходимости можно явно построить snapshot:
 
 ```bash
-python -m onec_help kd2-snapshot-build data/kd2/<Имя>.xml -o data/kd2_snapshot
+python -m onec_help kd2-snapshot-build data/kd2/<Имя>.xml -o data/kd2
 ```
 
-4. Построить граф метаданных:
+5. Построить граф метаданных:
 
 ```bash
-python -m onec_help metadata-graph-build data/kd2_snapshot --source-format kd2-snapshot
+python -m onec_help metadata-graph-build data/kd2
 ```
 
 Или напрямую из XML:
@@ -39,6 +41,17 @@ Deprecated fallback:
 - route через `config_crawler`
 
 Этот путь оставлен только для редких случаев, когда нужен full-fidelity source по формам, модулям или UI-слою.
+
+## Что лежит в `data/kd2`
+
+- входной артефакт: `*.xml` из `MetadataExport.epf`
+- производные snapshot-файлы:
+  - `manifest.json`
+  - `objects.jsonl`
+  - `fields.jsonl`
+
+Именно `objects.jsonl` и `fields.jsonl` используются для стабильной downstream-индексации,
+но их больше не нужно складывать в отдельную папку вручную.
 
 ## Что должно быть в XML
 

@@ -31,6 +31,14 @@ make ingest
 
 После запуска MCP доступен по адресу `http://localhost:8050/mcp`.
 
+Для метаданных 1С основной route теперь такой:
+
+```bash
+# 1. выгрузить XML обработкой tools/1c/MetadataExport.epf в data/kd2/<Имя>.xml
+# 2. watchdog/metadata-build сами обновят snapshot в этой же папке
+make metadata-build
+```
+
 Для полной переинициализации с очисткой коллекций и кэша:
 
 ```bash

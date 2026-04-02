@@ -85,8 +85,8 @@ def test_get_redis_url_fallback() -> None:
 
 
 def test_get_config_source_dir_env() -> None:
-    """get_config_source_dir uses ONEC_CONFIG_SOURCE_DIR or falls back to data/kd2_snapshot."""
+    """get_config_source_dir uses ONEC_CONFIG_SOURCE_DIR or falls back to data/kd2."""
     with patch.dict(os.environ, {}, clear=True):
-        assert env_config.get_config_source_dir().endswith("data/kd2_snapshot")
+        assert env_config.get_config_source_dir().endswith("data/kd2")
     with patch.dict(os.environ, {"ONEC_CONFIG_SOURCE_DIR": "/path/to/cfg"}, clear=True):
         assert env_config.get_config_source_dir() == "/path/to/cfg"

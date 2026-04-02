@@ -11,7 +11,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from ..knowledge.kd2_metadata import is_kd2_snapshot_dir
+from ..knowledge.kd2_metadata import find_kd2_xml_exports, is_kd2_snapshot_dir
 from ..shared import env_config
 from ..shared._utils import safe_error_message
 from . import redis_cache
@@ -127,6 +127,7 @@ def _scan_metadata_source_stable(source_path: Path) -> dict[str, int]:
 
     Supports:
     - KD2 XML file: single file path -> size
+    - KD2 working dir: KD2 XML + in-place snapshot files
     - KD2 snapshot dir: manifest.json + *.jsonl files
     - deprecated config export dir: .xml/.bsl files
     """
@@ -137,8 +138,10 @@ def _scan_metadata_source_stable(source_path: Path) -> dict[str, int]:
             return {str(source_path.resolve()): source_path.stat().st_size}
         except OSError:
             return {}
-    if is_kd2_snapshot_dir(source_path):
-        return _scan_dir_by_ext_sizes(source_path, _KD2_SNAPSHOT_EXT)
+    if source_path.is_dir():
+        kd2_xml = find_kd2_xml_exports(source_path)
+        if kd2_xml or is_kd2_snapshot_dir(source_path):
+            return _scan_dir_by_ext_sizes(source_path, _KD2_SNAPSHOT_EXT | frozenset({".xml"}))
     return _scan_config_dir_stable(source_path)
 
 

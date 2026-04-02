@@ -232,6 +232,18 @@ def test_scan_metadata_source_stable_kd2_snapshot_dir(tmp_path: Path) -> None:
     assert any("manifest.json" in p for p in out)
 
 
+def test_scan_metadata_source_stable_kd2_workdir_includes_xml_and_snapshot(tmp_path: Path) -> None:
+    work_dir = tmp_path / "kd2"
+    work_dir.mkdir()
+    (work_dir / "export.xml").write_text("<Конфигурация Имя='Cfg'/>", encoding="utf-8")
+    (work_dir / "manifest.json").write_text('{"format":"onec_kd2_snapshot_v1"}', encoding="utf-8")
+    (work_dir / "objects.jsonl").write_text("{}", encoding="utf-8")
+    (work_dir / "fields.jsonl").write_text("{}", encoding="utf-8")
+    out = _scan_metadata_source_stable(work_dir)
+    assert len(out) == 4
+    assert any("export.xml" in p for p in out)
+
+
 def test_run_watchdog_supports_metadata_xml_file(tmp_path: Path) -> None:
     xml_file = tmp_path / "export.xml"
     xml_file.write_text("<Конфигурация Имя='Cfg'/>", encoding="utf-8")
