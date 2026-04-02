@@ -1862,6 +1862,13 @@ def _build_mcp_app(help_path: Path) -> Any:
                         lines.append(
                             f"Metadata (**onec_config_metadata**): **{_meta_count}** points"
                         )
+                elif coll.get("name") == "onec_help_api":
+                    _api_count = coll.get("points_count")
+                    if _api_count is not None:
+                        lines.append("")
+                        lines.append(
+                            f"Structured API (**onec_help_api**): **{_api_count}** points"
+                        )
         except Exception:
             pass
         try:
@@ -2263,15 +2270,16 @@ def _build_mcp_app(help_path: Path) -> Any:
         This tool is designed for autonomous AI invocation (unlike the prompt version which targets user invocation)."""
         _guide_develop = (
             "1C-HELP DEVELOP WORKFLOW:\n"
-            "1. Exact API (Тип.Метод) → get_1c_api_answer(name).\n"
-            "2. General platform topic → search_1c_help_keyword('Тип.Метод') or search_1c_help(query) → get_1c_help_topic(topic_path=<path>).\n"
-            "3. Local task context → get_1c_task_context(query, file_uri=..., symbol_name=...).\n"
-            "4. Standards only → search_1c_standards(query). Snippets only → search_1c_snippets(query).\n"
-            "5. Metadata exact → search_1c_metadata_exact(query). Metadata semantic → search_1c_metadata_semantic(query).\n"
-            "6. Field lookup → search_1c_metadata_fields(object_query, field_query).\n"
-            "7. Check index health: get_1c_help_index_status.\n"
-            "8. Code validation happens in external lsp-bsl-bridge via document_diagnostics(uri).\n"
-            "9. Save reusable verified code only: save_1c_snippet(code_snippet, description, title).\n"
+            "1. Exact API (Тип.Метод) → get_1c_api_answer(name). Structured truth-source → get_1c_api_object(name).\n"
+            "2. Official examples from platform help → search_1c_official_examples(query). Full topic only if needed → get_1c_help_topic(topic_path=<path>).\n"
+            "3. General platform topic → search_1c_help_keyword('Тип.Метод') or search_1c_help(query) → get_1c_help_topic(topic_path=<path>).\n"
+            "4. Local task context → get_1c_task_context(query, file_uri=..., symbol_name=...).\n"
+            "5. Standards only → search_1c_standards(query). Curated snippets only → search_1c_snippets(query).\n"
+            "6. Metadata exact → search_1c_metadata_exact(query). Metadata semantic → search_1c_metadata_semantic(query).\n"
+            "7. Field lookup → search_1c_metadata_fields(object_query, field_query).\n"
+            "8. Check index health: get_1c_help_index_status.\n"
+            "9. Code validation happens in external lsp-bsl-bridge via document_diagnostics(uri).\n"
+            "10. Save reusable verified code only: save_1c_snippet(code_snippet, description, title).\n"
             "Key pitfalls: ПрочитатьJSON→Структура (use ПрочитатьВСоответствие=Истина for Соответствие); "
             "HTTPСоединение.Получить server-only; НачатьТранзакцию needs Попытка+ОтменитьТранзакцию."
         )
@@ -2304,7 +2312,8 @@ def _build_mcp_app(help_path: Path) -> Any:
         Not the default AI route; for autonomous workflow use get_1c_quick_guide instead."""
         block_develop = """1c-HELP + external LSP — DEVELOP (human/onboarding prompt)
 - AI-first route: get_1c_quick_guide(task="develop") first.
-- Exact API: get_1c_api_answer(name).
+- Exact API: get_1c_api_answer(name). Structured object: get_1c_api_object(name).
+- Official examples from platform help: search_1c_official_examples(query).
 - General platform lookup: search_1c_help_keyword("Тип.Метод") or search_1c_help(query) → get_1c_help_topic(topic_path=<path>).
 - Local anti-hallucination context: get_1c_task_context(query, file_uri=..., symbol_name=...).
 - Correct: get_1c_help_topic(topic_path="Format971.md"). Wrong: get_1c_help_topic(path=...).
@@ -2338,7 +2347,7 @@ def _build_mcp_app(help_path: Path) -> Any:
 
 ---
 2) 1c-HELP — ORDER OF CALLS
-- Exact API: get_1c_api_answer(name) first for Тип.Метод. General platform topics: search_1c_help(query) or search_1c_help_keyword with exact API name (e.g. "МенеджерКриптографии.Подписать") → get_1c_help_topic(topic_path=<path>) using path from results. IMPORTANT: parameter is topic_path, not path. Example: get_1c_help_topic(topic_path="8.3.27/shcntx_ru/...CryptoManager.html").
+- Exact API: get_1c_api_answer(name) first for Тип.Метод. Structured truth-source: get_1c_api_object(name). Official examples: search_1c_official_examples(query). General platform topics: search_1c_help(query) or search_1c_help_keyword with exact API name (e.g. "МенеджерКриптографии.Подписать") → get_1c_help_topic(topic_path=<path>) using path from results. IMPORTANT: parameter is topic_path, not path. Example: get_1c_help_topic(topic_path="8.3.27/shcntx_ru/...CryptoManager.html").
 - Task-local context: get_1c_task_context(query, file_uri=..., symbol_name=...).
 - Need explicit standards/snippets: search_1c_standards(query), search_1c_snippets(query), or legacy search_1c_memory(query, domains="standards,snippets").
 - Empty or poor results: call get_1c_help_index_status first to check index health → then search_1c_help_keyword with exact Тип.Метод.

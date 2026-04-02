@@ -12,6 +12,8 @@
 |------|------------|-------------------|------------|
 | 1 | get_1c_quick_guide | task | Канонический AI entry point; короткий маршрут без лишних ветвлений. |
 | 1 | get_1c_api_answer | name | Exact-first compact ответ для `Тип.Метод`. |
+| 1 | get_1c_api_object | name | Structured API truth-source из `onec_help_api`. |
+| 1 | search_1c_official_examples | query | Только официальные примеры из платформенной справки. |
 | 1 | search_1c_help_keyword | query | Точный поиск по API/идентификатору; передавать **Тип.Метод** целиком. |
 | 1 | search_1c_help | query | Семантический поиск по platform topics, если точного имени нет. |
 | 1 | get_1c_help_topic | **topic_path** | Полный контент топика по пути из поиска. |
@@ -69,4 +71,4 @@
 
 ---
 
-**Канонический AI route:** `get_1c_quick_guide` → exact API: `get_1c_api_answer` / topic search: `search_1c_help_keyword` or `search_1c_help` → `get_1c_help_topic` → standards/snippets: `search_1c_standards` / `search_1c_snippets` → metadata: `search_1c_metadata_exact` / `search_1c_metadata_semantic` / `search_1c_metadata_fields` → внешний `document_diagnostics`. **URI для внешнего LSP:** Docker — `file:///projects/<путь>`; кириллица — URL-encoding. Координаты LSP: 0-based.
+**Канонический AI route:** `get_1c_quick_guide` → exact API: `get_1c_api_answer` / structured API: `get_1c_api_object` / official examples: `search_1c_official_examples` / topic search: `search_1c_help_keyword` or `search_1c_help` → `get_1c_help_topic` → standards/snippets: `search_1c_standards` / `search_1c_snippets` → metadata: `search_1c_metadata_exact` / `search_1c_metadata_semantic` / `search_1c_metadata_fields` → внешний `document_diagnostics`. **URI для внешнего LSP:** Docker — `file:///projects/<путь>`; кириллица — URL-encoding. Координаты LSP: 0-based.

@@ -8,11 +8,13 @@
 
 1. **Старт AI-сессии** — `get_1c_quick_guide(task="develop"|"refactor"|"test")`.
 2. **Точное API `Тип.Метод`** — `get_1c_api_answer(name)`.
-3. **Общий платформенный topic** — `search_1c_help(query)` или `search_1c_help_keyword(query)` → `get_1c_help_topic(topic_path)`.
-4. **Локальный anti-hallucination context** — `get_1c_task_context(query, file_uri, symbol_name)`.
-5. **Стандарты и сниппеты** — `search_1c_standards(query)` / `search_1c_snippets(query)`; legacy umbrella — `search_1c_memory(query, domains="standards,snippets")`.
-6. **Метаданные** — `search_1c_metadata_exact` / `search_1c_metadata_semantic` / `search_1c_metadata_fields`.
-7. **После генерации рабочего кода** — `save_1c_snippet` только для реально переиспользуемого и уже проверенного результата.
+3. **Structured API truth-source** — `get_1c_api_object(name)`.
+4. **Официальные примеры из справки** — `search_1c_official_examples(query)`.
+5. **Общий платформенный topic** — `search_1c_help(query)` или `search_1c_help_keyword(query)` → `get_1c_help_topic(topic_path)`.
+6. **Локальный anti-hallucination context** — `get_1c_task_context(query, file_uri, symbol_name)`.
+7. **Стандарты и сниппеты** — `search_1c_standards(query)` / `search_1c_snippets(query)`; legacy umbrella — `search_1c_memory(query, domains="standards,snippets")`.
+8. **Метаданные** — `search_1c_metadata_exact` / `search_1c_metadata_semantic` / `search_1c_metadata_fields`.
+9. **После генерации рабочего кода** — `save_1c_snippet` только для реально переиспользуемого и уже проверенного результата.
 
 ---
 
@@ -43,6 +45,8 @@
 | **search_1c_help_keyword** | `query`, `limit=10`, `version`, `language` | Поиск по подстроке/BM25 в заголовке и тексте с локальным exact-first rerank. Идеален для точных имён: `РегистрНакопления.ОстаткиИОбороты`, `Тип.Метод`. | Передавать только `query`. До 64 KB. |
 | **search_1c_help_with_content** | `query`, `limit=3`, `version`, `language` | Legacy/deprecated: гибридный поиск + полный контент топ-результатов. | Для AI по умолчанию не использовать; предпочитать `get_1c_api_answer` или `search_1c_help_keyword` + `get_1c_help_topic`. |
 | **get_1c_api_answer** | `name`, `version=None`, `language=None`, `detail="compact"` | Compact exact-first ответ по точному API/функции/методу. | Первый выбор для `Тип.Метод`; `detail="full"` возвращает полный топик. |
+| **get_1c_api_object** | `name`, `version=None`, `language=None` | Structured API object из `onec_help_api`. | Low-token truth-source для агента и отладки exact API route. |
+| **search_1c_official_examples** | `query`, `limit=5`, `version=None`, `language=None` | Только официальные примеры из платформенной справки. | Не смешивает snippets, standards и community_help. |
 | **search_1c_standards** | `query`, `limit=5` | Поиск только по стандартам в памяти (v8std, v8-code-style, ITS). | Первый выбор для style/rule вопросов. |
 | **search_1c_snippets** | `query`, `limit=5` | Поиск только по примерам кода и snippets/community_help. | Первый выбор для code examples. |
 | **search_1c_memory** | `query`, `limit=5`, `domains=None` | Legacy umbrella-поиск по памяти (сниппеты, стандарты, community_help). | `domains`: `"standards"`, `"snippets"`, `"community_help"` или `"standards,snippets"`. Использовать только как fallback, когда нужны смешанные блоки. |

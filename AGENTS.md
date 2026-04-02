@@ -63,11 +63,12 @@
 - **Skill и Rules:** примеры для индексации и синхронизации — `docs/cursor-examples/`. Папка `.cursor/` исключена из git; при настройке Cursor скопируйте содержимое `docs/cursor-examples/` в `.cursor/skills/` и `.cursor/rules/`. При доработке MCP или workflow — обновляйте `docs/cursor-examples/` как зависимость.
 - **Рекомендуемый порядок вызовов:**
   1. Для AI-сессии — `get_1c_quick_guide(task="develop"|"refactor"|"test")`.
-  2. Точный API/идентификатор — `get_1c_api_answer(name)` или `search_1c_help_keyword` с полным именем (`Тип.Метод`), затем `get_1c_help_topic(topic_path)` по `path` из результата.
-  3. Локальный anti-hallucination context — `get_1c_task_context(query, file_uri, symbol_name)`.
-  4. Нужны стандарты явно — `search_1c_standards(query)`. Нужны примеры кода — `search_1c_snippets(query)`. Legacy umbrella: `search_1c_memory(query, domains="standards,snippets")`.
-  5. Нужны объекты конфигурации — `search_1c_metadata_exact` → `get_1c_metadata_object`; natural language — `search_1c_metadata_semantic`; реквизиты/табличные части — `search_1c_metadata_fields`.
-  6. Внешняя проверка/навигация по коду — `document_diagnostics`, `project_analysis`, `symbol_explore`, `get_range_content`. Не проектировать workflow так, будто этот репозиторий управляет поведением `lsp-bsl-bridge`.
+  2. Точный API/идентификатор — `get_1c_api_answer(name)`; structured truth-source — `get_1c_api_object(name)`; keyword/topic fallback — `search_1c_help_keyword` с полным именем (`Тип.Метод`), затем `get_1c_help_topic(topic_path)` по `path` из результата.
+  3. Официальные примеры из справки — `search_1c_official_examples(query)`. Curated примеры кода — `search_1c_snippets(query)`.
+  4. Локальный anti-hallucination context — `get_1c_task_context(query, file_uri, symbol_name)`.
+  5. Нужны стандарты явно — `search_1c_standards(query)`. Legacy umbrella: `search_1c_memory(query, domains="standards,snippets")`.
+  6. Нужны объекты конфигурации — `search_1c_metadata_exact` → `get_1c_metadata_object`; natural language — `search_1c_metadata_semantic`; реквизиты/табличные части — `search_1c_metadata_fields`.
+  7. Внешняя проверка/навигация по коду — `document_diagnostics`, `project_analysis`, `symbol_explore`, `get_range_content`. Не проектировать workflow так, будто этот репозиторий управляет поведением `lsp-bsl-bridge`.
 - **Типовые ловушки:** ПрочитатьJSON возвращает Структуру по умолчанию — для Соответствия указывать `ПрочитатьВСоответствие=Истина`. HTTPСоединение.Получить — только на сервере. Имена методов вида `Тип.Метод` передавать целиком в `search_1c_help_keyword`.
 - **Качество ответов и индексация:** при частичной индексации в выдаче только уже проиндексированные версии/разделы; для точных фактов и имён API предпочитать `search_1c_help_keyword` + `get_1c_help_topic`. Подробно: `docs/archive/quality-and-pitfalls-analysis.md`.
 - **Почему в ответах нет стандартов и сниппетов:** инструменты `search_1c_standards`, `search_1c_snippets` и `search_1c_memory` читают коллекцию Qdrant **onec_help_memory**. Её заполняют команды **load-snippets** (SNIPPETS_DIR, parse-fastcode/parse-helpf) и **load-standards** (v8-code-style, v8std). Если эти команды не запускались или завершились с ошибкой (например, нет embedding API), коллекция пуста. Проверка: `get_1c_help_index_status` — в выводе должна быть строка «Memory (**onec_help_memory**): **N** points». При N=0 или отсутствии такой строки выполните `make load-snippets` и `make load-standards` (или через init/watchdog); убедитесь, что EMBEDDING_API_URL доступен при загрузке.
@@ -77,7 +78,7 @@
 
 ### Чек-лист сценариев 1c-help (для ассистента)
 
-- **Только справка и память:** ingest выполнен, Qdrant доступен → `get_1c_help_index_status` показывает топики и memory → основной AI-маршрут: `get_1c_quick_guide`, `get_1c_api_answer`, `search_1c_help_keyword`, `get_1c_help_topic`, `search_1c_standards`, `search_1c_snippets`, `search_1c_memory`, `get_1c_function_info`, `compare_1c_help`, `get_module_info`, `get_form_metadata`. `save_1c_snippet` — только для реально переиспользуемого и проверенного кода.
+- **Только справка и память:** ingest выполнен, Qdrant доступен → `get_1c_help_index_status` показывает топики, structured API и memory → основной AI-маршрут: `get_1c_quick_guide`, `get_1c_api_answer`, `get_1c_api_object`, `search_1c_official_examples`, `search_1c_help_keyword`, `get_1c_help_topic`, `search_1c_standards`, `search_1c_snippets`, `search_1c_memory`, `get_1c_function_info`, `compare_1c_help`, `get_module_info`, `get_form_metadata`. `save_1c_snippet` — только для реально переиспользуемого и проверенного кода.
 - **Справка + метаданные конфигурации:** основной вариант — запустить [tools/1c/MetadataExport.epf](/Users/maxon/git/me/1c_hbk_helper/tools/1c/MetadataExport.epf), получить KD 2.0 XML, затем `kd2-snapshot-build` → `metadata-graph-build` (или прямой `metadata-graph-build --source-format kd2-xml`) → в `get_1c_help_index_status` видна коллекция onec_config_metadata. Exact-first поиск по имени/идентификатору — `search_1c_metadata_exact`; natural-language — `search_1c_metadata_semantic`; поля/реквизиты — `search_1c_metadata_fields`. `config_version` опционален, если в графе одна версия (подставляется автоматически). Route через выгрузку «в файлы» и `config_crawler` считать deprecated fallback. `get_1c_context_bundle` — legacy broad-context.
 - **Написание кода:** справка (и при необходимости метаданные) → генерация/адаптация кода → проверка через lsp-bsl-bridge (`document_diagnostics`) → при успехе и переиспользовании — `save_1c_snippet`.
 - **Поддержка/рефакторинг:** по необходимости — `project_analysis`, `symbol_explore`, `call_graph` (lsp-bsl-bridge); для справки по API — те же инструменты 1c-help; после правок — `document_diagnostics` до чистоты и `did_change_watched_files` при batch.
@@ -121,7 +122,7 @@
 
 ### Цикл «Написание кода»
 
-`get_1c_api_answer` / `search_1c_help_keyword` / `get_1c_help_topic` + при необходимости `search_1c_standards` / `search_1c_snippets` / `get_1c_task_context` → реализация → внешний `document_diagnostics` → при ERROR/WARNING: исправить и повторить diagnostics до чистоты → `save_1c_snippet` только если код действительно переиспользуемый → опционально unit-тест 1С (YaxUnit) или BDD/сценарий (Vanessa-Automation). См. `docs/reference/1c-testing-guide.md`.
+`get_1c_api_answer` / `get_1c_api_object` / `search_1c_official_examples` / `search_1c_help_keyword` / `get_1c_help_topic` + при необходимости `search_1c_standards` / `search_1c_snippets` / `get_1c_task_context` → реализация → внешний `document_diagnostics` → при ERROR/WARNING: исправить и повторить diagnostics до чистоты → `save_1c_snippet` только если код действительно переиспользуемый → опционально unit-тест 1С (YaxUnit) или BDD/сценарий (Vanessa-Automation). См. `docs/reference/1c-testing-guide.md`.
 
 ### Цикл «Рефакторинг»
 

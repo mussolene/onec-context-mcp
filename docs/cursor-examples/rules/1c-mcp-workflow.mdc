@@ -15,12 +15,13 @@ alwaysApply: false
 ## Канонический маршрут
 
 **1c-help (наш MCP):**
-1. Точный API/идентификатор: `get_1c_api_answer("Тип.Метод")` или `search_1c_help_keyword("Тип.Метод")`.
-2. Общий платформенный topic: `search_1c_help(query)`.
-3. Если нужен полный текст статьи: `get_1c_help_topic(topic_path=<path>)`.
-4. Если нужны стандарты или сниппеты явно: `search_1c_standards(query)` / `search_1c_snippets(query)`.
-5. Если нужен объектный контекст: `search_1c_metadata_exact(query)` или `search_1c_metadata_semantic(query)` → `get_1c_metadata_object(object_id)`. Для реквизитов: `search_1c_metadata_fields(object_query, field_query)`.
-6. Если ответы кажутся неполными: `get_1c_help_index_status`.
+1. Точный API/идентификатор: `get_1c_api_answer("Тип.Метод")`.
+2. Structured truth-source и официальные примеры: `get_1c_api_object("Тип.Метод")`, `search_1c_official_examples(query)`.
+3. Общий платформенный topic / fallback: `search_1c_help_keyword("Тип.Метод")` или `search_1c_help(query)`.
+4. Если нужен полный текст статьи: `get_1c_help_topic(topic_path=<path>)`.
+5. Если нужны стандарты или сниппеты явно: `search_1c_standards(query)` / `search_1c_snippets(query)`.
+6. Если нужен объектный контекст: `search_1c_metadata_exact(query)` или `search_1c_metadata_semantic(query)` → `get_1c_metadata_object(object_id)`. Для реквизитов: `search_1c_metadata_fields(object_query, field_query)`.
+7. Если ответы кажутся неполными: `get_1c_help_index_status`.
 
 **Внешний lsp-bsl-bridge:**
 1. После правок: `document_diagnostics(uri)` → исправлять до отсутствия ERROR/WARNING.

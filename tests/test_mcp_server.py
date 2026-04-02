@@ -406,10 +406,14 @@ def test_mcp_tool_get_1c_help_index_status_ingest_in_progress(help_sample_dir: P
             "onec_help.search_store.indexer.get_index_status",
             return_value={"exists": True, "points_count": 55, "collection": "onec_help"},
         ):
-            with patch("onec_help.search_store.indexer.get_all_collections_status", return_value=[]):
+            with patch(
+                "onec_help.search_store.indexer.get_all_collections_status",
+                return_value=[{"name": "onec_help_api", "points_count": 12}],
+            ):
                 result = asyncio.run(app.call_tool("get_1c_help_index_status", {}))
     text = result.content[0].text if result.content else ""
     assert "Ingest in progress" in text
+    assert "onec_help_api" in text
     assert "Progress:" in text or "pts" in text
     assert "Elapsed:" in text or "ETA:" in text or "Speed:" in text
     assert "shcntx_ru" in text or "Current:" in text
@@ -1019,6 +1023,8 @@ def test_mcp_tool_get_1c_quick_guide_develop_via_app(help_sample_dir: Path) -> N
     result = asyncio.run(app.call_tool("get_1c_quick_guide", {"task": "develop"}))
     text = result.content[0].text if result.content else ""
     assert "get_1c_api_answer" in text
+    assert "get_1c_api_object" in text
+    assert "search_1c_official_examples" in text
     assert "get_1c_task_context" in text
     assert "search_1c_standards" in text
     assert "search_1c_metadata_exact" in text
