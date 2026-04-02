@@ -83,10 +83,17 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
         crawl_config,
         find_config_roots,
     )
+    from ..knowledge.kd2_metadata import (
+        _is_kd2_xml,
+        crawl_kd2_xml,
+        is_kd2_snapshot_dir,
+        load_kd2_snapshot,
+    )
     from ..runtime import redis_cache
     from ..search_store import embedding
 
     source_dir = getattr(args, "source_dir", None) or env_config.get_config_source_dir()
+    source_format = (getattr(args, "source_format", None) or "auto").strip().lower()
     if not source_dir:
         print(
             "Error: configuration source dir not set. Pass path or set ONEC_CONFIG_SOURCE_DIR.",
@@ -95,28 +102,65 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
         return 1
 
     base = Path(source_dir).resolve()
-    if not base.exists() or not base.is_dir():
-        print(f"Error: Configuration root not found: {base}", file=sys.stderr)
+    if not base.exists():
+        print(f"Error: metadata source not found: {base}", file=sys.stderr)
         return 1
+    if source_format == "auto":
+        if base.is_file() and _is_kd2_xml(base):
+            source_format = "kd2-xml"
+        elif is_kd2_snapshot_dir(base):
+            source_format = "kd2-snapshot"
+        else:
+            source_format = "files"
 
-    roots = find_config_roots(base)
-    if not roots and _looks_like_config_root(base):
-        roots = [base]
-    # Диагностика: что видит процесс в каталоге (в т.ч. в Docker volume)
-    try:
-        subdirs = [p.name for p in sorted(base.iterdir()) if p.is_dir() and not p.name.startswith(".")]
-    except OSError:
-        subdirs = []
-    print(
-        f"metadata-graph-build │ {base}: {len(subdirs)} subdir(s) {subdirs[:10]}{'...' if len(subdirs) > 10 else ''} → {len(roots)} config root(s)",
-        file=sys.stderr,
-        flush=True,
-    )
-    if not roots:
+    roots: list[Path] = []
+    if source_format == "files":
+        if not base.is_dir():
+            print(f"Error: configuration root not found: {base}", file=sys.stderr)
+            return 1
+        roots = find_config_roots(base)
+        if not roots and _looks_like_config_root(base):
+            roots = [base]
+        try:
+            subdirs = [p.name for p in sorted(base.iterdir()) if p.is_dir() and not p.name.startswith(".")]
+        except OSError:
+            subdirs = []
         print(
-            f"Error: no configuration export found in {base} (no Configuration.xml/config.json or Documents/Catalogs).",
+            "metadata-graph-build │ DEPRECATED source-format=files. Prefer KD2 XML + snapshot route.",
             file=sys.stderr,
+            flush=True,
         )
+        print(
+            f"metadata-graph-build │ {base}: {len(subdirs)} subdir(s) {subdirs[:10]}{'...' if len(subdirs) > 10 else ''} → {len(roots)} config root(s)",
+            file=sys.stderr,
+            flush=True,
+        )
+        if not roots:
+            print(
+                f"Error: no configuration export found in {base} (no Configuration.xml/config.json or Documents/Catalogs).",
+                file=sys.stderr,
+            )
+            return 1
+    elif source_format == "kd2-xml":
+        if not base.is_file() or not _is_kd2_xml(base):
+            print(f"Error: KD2 XML export not found or invalid: {base}", file=sys.stderr)
+            return 1
+        print(
+            f"metadata-graph-build │ Using KD2 XML export: {base}",
+            file=sys.stderr,
+            flush=True,
+        )
+    elif source_format == "kd2-snapshot":
+        if not is_kd2_snapshot_dir(base):
+            print(f"Error: KD2 snapshot dir not found or invalid: {base}", file=sys.stderr)
+            return 1
+        print(
+            f"metadata-graph-build │ Using KD2 snapshot: {base}",
+            file=sys.stderr,
+            flush=True,
+        )
+    else:
+        print(f"Error: unsupported metadata source format: {source_format}", file=sys.stderr)
         return 1
 
     try:
@@ -170,7 +214,21 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
 
     try:
         try:
-            if len(roots) == 1:
+            if source_format == "kd2-xml":
+                crawl = crawl_kd2_xml(base)
+                print(
+                    f"metadata-graph-build │ KD2: {crawl.config_name} ({crawl.config_version}) — {len(crawl.objects)} objects",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            elif source_format == "kd2-snapshot":
+                crawl = load_kd2_snapshot(base)
+                print(
+                    f"metadata-graph-build │ Snapshot: {crawl.config_name} ({crawl.config_version}) — {len(crawl.objects)} objects",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            elif len(roots) == 1:
                 print(f"metadata-graph-build │ Loading configuration from {roots[0]}", file=sys.stderr, flush=True)
                 crawl = crawl_config(roots[0])
             else:
@@ -315,6 +373,28 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
         _heartbeat_stop.set()
         marker.unlink(missing_ok=True)
         status_path.unlink(missing_ok=True)
+
+
+def cmd_build_kd2_snapshot(args: argparse.Namespace) -> int:
+    """Build compact snapshot from KD2 XML export."""
+    from ..knowledge.kd2_metadata import crawl_kd2_xml, write_kd2_snapshot
+
+    xml_path = Path(getattr(args, "xml_path", "")).expanduser().resolve()
+    output_dir = Path(getattr(args, "output_dir", "")).expanduser().resolve()
+    if not xml_path.is_file():
+        print(f"Error: KD2 XML export not found: {xml_path}", file=sys.stderr)
+        return 1
+    try:
+        crawl = crawl_kd2_xml(xml_path)
+        manifest = write_kd2_snapshot(crawl, output_dir)
+        print(
+            f"KD2 snapshot written to {output_dir} "
+            f"({manifest['objects']} objects, {manifest['fields']} fields, config_version={manifest['config_version']})"
+        )
+        return 0
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
 
 
 def cmd_unpack(args: argparse.Namespace) -> int:
@@ -2202,17 +2282,37 @@ def main() -> int:
     )
     p_watchdog.set_defaults(func=cmd_watchdog)
 
+    p_kd2_snapshot = sub.add_parser(
+        "kd2-snapshot-build",
+        help="Build compact JSONL snapshot from KD2 XML metadata export",
+    )
+    p_kd2_snapshot.add_argument("xml_path", type=str, help="Path to KD2 XML export")
+    p_kd2_snapshot.add_argument(
+        "--output-dir",
+        "-o",
+        type=str,
+        required=True,
+        help="Directory for compact snapshot files (manifest.json, objects.jsonl, fields.jsonl)",
+    )
+    p_kd2_snapshot.set_defaults(func=cmd_build_kd2_snapshot)
+
     # metadata-graph-build — build metadata graph from exported 1C configuration
     p_metadata = sub.add_parser(
         "metadata-graph-build",
-        help="Build metadata graph for 1C configuration exported to files",
+        help="Build metadata graph from metadata source (KD2 XML/snapshot or deprecated file export)",
     )
     p_metadata.add_argument(
         "source_dir",
         type=str,
         nargs="?",
         default=None,
-        help="Root dir of exported configuration (default: ONEC_CONFIG_SOURCE_DIR env)",
+        help="Metadata source path: KD2 XML, KD2 snapshot dir, or deprecated exported config dir (default: ONEC_CONFIG_SOURCE_DIR env)",
+    )
+    p_metadata.add_argument(
+        "--source-format",
+        choices=("auto", "kd2-xml", "kd2-snapshot", "files"),
+        default="auto",
+        help="Metadata source format. 'files' is deprecated; default: auto",
     )
     p_metadata.add_argument(
         "--recreate",

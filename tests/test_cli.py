@@ -15,6 +15,7 @@ from onec_help.interfaces.cli import (
     cmd_add_bm25,
     cmd_build_docs,
     cmd_build_index,
+    cmd_build_kd2_snapshot,
     cmd_build_metadata_graph,
     cmd_dashboard,
     cmd_ingest,
@@ -47,6 +48,23 @@ def test_cmd_build_docs(help_sample_dir: Path, tmp_path: Path) -> None:
     args = make_args(project_dir=str(help_sample_dir), output=str(tmp_path / "out_md"))
     assert cmd_build_docs(args) == 0
     assert (tmp_path / "out_md").exists()
+
+
+def test_cmd_build_kd2_snapshot(tmp_path: Path) -> None:
+    xml_path = tmp_path / "kd2.xml"
+    xml_path.write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<Конфигурация Имя="Cfg">
+  <CatalogObject.Конфигурации><Ref>cfg</Ref><Description>Cfg</Description><Имя>Cfg</Имя><Синоним>Cfg</Синоним><Версия>1.0.0.1</Версия></CatalogObject.Конфигурации>
+  <CatalogObject.Объекты><Ref>doc</Ref><IsFolder>false</IsFolder><Description>Sales</Description><Имя>Sales</Имя><Синоним>Sales</Синоним><Тип>Документ</Тип></CatalogObject.Объекты>
+</Конфигурация>
+""",
+        encoding="utf-8",
+    )
+    out = tmp_path / "snapshot"
+    args = make_args(xml_path=str(xml_path), output_dir=str(out))
+    assert cmd_build_kd2_snapshot(args) == 0
+    assert (out / "manifest.json").exists()
 
 
 @patch("onec_help.help_core.html2md.build_docs")
@@ -166,6 +184,37 @@ def test_cmd_build_index_error(mock_build, help_sample_dir: Path) -> None:
     args = make_args(directory=str(help_sample_dir), docs_dir=None)
     with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
         assert cmd_build_index(args) == 1
+
+
+@patch("onec_help.knowledge.kd2_metadata.crawl_kd2_xml")
+@patch("onec_help.knowledge.metadata_graph.build_metadata_graph_from_crawl")
+@patch("onec_help.search_store.embedding.is_embedding_available", return_value=True)
+@patch("onec_help.runtime.redis_cache.require_runtime_redis")
+@patch("qdrant_client.QdrantClient")
+def test_cmd_build_metadata_graph_kd2_xml(
+    mock_client,
+    _mock_redis,
+    _mock_embed_available,
+    mock_build_graph,
+    mock_crawl_kd2,
+    tmp_path: Path,
+) -> None:
+    from onec_help.knowledge.config_crawler import ConfigObject, CrawlResult
+
+    xml_path = tmp_path / "kd2.xml"
+    xml_path.write_text("<Конфигурация Имя='Cfg'/>", encoding="utf-8")
+    mock_crawl_kd2.return_value = CrawlResult(
+        root_dir=xml_path,
+        config_name="Cfg",
+        config_version="1.0.0.1",
+        platform_version=None,
+        objects=[ConfigObject(id="Document/Sales", object_type="Document", name="Sales", attributes={})],
+        relations=[],
+    )
+    mock_build_graph.return_value = 1
+    args = make_args(source_dir=str(xml_path), source_format="kd2-xml", recreate=False)
+    assert cmd_build_metadata_graph(args) == 0
+    mock_crawl_kd2.assert_called_once()
 
 
 def test_main_help() -> None:
