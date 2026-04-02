@@ -11,7 +11,7 @@ ENV UV_LINK_MODE=copy
 WORKDIR /app
 
 # Установка uv (hadolint DL3013: pin version; DL3042: --no-cache-dir)
-RUN pip install --no-cache-dir 'uv==0.4.11'
+RUN pip install --no-cache-dir 'uv==0.11.3'
 
 # Только pyproject.toml: зависимости и пакет из него (без Flask/requirements.lock)
 COPY pyproject.toml README.md ./
