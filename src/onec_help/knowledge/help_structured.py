@@ -1339,6 +1339,54 @@ def search_api_members(
     )
 
 
+def _scroll_exact_member_matches(
+    client,
+    *,
+    field: str,
+    value: str,
+    version: str | None,
+    language: str | None,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    from qdrant_client.models import FieldCondition, Filter, MatchValue
+
+    must = [FieldCondition(key=field, match=MatchValue(value=value))]
+    if version:
+        must.append(FieldCondition(key="version", match=MatchValue(value=version)))
+    if language:
+        must.append(FieldCondition(key="language", match=MatchValue(value=language)))
+    points, _ = client.scroll(
+        collection_name=API_MEMBERS_COLLECTION_NAME,
+        scroll_filter=Filter(must=must),
+        limit=limit,
+        with_payload=True,
+        with_vectors=False,
+    )
+    return [getattr(point, "payload", None) or {} for point in points or []]
+
+
+def _member_exact_sort_key(query: str, item: dict[str, Any]) -> tuple[int, int, str, str]:
+    query_clean = (query or "").strip().lower()
+    full_name = str(item.get("full_name") or item.get("name") or "").strip().lower()
+    member_name = str(item.get("member_name") or "").strip().lower()
+    owner_name = str(item.get("owner_name") or "").strip().lower()
+    owner_priority = 0 if owner_name in {"глобальный контекст", "встроенные функции языка"} else 1
+    if full_name == query_clean:
+        priority = 0
+    elif member_name == query_clean:
+        priority = 1
+    elif full_name.endswith("." + query_clean):
+        priority = 2
+    else:
+        priority = 3
+    return (
+        priority,
+        owner_priority,
+        str(item.get("version") or ""),
+        str(item.get("topic_path") or ""),
+    )
+
+
 def search_api_objects(
     query: str,
     *,
@@ -1372,7 +1420,6 @@ def get_api_member(
 ) -> list[dict[str, Any]]:
     """Exact-first lookup in structured API member collection."""
     from qdrant_client import QdrantClient
-    from qdrant_client.models import FieldCondition, Filter, MatchValue
 
     host = qdrant_host or env_config.get_qdrant_host()
     port = qdrant_port or env_config.get_qdrant_port()
@@ -1382,25 +1429,30 @@ def get_api_member(
     name_clean = (name or "").strip()
     if not name_clean:
         return []
-    must = [FieldCondition(key="name", match=MatchValue(value=name_clean))]
-    if version:
-        must.append(FieldCondition(key="version", match=MatchValue(value=version)))
-    if language:
-        must.append(FieldCondition(key="language", match=MatchValue(value=language)))
     results: list[dict[str, Any]] = []
     try:
-        points, _ = client.scroll(
-            collection_name=API_MEMBERS_COLLECTION_NAME,
-            scroll_filter=Filter(must=must),
-            limit=10,
-            with_payload=True,
-            with_vectors=False,
-        )
-        results = [getattr(point, "payload", None) or {} for point in points or []]
+        for field in ("name", "full_name", "member_name"):
+            results.extend(
+                _scroll_exact_member_matches(
+                    client,
+                    field=field,
+                    value=name_clean,
+                    version=version,
+                    language=language,
+                )
+            )
     except Exception:
         results = []
     if results:
-        return results
+        dedup: dict[tuple[str, str, str], dict[str, Any]] = {}
+        for item in results:
+            key = (
+                str(item.get("full_name") or ""),
+                str(item.get("version") or ""),
+                str(item.get("topic_path") or ""),
+            )
+            dedup[key] = item
+        return sorted(dedup.values(), key=lambda item: _member_exact_sort_key(name_clean, item))
     return search_api_members(
         name_clean,
         limit=10,

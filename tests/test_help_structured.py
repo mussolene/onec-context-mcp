@@ -7,6 +7,7 @@ from onec_help.knowledge.help_structured import (
     extract_api_records_from_topic,
     extract_structured_records_from_html_topic,
     extract_structured_records_from_topic,
+    get_api_member,
     index_structured_api_members,
     index_structured_api_objects,
     load_api_examples,
@@ -316,3 +317,55 @@ def test_build_structured_api_snapshot_prefers_unpacked_html(tmp_path: Path) -> 
     assert members[0]["full_name"] == "HTTPСоединение.Получить"
     assert members[0]["syntax"] == "Получить(<HTTPЗапрос>)"
     assert members[0]["params"][0]["type"] == "HTTPЗапрос"
+
+
+def test_get_api_member_prefers_exact_member_name_for_bare_query() -> None:
+    from unittest.mock import patch
+
+    class _Client:
+        def collection_exists(self, _name):
+            return True
+
+        def scroll(self, *, collection_name, scroll_filter, limit, with_payload, with_vectors):
+            field = scroll_filter.must[0].key
+            value = scroll_filter.must[0].match.value
+            rows = []
+            if collection_name == "onec_help_api_members" and value == "Формат":
+                if field == "name":
+                    rows = []
+                elif field == "full_name":
+                    rows = []
+                elif field == "member_name":
+                    rows = [
+                        type(
+                            "P",
+                            (),
+                            {
+                                "payload": {
+                                    "full_name": "Глобальный контекст.Формат",
+                                    "member_name": "Формат",
+                                    "owner_name": "Глобальный контекст",
+                                    "version": "8.3.27.1719",
+                                    "topic_path": "GlobalContext/Format.html",
+                                }
+                            },
+                        )(),
+                        type(
+                            "P",
+                            (),
+                            {
+                                "payload": {
+                                    "full_name": "Картинка.Формат",
+                                    "member_name": "Формат",
+                                    "owner_name": "Картинка",
+                                    "version": "8.3.27.1719",
+                                    "topic_path": "Picture/Format.html",
+                                }
+                            },
+                        )(),
+                    ]
+            return rows, None
+
+    with patch("qdrant_client.QdrantClient", return_value=_Client()):
+        results = get_api_member("Формат")
+    assert results[0]["full_name"] == "Глобальный контекст.Формат"

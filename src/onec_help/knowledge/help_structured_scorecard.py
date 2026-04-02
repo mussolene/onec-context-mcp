@@ -78,11 +78,14 @@ def _normalize_name(value: str) -> str:
 def _score_case(query: str, item: dict[str, Any]) -> int:
     query_norm = _normalize_name(query)
     full_name = _normalize_name(str(item.get("full_name") or ""))
+    member_name = _normalize_name(str(item.get("member_name") or ""))
     title = _normalize_name(str(item.get("title") or ""))
     summary = _normalize_name(str(item.get("summary") or ""))
     score = 0
     if full_name == query_norm:
         score += 100
+    elif member_name == query_norm:
+        score += 90
     elif full_name.startswith(query_norm):
         score += 70
     elif query_norm in full_name:
@@ -95,16 +98,38 @@ def _score_case(query: str, item: dict[str, Any]) -> int:
         score += 10
     if query_norm and query_norm in summary:
         score += 5
+    owner_name = _normalize_name(str(item.get("owner_name") or ""))
+    if owner_name in {"глобальный контекст", "встроенные функции языка"}:
+        score += 3
     return score
+
+
+def _case_sort_key(query: str, item: dict[str, Any]) -> tuple[int, int, int, str]:
+    query_norm = _normalize_name(query)
+    full_name = _normalize_name(str(item.get("full_name") or ""))
+    member_name = _normalize_name(str(item.get("member_name") or ""))
+    owner_name = _normalize_name(str(item.get("owner_name") or ""))
+    owner_priority = 0 if owner_name in {"глобальный контекст", "встроенные функции языка"} else 1
+    if full_name == query_norm:
+        priority = 0
+    elif member_name == query_norm:
+        priority = 1
+    elif full_name.endswith("." + query_norm):
+        priority = 2
+    else:
+        priority = 3
+    return (
+        priority,
+        owner_priority,
+        -_score_case(query, item),
+        _normalize_name(str(item.get("full_name") or item.get("title") or "")),
+    )
 
 
 def _rank_cases(query: str, items: list[dict[str, Any]], *, limit: int = 3) -> list[dict[str, Any]]:
     ranked = sorted(
         items,
-        key=lambda item: (
-            -_score_case(query, item),
-            _normalize_name(str(item.get("full_name") or item.get("title") or "")),
-        ),
+        key=lambda item: _case_sort_key(query, item),
     )
     return [item for item in ranked if _score_case(query, item) > 0][:limit]
 
@@ -260,4 +285,3 @@ def build_structured_help_scorecard(
         "targets": targets,
         "cases": cases,
     }
-

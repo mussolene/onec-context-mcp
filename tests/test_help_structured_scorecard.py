@@ -140,3 +140,62 @@ def test_build_structured_help_scorecard_reports_metrics(tmp_path: Path) -> None
     assert scorecard["benchmark"]["structured_sufficient_pct"] == 100.0
     assert scorecard["targets"]["exact_top1_pct"]["met"] is True
 
+
+def test_build_structured_help_scorecard_uses_member_name_for_bare_query(tmp_path: Path) -> None:
+    _write_jsonl(tmp_path / "api_objects.jsonl", [])
+    _write_jsonl(
+        tmp_path / "api_members.jsonl",
+        [
+            {
+                "id": 1,
+                "owner_name": "Глобальный контекст",
+                "member_name": "Формат",
+                "full_name": "Глобальный контекст.Формат",
+                "kind": "method",
+                "summary": "Формирует представление значения.",
+                "syntax": "Формат(<Значение>)",
+                "params": [{"name": "<Значение>", "type": "Произвольный", "description": ""}],
+                "returns": "Строка",
+                "availability": "Клиент, сервер",
+                "topic_path": "Format.html",
+                "title": "Глобальный контекст.Формат",
+            },
+            {
+                "id": 2,
+                "owner_name": "Картинка",
+                "member_name": "Формат",
+                "full_name": "Картинка.Формат",
+                "kind": "method",
+                "summary": "Получает формат картинки.",
+                "syntax": "",
+                "params": [],
+                "returns": "",
+                "availability": "",
+                "topic_path": "PictureFormat.html",
+                "title": "Картинка.Формат",
+            },
+        ],
+    )
+    _write_jsonl(tmp_path / "api_examples.jsonl", [])
+    _write_jsonl(tmp_path / "api_links.jsonl", [])
+    bench = tmp_path / "bench.json"
+    bench.write_text(
+        json.dumps(
+            [
+                {
+                    "query": "Формат",
+                    "entity": "member",
+                    "expected_full_name": "Глобальный контекст.Формат",
+                    "expected_kind": "method",
+                }
+            ],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    with patch(
+        "onec_help.knowledge.help_structured_scorecard.iter_help_topics_from_index",
+        return_value=[],
+    ):
+        scorecard = build_structured_help_scorecard(snapshot_dir=tmp_path, benchmark_path=bench)
+    assert scorecard["benchmark"]["exact_top1_pct"] == 100.0
