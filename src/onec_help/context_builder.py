@@ -135,12 +135,21 @@ def build_context(req: ContextRequest) -> dict[str, Any]:
     help_topics: list[dict[str, Any]] = []
     if help_limit and help_query:
         try:
-            help_topics = indexer.search_hybrid(
-                help_query,
-                limit=min(per_source_limit, help_limit),
-                qdrant_host=host,
-                qdrant_port=port,
-            )
+            help_limit_effective = min(per_source_limit, help_limit)
+            if query_type == "api":
+                help_topics = indexer.search_index_keyword(
+                    help_query,
+                    limit=help_limit_effective,
+                    qdrant_host=host,
+                    qdrant_port=port,
+                )
+            else:
+                help_topics = indexer.search_hybrid(
+                    help_query,
+                    limit=help_limit_effective,
+                    qdrant_host=host,
+                    qdrant_port=port,
+                )
         except Exception:
             help_topics = []
 
@@ -156,13 +165,40 @@ def build_context(req: ContextRequest) -> dict[str, Any]:
     metadata_objects: list[dict[str, Any]] = []
     if metadata_limit and metadata_query and cfg_ver:
         try:
-            from .metadata_graph import search_metadata_by_name
+            from .metadata_graph import search_metadata_exact, search_metadata_semantic
 
-            metadata_objects = search_metadata_by_name(
-                metadata_query,
-                type_filter=local_context.get("object_type") or None,
-                config_version=cfg_ver,
-            )[: min(per_source_limit, metadata_limit)]
+            metadata_limit_effective = min(per_source_limit, metadata_limit)
+            object_type = local_context.get("object_type") or None
+            prefer_exact = bool(local_context.get("object_name")) or (" " not in metadata_query.strip())
+
+            if prefer_exact:
+                metadata_objects = search_metadata_exact(
+                    metadata_query,
+                    object_type,
+                    cfg_ver,
+                    limit=metadata_limit_effective,
+                )
+                if not metadata_objects and query_type in {"metadata", "mixed", "review"}:
+                    metadata_objects = search_metadata_semantic(
+                        metadata_query,
+                        object_type,
+                        cfg_ver,
+                        limit=metadata_limit_effective,
+                    )
+            else:
+                metadata_objects = search_metadata_semantic(
+                    metadata_query,
+                    object_type,
+                    cfg_ver,
+                    limit=metadata_limit_effective,
+                )
+                if not metadata_objects:
+                    metadata_objects = search_metadata_exact(
+                        metadata_query,
+                        object_type,
+                        cfg_ver,
+                        limit=metadata_limit_effective,
+                    )
         except Exception:
             metadata_objects = []
 
