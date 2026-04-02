@@ -593,6 +593,38 @@ def cmd_index_api_structured(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_structured_help_scorecard(args: argparse.Namespace) -> int:
+    """Build scorecard for structured help extraction quality and stopping metrics."""
+    from ..knowledge.help_structured_scorecard import build_structured_help_scorecard
+
+    snapshot_dir = getattr(args, "snapshot_dir", None)
+    benchmark_file = getattr(args, "benchmark_file", None)
+    output_file = getattr(args, "output_file", None)
+    try:
+        scorecard = build_structured_help_scorecard(
+            snapshot_dir=Path(snapshot_dir).expanduser().resolve() if snapshot_dir else None,
+            benchmark_path=Path(benchmark_file).expanduser().resolve() if benchmark_file else None,
+            qdrant_host=env_config.get_qdrant_host(),
+            qdrant_port=env_config.get_qdrant_port(),
+            collection=env_config.get_qdrant_collection(),
+        )
+        if output_file:
+            Path(output_file).expanduser().resolve().write_text(
+                json.dumps(scorecard, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        print(
+            "Structured help scorecard: "
+            f"coverage={scorecard['path_coverage']['path_coverage_pct']}% "
+            f"top1={scorecard['benchmark']['exact_top1_pct']}% "
+            f"sufficient={scorecard['benchmark']['structured_sufficient_pct']}%"
+        )
+        return 0
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
 def _run_api_structured_pipeline(*, recreate: bool) -> int:
     build_result = cmd_build_api_structured(_make_args(output_dir=None))
     if build_result != 0:
@@ -2101,6 +2133,30 @@ def main() -> int:
         help="Recreate onec_help_api before indexing",
     )
     p_api_index.set_defaults(func=cmd_index_api_structured)
+
+    p_api_score = sub.add_parser(
+        "structured-help-scorecard",
+        help="Measure structured help coverage and exact-answer quality",
+    )
+    p_api_score.add_argument(
+        "--snapshot-dir",
+        type=str,
+        default=None,
+        help="Structured snapshot directory (default: DATA_DIR/help_structured)",
+    )
+    p_api_score.add_argument(
+        "--benchmark-file",
+        type=str,
+        default=None,
+        help="JSON benchmark file (default: packaged help_structured_benchmark.json)",
+    )
+    p_api_score.add_argument(
+        "--output-file",
+        type=str,
+        default=None,
+        help="Optional JSON output path for the scorecard",
+    )
+    p_api_score.set_defaults(func=cmd_structured_help_scorecard)
 
     # add-bm25
     p_add_bm25 = sub.add_parser(

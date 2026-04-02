@@ -1,0 +1,142 @@
+"""Tests for structured help scorecard and stopping metrics."""
+
+import json
+from pathlib import Path
+from unittest.mock import patch
+
+from onec_help.knowledge.help_structured_scorecard import (
+    build_structured_help_scorecard,
+    load_structured_benchmark,
+)
+
+
+def _write_jsonl(path: Path, rows: list[dict]) -> None:
+    path.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows), encoding="utf-8")
+
+
+def test_load_structured_benchmark_filters_invalid_rows(tmp_path: Path) -> None:
+    bench = tmp_path / "bench.json"
+    bench.write_text(
+        json.dumps(
+            [
+                {"query": "HTTPСоединение", "entity": "object", "expected_full_name": "HTTPСоединение"},
+                {"query": "", "entity": "member", "expected_full_name": "bad"},
+                {"query": "x", "entity": "weird", "expected_full_name": "bad"},
+            ],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    rows = load_structured_benchmark(bench)
+    assert rows == [
+        {
+            "query": "HTTPСоединение",
+            "entity": "object",
+            "expected_full_name": "HTTPСоединение",
+            "expected_kind": "",
+        }
+    ]
+
+
+def test_build_structured_help_scorecard_reports_metrics(tmp_path: Path) -> None:
+    _write_jsonl(
+        tmp_path / "api_objects.jsonl",
+        [
+            {
+                "id": 1,
+                "object_name": "HTTPСоединение",
+                "full_name": "HTTPСоединение",
+                "kind": "type",
+                "summary": "Объект для HTTP.",
+                "availability": "Сервер",
+                "topic_path": "HTTPConnection.html",
+                "title": "HTTPСоединение",
+            }
+        ],
+    )
+    _write_jsonl(
+        tmp_path / "api_members.jsonl",
+        [
+            {
+                "id": 2,
+                "owner_name": "HTTPСоединение",
+                "full_name": "HTTPСоединение.Получить",
+                "kind": "method",
+                "summary": "Получает ресурс.",
+                "syntax": "HTTPСоединение.Получить(<Адрес>)",
+                "params": [{"name": "Адрес", "type": "Строка", "description": ""}],
+                "returns": "HTTPОтвет",
+                "availability": "Сервер",
+                "topic_path": "Get.html",
+                "title": "HTTPСоединение.Получить",
+            },
+            {
+                "id": 3,
+                "owner_name": "HTTPСоединение",
+                "full_name": "HTTPСоединение.Таймаут",
+                "kind": "property",
+                "summary": "Таймаут.",
+                "syntax": "",
+                "params": [],
+                "returns": "",
+                "availability": "Сервер",
+                "topic_path": "Timeout.html",
+                "title": "HTTPСоединение.Таймаут",
+            },
+        ],
+    )
+    _write_jsonl(
+        tmp_path / "api_examples.jsonl",
+        [
+            {
+                "id": 4,
+                "full_name": "HTTPСоединение.Получить",
+                "code": "Ответ = Соединение.Получить(\"/\");",
+                "topic_path": "Get.html",
+                "title": "Пример",
+            }
+        ],
+    )
+    _write_jsonl(
+        tmp_path / "api_links.jsonl",
+        [{"source_full_name": "HTTPСоединение.Получить", "target_name": "HTTPОтвет", "topic_path": "Get.html"}],
+    )
+    bench = tmp_path / "bench.json"
+    bench.write_text(
+        json.dumps(
+            [
+                {
+                    "query": "HTTPСоединение.Получить",
+                    "entity": "member",
+                    "expected_full_name": "HTTPСоединение.Получить",
+                    "expected_kind": "method",
+                },
+                {
+                    "query": "HTTPСоединение",
+                    "entity": "object",
+                    "expected_full_name": "HTTPСоединение",
+                    "expected_kind": "type",
+                },
+            ],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    with patch(
+        "onec_help.knowledge.help_structured_scorecard.iter_help_topics_from_index",
+        return_value=[
+            {"path": "HTTPConnection.html", "entity_type": "topic"},
+            {"path": "Get.html", "entity_type": "topic"},
+            {"path": "Timeout.html", "entity_type": "topic"},
+            {"path": "ExtraTopic.html", "entity_type": "topic"},
+        ],
+    ):
+        scorecard = build_structured_help_scorecard(snapshot_dir=tmp_path, benchmark_path=bench)
+    assert scorecard["counts"]["members"] == 2
+    assert scorecard["coverage"]["summary_pct"] == 100.0
+    assert scorecard["coverage"]["method_like_params_pct"] == 100.0
+    assert scorecard["path_coverage"]["help_only_total"] == 1
+    assert scorecard["benchmark"]["exact_top1_pct"] == 100.0
+    assert scorecard["benchmark"]["structured_sufficient_pct"] == 100.0
+    assert scorecard["targets"]["exact_top1_pct"]["met"] is True
+

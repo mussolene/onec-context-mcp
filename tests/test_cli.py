@@ -33,6 +33,7 @@ from onec_help.interfaces.cli import (
     cmd_qdrant_restore,
     cmd_read_hbk_container,
     cmd_reinit,
+    cmd_structured_help_scorecard,
     cmd_unpack,
     cmd_unpack_diag,
     cmd_unpack_dir,
@@ -235,6 +236,35 @@ def test_run_api_structured_pipeline_stops_on_snapshot_error() -> None:
             assert _run_api_structured_pipeline(recreate=False) == 1
     mock_build.assert_called_once()
     mock_index.assert_not_called()
+
+
+def test_cmd_structured_help_scorecard(tmp_path: Path) -> None:
+    scorecard = {
+        "path_coverage": {"path_coverage_pct": 87.5},
+        "benchmark": {"exact_top1_pct": 96.0, "structured_sufficient_pct": 82.0},
+    }
+    out = tmp_path / "scorecard.json"
+    with patch(
+        "onec_help.knowledge.help_structured_scorecard.build_structured_help_scorecard",
+        return_value=scorecard,
+    ) as mock_build:
+        args = make_args(
+            snapshot_dir=str(tmp_path / "snapshot"),
+            benchmark_file=str(tmp_path / "bench.json"),
+            output_file=str(out),
+        )
+        assert cmd_structured_help_scorecard(args) == 0
+    mock_build.assert_called_once()
+    assert json.loads(out.read_text(encoding="utf-8")) == scorecard
+
+
+def test_cmd_structured_help_scorecard_error() -> None:
+    with patch(
+        "onec_help.knowledge.help_structured_scorecard.build_structured_help_scorecard",
+        side_effect=RuntimeError("broken scorecard"),
+    ):
+        args = make_args(snapshot_dir=None, benchmark_file=None, output_file=None)
+        assert cmd_structured_help_scorecard(args) == 1
 
 
 @patch("onec_help.knowledge.kd2_metadata.crawl_kd2_xml")

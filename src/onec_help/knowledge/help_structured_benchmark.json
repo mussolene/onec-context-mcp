@@ -1,0 +1,17 @@
+[
+  {"query": "HTTPСоединение", "entity": "object", "expected_full_name": "HTTPСоединение", "expected_kind": "type"},
+  {"query": "HTTPСоединение.Получить", "entity": "member", "expected_full_name": "HTTPСоединение.Получить", "expected_kind": "method"},
+  {"query": "HTTPСоединение.ПолучитьЗаголовки", "entity": "member", "expected_full_name": "HTTPСоединение.ПолучитьЗаголовки", "expected_kind": "method"},
+  {"query": "HTTPЗапрос", "entity": "object", "expected_full_name": "HTTPЗапрос", "expected_kind": "type"},
+  {"query": "HTTPЗапрос.ПолучитьТелоКакСтроку", "entity": "member", "expected_full_name": "HTTPЗапрос.ПолучитьТелоКакСтроку", "expected_kind": "method"},
+  {"query": "HTTPОтвет", "entity": "object", "expected_full_name": "HTTPОтвет", "expected_kind": "type"},
+  {"query": "COMSafeArray", "entity": "object", "expected_full_name": "COMSafeArray", "expected_kind": "type"},
+  {"query": "COMSafeArray.GetDimensions", "entity": "member", "expected_full_name": "COMSafeArray.GetDimensions", "expected_kind": "method"},
+  {"query": "МенеджерКопииБазыДанных.Записать", "entity": "member", "expected_full_name": "МенеджерКопииБазыДанных.Записать", "expected_kind": "method"},
+  {"query": "Формат", "entity": "member", "expected_full_name": "Формат", "expected_kind": "function"},
+  {"query": "Глобальный контекст.Перечисления", "entity": "member", "expected_full_name": "Глобальный контекст.Перечисления", "expected_kind": "property"},
+  {"query": "Automation сервер.Visible", "entity": "member", "expected_full_name": "Automation сервер.Visible", "expected_kind": "property"},
+  {"query": "HTTPСервисОтвет", "entity": "object", "expected_full_name": "HTTPСервисОтвет", "expected_kind": "type"},
+  {"query": "HTTPМетод", "entity": "object", "expected_full_name": "HTTPМетод", "expected_kind": "type"},
+  {"query": "ОбъектМетаданных: МетодHTTPСервиса", "entity": "object", "expected_full_name": "ОбъектМетаданных: МетодHTTPСервиса", "expected_kind": "metadata_object"}
+]
