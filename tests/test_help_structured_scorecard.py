@@ -268,6 +268,8 @@ def test_build_structured_help_scorecard_classifies_help_only_buckets(tmp_path: 
         "onec_help.knowledge.help_structured_scorecard.iter_help_topics_from_unpacked",
         return_value=[
             {"path": "8.3.27/shclang_ru/source_format.html", "entity_type": "topic"},
+            {"path": "8.3.27/shlang_ru/expressions.html", "entity_type": "topic"},
+            {"path": "8.3.27/shquery_ru/query_cast.html", "entity_type": "topic"},
             {"path": "8.3.27/shcntx_ru/tables/table5.html", "entity_type": "topic"},
             {"path": "8.3.27/shcntx_ru/objects/catalog56.html", "entity_type": "topic"},
             {"path": "8.3.27/shcntx_ru/forms/SomeForm.html", "entity_type": "topic"},
@@ -278,7 +280,8 @@ def test_build_structured_help_scorecard_classifies_help_only_buckets(tmp_path: 
     ):
         scorecard = build_structured_help_scorecard(snapshot_dir=tmp_path, benchmark_path=bench)
     assert scorecard["path_coverage"]["help_only_buckets"] == {
-        "language": 1,
+        "language": 2,
+        "query": 1,
         "tables": 1,
         "object_overview": 1,
         "forms": 1,

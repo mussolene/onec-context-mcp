@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -52,7 +53,7 @@ _GENERIC_BREADCRUMB = {
     "constructors",
 }
 _CODE_BLOCK_RE = re.compile(r"```(?:\w+)?\s*\n(.*?)```", re.DOTALL)
-_STRUCTURED_MEMBER_KINDS = {"method", "property", "event", "constructor", "function"}
+_STRUCTURED_MEMBER_KINDS = {"method", "property", "event", "constructor", "function", "field"}
 _STRUCTURED_OBJECT_KINDS = {"type", "manager", "global_context", "metadata_object", "collection", "enum"}
 _INLINE_SECTION_LABELS = {
     "Синтаксис:": "syntax",
@@ -131,10 +132,10 @@ def _member_parent_from_breadcrumb(title: str, breadcrumb: list[str] | None) -> 
 
 def _normalize_api_name(title: str, entity_type: str, breadcrumb: list[str] | None) -> str:
     base = _strip_title_suffix(title)
-    if "." in base or entity_type not in {"method", "property", "event", "constructor"}:
+    if "." in base or entity_type not in {"method", "property", "event", "constructor", "field"}:
         return base
     parent = _member_parent_from_breadcrumb(base, breadcrumb)
-    if not parent or "." in parent:
+    if not parent:
         return base
     return f"{parent}.{base}"
 
@@ -149,6 +150,8 @@ def _infer_member_kind(topic_path: str, title: str, entity_type: str) -> str:
         if "/script functions/" in path or title_clean.startswith("Встроенные функции языка."):
             return "function"
         return "method"
+    if "/tables/" in path and "/fields/" in path:
+        return "field"
     if "/properties/" in path:
         return "property"
     if "/events/" in path:
@@ -163,9 +166,9 @@ def _infer_object_kind(topic_path: str, title: str) -> str:
     title_base = _strip_title_suffix(title)
     if "/tables/" in path:
         return "table"
-    if "/shquery_" in path:
+    if "/shquery_" in path or "/shquery_ru/" in path:
         return "query_topic"
-    if "/shclang_" in path or "/embedlang" in path:
+    if "/shclang_" in path or "/embedlang" in path or "/shlang_ru/" in path:
         return "language_topic"
     if title_base.startswith("Глобальный контекст"):
         return "global_context"
@@ -411,6 +414,32 @@ def _split_full_name(name: str) -> tuple[str, str]:
     return "", value
 
 
+@lru_cache(maxsize=8192)
+def _read_v8sh_page_title(html_path: str) -> str:
+    path = Path(html_path)
+    if not path.is_file():
+        return ""
+    raw_html = _read_html_file(path)
+    if not raw_html.strip():
+        return ""
+    soup = BeautifulSoup(raw_html, "html.parser")
+    title_tag = soup.find("h1", class_="V8SH_pagetitle")
+    if title_tag is None:
+        return ""
+    return _strip_title_suffix(title_tag.get_text(strip=True))
+
+
+def _derive_table_owner_name_from_path(html_path: Path, topic_path: str) -> str:
+    normalized = (topic_path or "").replace("\\", "/")
+    if "/tables/" not in normalized or "/fields/" not in normalized:
+        return ""
+    if html_path.parent.name != "fields" or len(html_path.parents) < 3:
+        return ""
+    parent_base = html_path.parent.parent
+    parent_html = parent_base.parent / f"{parent_base.name}.html"
+    return _read_v8sh_page_title(str(parent_html))
+
+
 def _make_object_stub(
     owner_name: str,
     *,
@@ -517,6 +546,8 @@ def _build_structured_records(
                 owner_kind=owner_kind if owner_kind in _STRUCTURED_OBJECT_KINDS else "type",
             )
         if member_kind == "property" and not member_record["returns"]:
+            member_record["returns"] = _returns_from_description(sections.get("description", "")) or _returns_from_description(summary)
+        if member_kind == "field" and not member_record["returns"]:
             member_record["returns"] = _returns_from_description(sections.get("description", "")) or _returns_from_description(summary)
         if member_kind == "property" and not member_record["syntax"]:
             member_record["syntax"] = full_name
@@ -643,6 +674,11 @@ def extract_structured_records_from_html_topic(
     soup = BeautifulSoup(raw_html, "html.parser")
     title_tag = soup.find("h1", class_="V8SH_pagetitle")
     page_title = title_tag.get_text(strip=True) if title_tag else title
+    derived_breadcrumb = list(breadcrumb or [])
+    if not derived_breadcrumb:
+        parent_table = _derive_table_owner_name_from_path(html_path, topic_path)
+        if parent_table:
+            derived_breadcrumb = [parent_table]
     if title_tag is None:
         fallback_md = html_to_md_content(html_path)
         return extract_structured_records_from_topic(
@@ -653,7 +689,7 @@ def extract_structured_records_from_html_topic(
                 "version": version,
                 "language": language,
                 "entity_type": entity_type,
-                "breadcrumb": breadcrumb or [],
+                "breadcrumb": derived_breadcrumb,
             }
         )
     extracted = extract_v8sh_sections(soup)
@@ -692,7 +728,7 @@ def extract_structured_records_from_html_topic(
         language=language,
         path=topic_path,
         entity_type=entity_type,
-        breadcrumb=breadcrumb or [],
+        breadcrumb=derived_breadcrumb,
     )
 
 
@@ -903,7 +939,7 @@ def build_structured_api_snapshot(
         )
         source_kind = "indexed_topics"
 
-    objects_by_name: dict[str, dict[str, Any]] = {}
+    objects_by_key: dict[tuple[str, ...], dict[str, Any]] = {}
     members: list[dict[str, Any]] = []
     examples: list[dict[str, Any]] = []
     links: list[dict[str, Any]] = []
@@ -919,10 +955,23 @@ def build_structured_api_snapshot(
             entity_type=str(topic.get("entity_type") or "topic"),
         )
         if object_record is not None:
-            key = str(object_record.get("full_name") or object_record.get("object_name") or "")
-            prev = objects_by_name.get(key)
+            topic_path = str(object_record.get("topic_path") or "")
+            if topic_path:
+                key = (
+                    str(object_record.get("version") or ""),
+                    str(object_record.get("language") or ""),
+                    topic_path,
+                )
+            else:
+                key = (
+                    str(object_record.get("version") or ""),
+                    str(object_record.get("language") or ""),
+                    str(object_record.get("full_name") or object_record.get("object_name") or ""),
+                    "stub",
+                )
+            prev = objects_by_key.get(key)
             if prev is None or (not prev.get("topic_path") and object_record.get("topic_path")):
-                objects_by_name[key] = object_record
+                objects_by_key[key] = object_record
         if member_record is not None:
             members.append(member_record)
         examples.extend(topic_examples)
@@ -931,16 +980,36 @@ def build_structured_api_snapshot(
     for topic in topics:
         object_record, member_record, topic_examples, topic_links = extract_structured_records_from_topic(topic)
         if object_record is not None:
-            key = str(object_record.get("full_name") or object_record.get("object_name") or "")
-            prev = objects_by_name.get(key)
+            topic_path = str(object_record.get("topic_path") or "")
+            if topic_path:
+                key = (
+                    str(object_record.get("version") or ""),
+                    str(object_record.get("language") or ""),
+                    topic_path,
+                )
+            else:
+                key = (
+                    str(object_record.get("version") or ""),
+                    str(object_record.get("language") or ""),
+                    str(object_record.get("full_name") or object_record.get("object_name") or ""),
+                    "stub",
+                )
+            prev = objects_by_key.get(key)
             if prev is None or (not prev.get("topic_path") and object_record.get("topic_path")):
-                objects_by_name[key] = object_record
+                objects_by_key[key] = object_record
         if member_record is not None:
             members.append(member_record)
         examples.extend(topic_examples)
         links.extend(topic_links)
 
-    object_items = sorted(objects_by_name.values(), key=lambda item: str(item.get("full_name") or ""))
+    object_items = sorted(
+        objects_by_key.values(),
+        key=lambda item: (
+            str(item.get("full_name") or item.get("object_name") or ""),
+            str(item.get("version") or ""),
+            str(item.get("topic_path") or ""),
+        ),
+    )
     members.sort(key=lambda item: str(item.get("full_name") or ""))
     examples.sort(key=lambda item: str(item.get("full_name") or ""))
     links.sort(key=lambda item: (str(item.get("source_full_name") or ""), str(item.get("target_name") or "")))

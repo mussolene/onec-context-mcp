@@ -32,7 +32,7 @@ _DEFAULT_TARGETS: dict[str, float] = {
 
 def _classify_help_only_topic(path: str) -> str:
     normalized = (path or "").replace("\\", "/").lower()
-    if "/shclang_" in normalized or "/embedlang" in normalized:
+    if "/shclang_" in normalized or "/embedlang" in normalized or "/shlang_ru/" in normalized:
         return "language"
     if "/tables/" in normalized:
         return "tables"
@@ -42,7 +42,7 @@ def _classify_help_only_topic(path: str) -> str:
         marker not in normalized for marker in ("/methods/", "/properties/", "/events/", "/ctors/")
     ):
         return "object_overview"
-    if "/query/" in normalized or "queries" in normalized:
+    if "/query/" in normalized or "queries" in normalized or "/shquery_ru/" in normalized:
         return "query"
     if "/lang/" in normalized:
         return "language"

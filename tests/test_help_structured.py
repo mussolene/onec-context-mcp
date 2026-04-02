@@ -381,6 +381,43 @@ def test_extract_structured_records_from_html_topic_indexes_table_topic(tmp_path
     assert "Номер (Number)" in obj["source_sections"]["fields"]
 
 
+def test_extract_structured_records_from_html_topic_indexes_table_field_topic(tmp_path: Path) -> None:
+    table_dir = tmp_path / "tables" / "table10"
+    fields_dir = table_dir / "fields"
+    fields_dir.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "tables" / "table10.html").write_text(
+        """<html><body>
+<h1 class="V8SH_pagetitle">Документ.<Имя документа> (Document.<Document name>)</h1>
+</body></html>""",
+        encoding="utf-8",
+    )
+    html_path = fields_dir / "Ref53.html"
+    html_path.write_text(
+        """<html><body>
+<h1 class="V8SH_pagetitle">Ссылка (Ref)</h1>
+<div class="V8SH_heading">Ссылка (Ref)</div>
+Тип: <a href="x">ДокументСсылка</a>. <br>Содержит ссылку на документ, зарегистрированный в журнале.<br>
+</body></html>""",
+        encoding="utf-8",
+    )
+    obj, member, _examples, _links = extract_structured_records_from_html_topic(
+        html_path,
+        version="8.2.19.130",
+        language="ru",
+        topic_path="8.2.19.130/shcntx_ru/tables/table10/fields/Ref53.html",
+        title="Ссылка",
+        breadcrumb=[],
+        entity_type="topic",
+    )
+    assert obj is not None
+    assert obj["full_name"] == "Документ.<Имя документа>"
+    assert member is not None
+    assert member["kind"] == "field"
+    assert member["owner_name"] == "Документ.<Имя документа>"
+    assert member["full_name"] == "Документ.<Имя документа>.Ссылка"
+    assert member["returns"] == "ДокументСсылка"
+
+
 def test_extract_structured_records_from_html_topic_indexes_language_topic(tmp_path: Path) -> None:
     html_path = tmp_path / "source_format.html"
     html_path.write_text(
@@ -463,6 +500,37 @@ def test_build_structured_api_snapshot_prefers_unpacked_html(tmp_path: Path) -> 
     assert members[0]["full_name"] == "HTTPСоединение.Получить"
     assert members[0]["syntax"] == "Получить(<HTTPЗапрос>)"
     assert members[0]["params"][0]["type"] == "HTTPЗапрос"
+
+
+def test_build_structured_api_snapshot_keeps_object_paths_per_version(tmp_path: Path) -> None:
+    unpacked_dir = tmp_path / "unpacked"
+    for version in ("8.3.27.1719", "8.3.27.1859"):
+        stem_dir = unpacked_dir / version / "shcntx_ru"
+        obj_dir = stem_dir / "objects"
+        obj_dir.mkdir(parents=True, exist_ok=True)
+        (stem_dir / ".hbk_info.json").write_text(
+            f'{{"version":"{version}","language":"ru","label":"Синтаксис"}}',
+            encoding="utf-8",
+        )
+        (stem_dir / ".toc.json").write_text(
+            '[{"path":"/objects/catalog56.html","title_ru":"","entity_type":"topic"}]',
+            encoding="utf-8",
+        )
+        (obj_dir / "catalog56.html").write_text(
+            """<html><body>
+<h1 class="V8SH_pagetitle">Интерфейс (обычный)</h1>
+<div class="V8SH_title">Интерфейс (обычный)</div>
+В этом разделе описываются объекты, предназначенные для интерактивной работы пользователя.
+</body></html>""",
+            encoding="utf-8",
+        )
+    manifest = build_structured_api_snapshot(tmp_path / "snapshot", unpacked_dir=unpacked_dir)
+    objects = load_api_objects(tmp_path / "snapshot")
+    assert manifest["objects"] == 2
+    assert [obj["topic_path"] for obj in objects] == [
+        "8.3.27.1719/shcntx_ru/objects/catalog56.html",
+        "8.3.27.1859/shcntx_ru/objects/catalog56.html",
+    ]
 
 
 def test_get_api_member_prefers_exact_member_name_for_bare_query() -> None:
