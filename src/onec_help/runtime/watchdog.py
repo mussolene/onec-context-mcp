@@ -11,6 +11,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from ..knowledge.kd2_metadata import is_kd2_snapshot_dir
 from ..shared import env_config
 from ..shared._utils import safe_error_message
 from . import redis_cache
@@ -19,6 +20,7 @@ from .ingest import _ingest_cache_path, collect_hbk_tasks, discover_version_dirs
 _STANDARDS_EXT = frozenset({".md"})
 _SNIPPETS_EXT = frozenset({".json", ".bsl", ".1c", ".md"})
 _CONFIG_EXT = frozenset({".xml", ".bsl"})
+_KD2_SNAPSHOT_EXT = frozenset({".json", ".jsonl"})
 _INGEST_STDERR_LOG = "ingest_stderr.log"
 _INGEST_STDERR_LOG_MAX_BYTES = 2 * 1024 * 1024  # 2 MiB; rotate to .old when exceeded
 
@@ -120,6 +122,26 @@ def _scan_config_dir_stable(config_dir: Path) -> dict[str, int]:
     return _scan_dir_by_ext_sizes(config_dir, _CONFIG_EXT)
 
 
+def _scan_metadata_source_stable(source_path: Path) -> dict[str, int]:
+    """Scan metadata source path for watchdog state.
+
+    Supports:
+    - KD2 XML file: single file path -> size
+    - KD2 snapshot dir: manifest.json + *.jsonl files
+    - deprecated config export dir: .xml/.bsl files
+    """
+    if not source_path.exists():
+        return {}
+    if source_path.is_file():
+        try:
+            return {str(source_path.resolve()): source_path.stat().st_size}
+        except OSError:
+            return {}
+    if is_kd2_snapshot_dir(source_path):
+        return _scan_dir_by_ext_sizes(source_path, _KD2_SNAPSHOT_EXT)
+    return _scan_config_dir_stable(source_path)
+
+
 def _scan_hbk_like_ingest(base: Path | None = None) -> dict[str, float]:
     """Scan .hbk files using same logic as ingest (version dirs + languages filter)."""
     if base is None:
@@ -190,14 +212,17 @@ def run_watchdog(
     )
     if config_dir and config_dir_str:
         exists = config_dir.exists()
+        kind = "file" if config_dir.is_file() else "dir"
         print(
-            f"[watchdog] config dir: {config_dir_str} (exists={exists})",
+            f"[watchdog] metadata source: {config_dir_str} (exists={exists}, kind={kind})",
             file=sys.stderr,
             flush=True,
         )
     else:
         print(
-            "[watchdog] config dir: not set (ONEC_CONFIG_SOURCE_DIR)", file=sys.stderr, flush=True
+            "[watchdog] metadata source: not set (ONEC_CONFIG_SOURCE_DIR)",
+            file=sys.stderr,
+            flush=True,
         )
 
     def _one_cycle() -> None:
@@ -213,7 +238,7 @@ def run_watchdog(
         current_std = _scan_standards_dir_stable(standards_dir) if standards_dir.exists() else {}
         current_snip = _scan_snippets_dir_stable(snippets_dir) if snippets_dir.exists() else {}
         current_meta = (
-            _scan_config_dir_stable(config_dir) if config_dir and config_dir.exists() else {}
+            _scan_metadata_source_stable(config_dir) if config_dir and config_dir.exists() else {}
         )
 
         run_ingest = False
@@ -353,7 +378,7 @@ def run_watchdog(
         n_snip = len(current_snip)
         n_meta = len(current_meta)
         print(
-            f"[watchdog] cycle: hbk={n_hbk} standards={n_std} snippets={n_snip} config={n_meta}",
+            f"[watchdog] cycle: hbk={n_hbk} standards={n_std} snippets={n_snip} metadata={n_meta}",
             file=sys.stderr,
             flush=True,
         )

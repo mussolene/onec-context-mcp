@@ -14,6 +14,7 @@ from onec_help.runtime.watchdog import (
     _run_load_snippets,
     _run_load_standards,
     _scan_config_dir_stable,
+    _scan_metadata_source_stable,
     _scan_snippets_dir,
     _scan_standards_dir,
     run_watchdog,
@@ -211,6 +212,51 @@ def test_scan_config_dir_stable_collects_xml_bsl(tmp_path: Path) -> None:
     assert len(out) == 2
     assert any("x.xml" in p for p in out)
     assert any("y.bsl" in p for p in out)
+
+
+def test_scan_metadata_source_stable_xml_file(tmp_path: Path) -> None:
+    xml_file = tmp_path / "export.xml"
+    xml_file.write_text("<Конфигурация Имя='Cfg'/>", encoding="utf-8")
+    out = _scan_metadata_source_stable(xml_file)
+    assert list(out.keys()) == [str(xml_file.resolve())]
+
+
+def test_scan_metadata_source_stable_kd2_snapshot_dir(tmp_path: Path) -> None:
+    snapshot_dir = tmp_path / "snapshot"
+    snapshot_dir.mkdir()
+    (snapshot_dir / "manifest.json").write_text('{"format":"onec_kd2_snapshot_v1"}', encoding="utf-8")
+    (snapshot_dir / "objects.jsonl").write_text("{}", encoding="utf-8")
+    (snapshot_dir / "fields.jsonl").write_text("{}", encoding="utf-8")
+    out = _scan_metadata_source_stable(snapshot_dir)
+    assert len(out) == 3
+    assert any("manifest.json" in p for p in out)
+
+
+def test_run_watchdog_supports_metadata_xml_file(tmp_path: Path) -> None:
+    xml_file = tmp_path / "export.xml"
+    xml_file.write_text("<Конфигурация Имя='Cfg'/>", encoding="utf-8")
+    metadata_called: list[str] = []
+
+    with patch.dict("os.environ", {"ONEC_CONFIG_SOURCE_DIR": str(xml_file)}, clear=False):
+        with (
+            patch("onec_help.runtime.watchdog._load_watchdog_state", return_value={}),
+            patch("onec_help.runtime.watchdog._save_watchdog_state"),
+            patch("onec_help.runtime.watchdog.time.sleep", side_effect=StopIteration("stop")),
+            patch("onec_help.runtime.watchdog.time.time", return_value=0.0),
+            patch("onec_help.runtime.watchdog._run_ingest", return_value=True),
+            patch("onec_help.runtime.watchdog._run_load_standards"),
+            patch("onec_help.runtime.watchdog._run_load_snippets"),
+            patch(
+                "onec_help.runtime.watchdog._run_build_metadata_graph",
+                side_effect=lambda path: metadata_called.append(path) or True,
+            ),
+            patch("onec_help.runtime.watchdog._process_pending_memory"),
+        ):
+            try:
+                run_watchdog(help_source_base=tmp_path, poll_interval_sec=60, pending_interval_sec=60)
+            except StopIteration:
+                pass
+    assert metadata_called == [str(xml_file.resolve())]
 
 
 def test_run_watchdog_triggers_load_standards_when_dir_changes(tmp_path: Path) -> None:

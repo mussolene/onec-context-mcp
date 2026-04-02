@@ -172,7 +172,7 @@ bsl-stop:
 
 # Создать каталоги data/ для bind-mount. После потери data/qdrant: make ensure-data && make up; для индекса: make ingest-up
 ensure-data:
-	@mkdir -p data/qdrant data/unpacked data/ingest_cache data/snippets data/backup data/bm25_vocab data/standards data/config data/redis
+	@mkdir -p data/qdrant data/unpacked data/ingest_cache data/snippets data/backup data/bm25_vocab data/standards data/config data/kd2 data/kd2_snapshot data/redis
 	@echo "data/qdrant и остальные каталоги созданы."
 
 # При qdrant exit 101: логи и сброс данных. Использовать оба -f!
