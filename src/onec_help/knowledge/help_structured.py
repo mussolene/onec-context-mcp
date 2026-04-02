@@ -11,6 +11,8 @@ from typing import Any
 from bs4 import BeautifulSoup
 
 from ..help_core.html2md import _read_html_file, extract_v8sh_sections, html_to_md_content
+from ..search_store import embedding
+from ..search_store.indexer import get_collection_vector_size
 from ..shared import env_config
 
 API_OBJECTS_FILE = "api_objects.jsonl"
@@ -1102,6 +1104,7 @@ def _index_records(
     qdrant_host: str | None,
     qdrant_port: int | None,
     payload_builder,
+    use_dense: bool = True,
 ) -> int:
     from qdrant_client import QdrantClient
     from qdrant_client.models import Distance, PointStruct, VectorParams
@@ -1117,6 +1120,9 @@ def _index_records(
         check_compatibility=False,
     )
     dim = 1
+    if use_dense:
+        existing_dim = None if recreate else get_collection_vector_size(collection=collection, qdrant_host=host, qdrant_port=port)
+        dim = existing_dim or embedding.get_embedding_dimension()
     if recreate:
         client.recreate_collection(
             collection_name=collection,
@@ -1131,13 +1137,18 @@ def _index_records(
     inserted = 0
     for start in range(0, len(items), batch_size):
         batch = items[start : start + batch_size]
+        payloads = [payload_builder(item) for item in batch]
+        if use_dense:
+            texts = [str(payload.get("text") or "") for payload in payloads]
+            vectors = embedding.get_embedding_batch(texts, target_dimension=dim)
+        else:
+            vectors = [[0.0] for _ in payloads]
         points = []
-        for item in batch:
-            payload = payload_builder(item)
+        for item, payload, vector in zip(batch, payloads, vectors, strict=True):
             points.append(
                 PointStruct(
                     id=int(item.get("id") or _topic_point_id(payload.get("path", ""), payload.get("version", ""), payload.get("language", ""))),
-                    vector=[0.0],
+                    vector=vector,
                     payload=payload,
                 )
             )
@@ -1280,6 +1291,7 @@ def index_structured_api_examples(
                 if part
             ),
         },
+        use_dense=True,
     )
 
 
@@ -1312,6 +1324,7 @@ def index_structured_api_links(
             "entity_type": "link",
             "text": item.get("text") or "",
         },
+        use_dense=False,
     )
 
 
@@ -1371,10 +1384,20 @@ def search_official_examples(
     language: str | None = None,
 ) -> list[dict[str, Any]]:
     """Qdrant-backed search over official examples extracted from help topics."""
-    items = _scroll_payloads(API_EXAMPLES_COLLECTION_NAME) if snapshot_dir is None else []
-    if not items:
-        items = load_api_examples(snapshot_dir) if snapshot_dir is not None else []
-    results: list[tuple[int, dict[str, Any]]] = []
+    if snapshot_dir is None:
+        from ..search_store.indexer import search_hybrid
+
+        results = search_hybrid(
+            query,
+            limit=limit,
+            version=version,
+            language=language,
+            collection=API_EXAMPLES_COLLECTION_NAME,
+        )
+        if results:
+            return results
+    items = load_api_examples(snapshot_dir) if snapshot_dir is not None else _scroll_payloads(API_EXAMPLES_COLLECTION_NAME)
+    scored: list[tuple[int, dict[str, Any]]] = []
     for item in items:
         if version and str(item.get("version") or "") != version:
             continue
@@ -1382,9 +1405,9 @@ def search_official_examples(
             continue
         score = _score_text_match(query, item, ["full_name", "title", "description", "code"])
         if score > 0:
-            results.append((score, item))
-    results.sort(key=lambda item: (-item[0], str(item[1].get("full_name") or ""), str(item[1].get("title") or "")))
-    return [item for _, item in results[:limit]]
+            scored.append((score, item))
+    scored.sort(key=lambda item: (-item[0], str(item[1].get("full_name") or ""), str(item[1].get("title") or "")))
+    return [item for _, item in scored[:limit]]
 
 
 def search_api_members(
@@ -1396,10 +1419,10 @@ def search_api_members(
     qdrant_host: str | None = None,
     qdrant_port: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Keyword search over structured API member collection."""
-    from ..search_store.indexer import search_index_keyword
+    """Hybrid search over structured API member collection."""
+    from ..search_store.indexer import search_hybrid
 
-    return search_index_keyword(
+    return search_hybrid(
         query,
         qdrant_host=qdrant_host,
         qdrant_port=qdrant_port,
@@ -1467,10 +1490,10 @@ def search_api_objects(
     qdrant_host: str | None = None,
     qdrant_port: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Keyword search over structured API object collection."""
-    from ..search_store.indexer import search_index_keyword
+    """Hybrid search over structured API object collection."""
+    from ..search_store.indexer import search_hybrid
 
-    return search_index_keyword(
+    return search_hybrid(
         query,
         qdrant_host=qdrant_host,
         qdrant_port=qdrant_port,

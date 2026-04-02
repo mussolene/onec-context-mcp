@@ -227,7 +227,7 @@ def test_cmd_index_api_structured() -> None:
     mock_members.assert_called_once()
     mock_examples.assert_called_once()
     mock_links.assert_called_once()
-    assert mock_bm25.call_count == 2
+    assert mock_bm25.call_count == 3
 
 
 def test_run_api_structured_pipeline_stops_on_snapshot_error() -> None:

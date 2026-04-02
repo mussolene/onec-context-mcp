@@ -118,7 +118,7 @@ def test_build_structured_api_snapshot_skips_generic_topic(tmp_path: Path) -> No
     assert manifest["source"] == "indexed_topics"
 
 
-def test_index_structured_api_objects_uses_dummy_vector(tmp_path: Path) -> None:
+def test_index_structured_api_objects_uses_dense_vectors(tmp_path: Path) -> None:
     from unittest.mock import MagicMock, patch
 
     (tmp_path / "api_objects.jsonl").write_text(
@@ -127,15 +127,21 @@ def test_index_structured_api_objects_uses_dummy_vector(tmp_path: Path) -> None:
     )
     client = MagicMock()
     client.collection_exists.return_value = False
-    with patch("qdrant_client.QdrantClient", return_value=client):
+    with patch("qdrant_client.QdrantClient", return_value=client), patch(
+        "onec_help.search_store.embedding.get_embedding_batch",
+        return_value=[[0.1, 0.2, 0.3]],
+    ), patch(
+        "onec_help.search_store.embedding.get_embedding_dimension",
+        return_value=3,
+    ):
         inserted = index_structured_api_objects(tmp_path, recreate=True)
     assert inserted == 1
     client.recreate_collection.assert_called_once()
     points = client.upsert.call_args.kwargs["points"]
-    assert points[0].vector == [0.0]
+    assert points[0].vector == [0.1, 0.2, 0.3]
 
 
-def test_index_structured_api_members_uses_dummy_vector(tmp_path: Path) -> None:
+def test_index_structured_api_members_uses_dense_vectors(tmp_path: Path) -> None:
     from unittest.mock import MagicMock, patch
 
     (tmp_path / "api_members.jsonl").write_text(
@@ -144,11 +150,17 @@ def test_index_structured_api_members_uses_dummy_vector(tmp_path: Path) -> None:
     )
     client = MagicMock()
     client.collection_exists.return_value = False
-    with patch("qdrant_client.QdrantClient", return_value=client):
+    with patch("qdrant_client.QdrantClient", return_value=client), patch(
+        "onec_help.search_store.embedding.get_embedding_batch",
+        return_value=[[0.4, 0.5, 0.6]],
+    ), patch(
+        "onec_help.search_store.embedding.get_embedding_dimension",
+        return_value=3,
+    ):
         inserted = index_structured_api_members(tmp_path, recreate=True)
     assert inserted == 1
     points = client.upsert.call_args.kwargs["points"]
-    assert points[0].vector == [0.0]
+    assert points[0].vector == [0.4, 0.5, 0.6]
     assert points[0].payload["source_sections"] == {}
 
 

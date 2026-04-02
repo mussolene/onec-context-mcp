@@ -578,6 +578,7 @@ def cmd_index_api_structured(args: argparse.Namespace) -> int:
             for collection_name, inserted in (
                 (API_OBJECTS_COLLECTION_NAME, objects_inserted),
                 (API_MEMBERS_COLLECTION_NAME, members_inserted),
+                (API_EXAMPLES_COLLECTION_NAME, examples_inserted),
             ):
                 if inserted > 0:
                     add_bm25_to_collection(
