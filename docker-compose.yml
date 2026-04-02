@@ -62,8 +62,8 @@ services:
       STANDARDS_SUBPATH: ${STANDARDS_SUBPATH:-docs}
       # В контейнере standards смонтирован в /data/standards — иначе load-standards пишет в /app/data/standards и Permission denied
       STANDARDS_DIR: ${STANDARDS_DIR:-/data/standards}
-      # Конфигурация 1С для metadata graph: по умолчанию /app/data/config внутри контейнера.
-      ONEC_CONFIG_SOURCE_DIR: ${ONEC_CONFIG_SOURCE_DIR:-/app/data/config}
+      # Конфигурация 1С для metadata graph: primary route — /data/kd2 внутри контейнера.
+      ONEC_CONFIG_SOURCE_DIR: ${ONEC_CONFIG_SOURCE_DIR:-/data/kd2}
     volumes:
       - /opt/1cv8:/opt/1cv8:ro
       - ./data/unpacked:/app/data/unpacked
@@ -71,6 +71,7 @@ services:
       - ./data/ingest_cache:/app/var/ingest_cache
       - ./data/snippets:/data/snippets
       - ./data/standards:/data/standards
+      - ./data/kd2:/data/kd2
       - ./data/config:/app/data/config:ro
       - ./data/backup:/data/backup
       - ./data/bm25_vocab:/app/data/bm25_vocab
