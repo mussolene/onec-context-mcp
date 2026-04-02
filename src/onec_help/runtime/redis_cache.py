@@ -2,7 +2,8 @@
 
 Keys: ingest:cache (hash), ingest:current, ingest:run:next_id, ingest:runs (list), ingest:run:{id}, ingest:failed:{id};
       snippets:cache (hash), snippets:last_run.
-When Redis is unavailable, get_redis() returns a no-op client: no writes, no errors, reads return empty/None until process restart.
+When Redis is unavailable, get_redis() returns a no-op client for non-critical reads. Runtime-critical
+entry points must call require_runtime_redis() and fail fast instead of silently degrading.
 """
 
 from __future__ import annotations
@@ -129,6 +130,24 @@ def get_redis():
                 _LOG.warning("redis_cache: Redis unavailable (%s), no writes until restart", e)
                 _client = _NoOpRedis()
     return _client
+
+
+def is_runtime_redis_available() -> bool:
+    """True when Redis client is real and writable, not the no-op fallback."""
+    return not isinstance(get_redis(), _NoOpRedis)
+
+
+def require_runtime_redis(operation: str = "runtime") -> Any:
+    """Return Redis client for runtime-critical flows or raise RuntimeError.
+
+    Use for ingest/watchdog/load-* entry points where silent no-op cache/status handling is unsafe.
+    """
+    client = get_redis()
+    if isinstance(client, _NoOpRedis):
+        raise RuntimeError(
+            f"Redis is required for {operation}. Check REDIS_URL/REDIS_HOST and that Redis is running."
+        )
+    return client
 
 
 def clear_all() -> bool:

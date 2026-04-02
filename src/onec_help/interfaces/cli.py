@@ -76,7 +76,7 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
     """
     from qdrant_client import QdrantClient
 
-    from .. import embedding, metadata_graph
+    from .. import embedding, metadata_graph, redis_cache
     from ..config_crawler import (
         CrawlResult,
         _looks_like_config_root,
@@ -115,6 +115,12 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
             f"Error: no configuration export found in {base} (no Configuration.xml/config.json or Documents/Catalogs).",
             file=sys.stderr,
         )
+        return 1
+
+    try:
+        redis_cache.require_runtime_redis("metadata-graph-build")
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
         return 1
 
     if not embedding.is_embedding_available():
@@ -666,6 +672,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     """Ingest .hbk from multiple read-only source dirs: unpack to temp, build docs, index, cleanup."""
     from pathlib import Path
 
+    from .. import redis_cache
     from ..ingest import (
         discover_version_dirs,
         parse_languages_env,
@@ -713,6 +720,11 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         languages = parse_languages_env(env_config.get_help_languages())
     if getattr(args, "no_cache", False):
         os.environ["INGEST_SKIP_CACHE"] = "1"
+    try:
+        redis_cache.require_runtime_redis("ingest")
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
     try:
         # По умолчанию: распаковка в data/unpacked, индексация из неё (одна папка, без удаления).
         # INGEST_USE_TEMP=1 — старый режим: временная папка с удалением после индексации.
@@ -850,6 +862,7 @@ def cmd_load_snippets(args: argparse.Namespace) -> int:
     By default (explicit run) always loads; use --use-cache or SNIPPETS_SKIP_CACHE=0 to only load changed sources."""
     import time
 
+    from .. import redis_cache
     from .._utils import progress_done, progress_line
     from ..snippets_cache import (
         _file_signature,
@@ -864,6 +877,7 @@ def cmd_load_snippets(args: argparse.Namespace) -> int:
     skip_cache = (not use_cache) or env_config.get_snippets_skip_cache()
 
     try:
+        redis_cache.require_runtime_redis("load-snippets")
         sources = _build_snippets_sources(args)
         if not sources:
             path_arg = getattr(args, "snippets_file", None) or env_config.get_snippets_json_path()
@@ -1052,6 +1066,14 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
     Sources: path arg, STANDARDS_DIR (only when no repos set), STANDARDS_REPOS (comma-separated).
     By default loads both v8-code-style and v8std. When STANDARDS_REPOS is set, STANDARDS_DIR is used only as copy destination."""
     path_arg = (getattr(args, "standards_path", None) or "").strip()
+    from .. import redis_cache
+
+    try:
+        redis_cache.require_runtime_redis("load-standards")
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
     standards_repos = env_config.get_standards_repos()
     standards_subpath = env_config.get_standards_subpath()
     default_branch = env_config.get_standards_branch()
@@ -1305,9 +1327,11 @@ def cmd_parse_helpf(args: argparse.Namespace) -> int:
 
 def cmd_watchdog(args: argparse.Namespace) -> int:
     """Run watchdog: monitor .hbk, ingest on change; process pending memory."""
+    from .. import redis_cache
     from ..watchdog import run_watchdog
 
     try:
+        redis_cache.require_runtime_redis("watchdog")
         run_watchdog(
             poll_interval_sec=args.poll_interval,
             pending_interval_sec=args.pending_interval,

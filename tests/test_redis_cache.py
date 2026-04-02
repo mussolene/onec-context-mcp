@@ -224,6 +224,13 @@ def test_watchdog_state_set_get(fake_redis) -> None:
     assert data.get("path2") == 456.0
 
 
+def test_require_runtime_redis_raises_on_noop() -> None:
+    """Runtime-critical flows should fail fast when Redis degraded to no-op."""
+    with patch.object(redis_cache, "get_redis", return_value=redis_cache._NoOpRedis()):
+        with pytest.raises(RuntimeError, match="Redis is required"):
+            redis_cache.require_runtime_redis("ingest")
+
+
 def test_snippets_cache_set_and_entries(fake_redis) -> None:
     """snippets_cache_set and snippets_cache_entries roundtrip."""
     redis_cache.snippets_cache_set("fastcode", "sig1", 10)

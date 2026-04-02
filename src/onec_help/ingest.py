@@ -687,6 +687,8 @@ def run_ingest(
     from .indexer import build_index, get_embedding_dimension
     from .unpack import unpack_hbk
 
+    redis_cache.require_runtime_redis("ingest")
+
     if not source_dirs_with_versions:
         return 0
 
@@ -1392,6 +1394,8 @@ def run_ingest_from_unpacked(
     from qdrant_client.models import Distance, VectorParams
 
     from .indexer import build_index, get_embedding_dimension
+
+    redis_cache.require_runtime_redis("ingest-from-unpacked")
 
     base = Path(unpacked_base).resolve()
     if not base.is_dir():

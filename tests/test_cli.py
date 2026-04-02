@@ -686,6 +686,14 @@ def test_cmd_watchdog_exception(mock_run_watchdog) -> None:
     assert cmd_watchdog(args) == 1
 
 
+@patch("onec_help.redis_cache.require_runtime_redis")
+def test_cmd_watchdog_requires_redis(mock_require) -> None:
+    """cmd_watchdog fails fast when Redis is unavailable."""
+    mock_require.side_effect = RuntimeError("Redis is required for watchdog.")
+    args = make_args(poll_interval=60, pending_interval=60)
+    assert cmd_watchdog(args) == 1
+
+
 @patch("onec_help.watchdog.run_watchdog")
 def test_cmd_watchdog_keyboard_interrupt(mock_run_watchdog) -> None:
     """cmd_watchdog returns 0 on KeyboardInterrupt (graceful exit)."""
@@ -727,6 +735,16 @@ def test_cmd_load_snippets_invalid_json(tmp_path: Path) -> None:
     bad = tmp_path / "bad.json"
     bad.write_text("not json")
     args = make_args(snippets_file=str(bad))
+    assert cmd_load_snippets(args) == 1
+
+
+@patch("onec_help.redis_cache.require_runtime_redis")
+def test_cmd_load_snippets_requires_redis(mock_require, tmp_path: Path) -> None:
+    """cmd_load_snippets fails fast when Redis is unavailable."""
+    mock_require.side_effect = RuntimeError("Redis is required for load-snippets.")
+    snippet_file = tmp_path / "snippets.json"
+    snippet_file.write_text("[]", encoding="utf-8")
+    args = make_args(snippets_file=str(snippet_file))
     assert cmd_load_snippets(args) == 1
 
 
