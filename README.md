@@ -9,6 +9,8 @@
 
 Справка 1С: распаковка .hbk (7z), конвертация в Markdown, индексация в Qdrant, MCP-сервер для поиска и чтения справки.
 
+Метаданные конфигурации 1С теперь ориентированы на **KD 2.0 XML export → compact snapshot → Qdrant**. Старый route через выгрузку конфигурации в файлы (`data/config`, `ONEC_CONFIG_SOURCE_DIR`) оставлен как **deprecated fallback**, а не как основной источник.
+
 Контрибьюторам: см. [CONTRIBUTING.md](CONTRIBUTING.md) (формат коммитов — Conventional Commits).
 
 Лицензия проекта: MIT, см. [LICENSE](LICENSE). Используемые библиотеки и лицензии: см. [NOTICE](NOTICE).
@@ -73,6 +75,7 @@ pip install -e ".[dev]"
 | **`build-index <directory> [--incremental] [--no-bm25] ...`** | Построить индекс по готовому каталогу .md/.html |
 | **`add-bm25 [--collection] ...`** | Добавить BM25 в существующую коллекцию без пересчёта эмбеддингов |
 | **`watchdog`** | Мониторинг новых .hbk, инкрементальный ingest; pending embeddings памяти |
+| **`kd2-snapshot-build <xml> -o <dir>`** | Построить compact JSONL snapshot из KD 2.0 XML metadata export |
 | **`ingest-from-unpacked <dir>`** | Индексация из уже распакованного каталога (формат version/stem, как у run_unpack_sync). Не совместимо с выводом unpack-dir (version/lang/name). |
 | **`parse-fastcode`** | Парсинг fastcode.ru → JSON в SNIPPETS_DIR |
 | **`parse-helpf`** | Парсинг helpf.pro (по умолчанию FAQ) → JSON в SNIPPETS_DIR |
@@ -118,6 +121,29 @@ pip install -e ".[dev]"
 | `EMBEDDING_TIMEOUT` | Таймаут HTTP-запроса к API (секунды). При ошибке — retry с backoff, затем плейсхолдер | `90` |
 | `EMBEDDING_BATCH_TIMEOUT` | Таймаут для batch-запроса (секунды). По умолчанию — формула от размера батча | — |
 | `MCP_MODE` | `api` — только MCP (split, по умолчанию); `full` — всё в mcp (один контейнер) | `api` |
+
+## Метаданные 1С: рекомендуемый route
+
+Primary route:
+
+```bash
+python -m onec_help kd2-snapshot-build /path/ВыгрузкаБП30.xml -o data/kd2_snapshot
+python -m onec_help metadata-graph-build data/kd2_snapshot --source-format kd2-snapshot
+```
+
+Или напрямую из XML:
+
+```bash
+python -m onec_help metadata-graph-build /path/ВыгрузкаБП30.xml --source-format kd2-xml
+```
+
+Deprecated fallback:
+
+```bash
+python -m onec_help metadata-graph-build data/config --source-format files
+```
+
+Route `files` оставлен только для сценариев, где нужен full-fidelity source по формам/модулям/UI и где KD 2.0 выгрузка пока недостаточна.
 | `WATCHDOG_ENABLED` | По умолчанию `1` — watchdog включён (split: ingest-worker; full: в фоне). `0` — отключить | `1` |
 | `WATCHDOG_POLL_INTERVAL` | Интервал проверки новых .hbk (секунды) | `600` |
 | `WATCHDOG_PENDING_INTERVAL` | Интервал обработки pending embeddings (секунды) | `600` |

@@ -184,6 +184,7 @@ ingest-logs:
 	$(COMPOSE) logs ingest-worker --tail 200
 
 # Сбросить состояние watchdog для config metadata и сразу запустить metadata-graph-build (без ожидания следующего цикла опроса).
+# Для primary route предпочитайте KD2 XML -> kd2-snapshot-build -> metadata-graph-build --source-format kd2-snapshot.
 reset-metadata-watchdog:
 	@echo "Сброс watchdog:state:metadata в Redis..."
 	@$(COMPOSE) exec redis redis-cli DEL "watchdog:state:metadata" || true
@@ -201,7 +202,15 @@ clear-dashboard-errors:
 	@$(COMPOSE) exec redis redis-cli DEL "ingest:errors" "mcp:errors_total" "mcp:errors_recent" || true
 	@echo "Готово. Панели Errors и MCP requests в дашборде будут пустыми по ошибкам."
 
-# Запустить сборку графа метаданных конфигурации вручную (в ingest-worker). Путь из ONEC_CONFIG_SOURCE_DIR или data/config.
+# Построить compact snapshot из KD2 XML выгрузки.
+# Пример: make kd2-snapshot-build XML_PATH=/data/kd2/ВыгрузкаБП30.xml OUT=data/kd2_snapshot
+kd2-snapshot-build:
+	@test -n "$(XML_PATH)" || (echo "Usage: make kd2-snapshot-build XML_PATH=/path/export.xml OUT=data/kd2_snapshot" && exit 1)
+	$(COMPOSE) exec $(INGEST_SERVICE) python -m onec_help kd2-snapshot-build "$(XML_PATH)" -o "$(or $(OUT),data/kd2_snapshot)"
+
+# Запустить сборку графа метаданных вручную.
+# Primary route: KD2 XML or KD2 snapshot.
+# Deprecated fallback: exported configuration in files (data/config / ONEC_CONFIG_SOURCE_DIR).
 # Требует: make ingest-up (ingest-worker запущен). Если в списке команд нет metadata-graph-build — пересоберите образ: make build.
 # Для больших конфигов (тысячи объектов) эмбеддинг и запись в Qdrant могут занять 10+ мин.
 # При таймауте после «embedding N/N» (запись в Qdrant): QDRANT_TIMEOUT=600 make metadata-build
@@ -280,7 +289,8 @@ help:
 	@echo "  make qdrant-logs      Логи qdrant (при exit 101)"
 	@echo "  make ingest-logs     Логи ingest-worker (эмбеддинги, fallback)"
 	@echo "  make reset-metadata-watchdog  Сбросить metadata в watchdog и сразу запустить metadata-graph-build (нужен make ingest-up)"
-	@echo "  make metadata-build           Запустить metadata-graph-build вручную (источник: data/config или ONEC_CONFIG_SOURCE_DIR)"
+	@echo "  make kd2-snapshot-build      Построить compact snapshot из KD2 XML (XML_PATH=... OUT=...)"
+	@echo "  make metadata-build          Запустить metadata-graph-build вручную (primary: KD2 XML/snapshot; files route deprecated)"
 	@echo "  make metadata-watchdog-debug Диагностика: путь конфигурации, find_config_root, число файлов, ключ Redis"
 	@echo "  make ollama-logs      Последние 100 строк лога Ollama (~/.ollama/logs/server.log)"
 	@echo "  make qdrant-reset     Удалить data/qdrant, перезапустить с пустым индексом"
