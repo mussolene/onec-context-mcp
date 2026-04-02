@@ -2472,7 +2472,7 @@ def run_mcp(
 
 
 def _main() -> None:
-    """Fast entry point: run MCP without loading the full CLI (python -m onec_help.mcp_server)."""
+    """Fast entry point: run MCP without loading the full CLI (python -m onec_help.interfaces.mcp_server)."""
     import argparse
     import sys
 

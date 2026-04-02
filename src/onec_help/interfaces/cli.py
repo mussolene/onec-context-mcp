@@ -61,7 +61,7 @@ def _heartbeat_until(
 
 
 def _get_memory_store():
-    """Return MemoryStore singleton. Wrapper so tests can patch onec_help.cli._get_memory_store and never touch real Qdrant."""
+    """Return MemoryStore singleton. Wrapper so tests can patch onec_help.interfaces.cli._get_memory_store and never touch real Qdrant."""
     from ..knowledge.memory import get_memory_store
 
     return get_memory_store()

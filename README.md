@@ -100,7 +100,7 @@ pip install -e ".[dev]"
 | `HBK_LABELS` | Человекочитаемые метки: `1cv8:Справка 1С,shcntx:Синтаксис` | — |
 | `INGEST_FAILED_LOG` | Файл для списка неудачных .hbk | — |
 | `MCP_TRANSPORT` | Транспорт MCP: `stdio`, `http` или `streamable-http` (для Docker/Cursor рекомендуется streamable-http) | `streamable-http` |
-| `MCP_HOST` | Хост для MCP HTTP. **CLI** (`python -m onec_help mcp`): по умолчанию `127.0.0.1`. **Прямой запуск MCP-сервера** (Docker, `python -m onec_help.mcp_server`): по умолчанию `0.0.0.0` (доступ из сети). Задайте в .env при необходимости. | CLI: `127.0.0.1`; сервер: `0.0.0.0` |
+| `MCP_HOST` | Хост для MCP HTTP. **CLI** (`python -m onec_help mcp`): по умолчанию `127.0.0.1`. **Прямой запуск MCP-сервера** (Docker, `python -m onec_help.interfaces.mcp_server`): по умолчанию `0.0.0.0` (доступ из сети). Задайте в .env при необходимости. | CLI: `127.0.0.1`; сервер: `0.0.0.0` |
 | `MCP_PORT` | Порт для MCP HTTP | `8050` |
 | `MCP_PATH` | URL-путь эндпоинта MCP | `/mcp` |
 | `MCP_SNIPPET_MAX_CHARS` | Макс. символов сниппета в результатах поиска | `1200` |
