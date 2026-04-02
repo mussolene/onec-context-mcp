@@ -9,11 +9,15 @@
 | Tier | Инструмент | Ключевой параметр | Назначение |
 |------|------------|-------------------|------------|
 | 1 | get_1c_quick_guide | task | Канонический AI entry point; короткий маршрут без лишних ветвлений. |
-| 1 | get_1c_code_answer | query | Основной ответ с кодом; для неточного запроса или вопроса по сценарию. |
+| 1 | get_1c_api_answer | name | Exact-first compact ответ для `Тип.Метод`. |
 | 1 | search_1c_help_keyword | query | Точный поиск по API/идентификатору; передавать **Тип.Метод** целиком. |
+| 1 | search_1c_help | query | Семантический поиск по platform topics, если точного имени нет. |
 | 1 | get_1c_help_topic | **topic_path** | Полный контент топика по пути из поиска. |
-| 1 | search_1c_memory | query | Точечный вызов для стандартов и сниппетов. |
-| 1 | search_1c_metadata | query, config_version | Поиск объектов конфигурации; использовать только когда нужен объектный контекст. |
+| 1 | search_1c_standards | query | Только стандарты из памяти. |
+| 1 | search_1c_snippets | query | Только code snippets и community_help. |
+| 1 | search_1c_metadata_exact | query, config_version | Exact-first поиск объектов конфигурации. |
+| 1 | search_1c_metadata_semantic | query, config_version | Natural-language поиск объектов конфигурации. |
+| 1 | search_1c_metadata_fields | object_query, field_query | Поиск реквизитов/табличных частей/команд. |
 | 1 | get_1c_metadata_object | object_id | Детали найденного объекта конфигурации. |
 | 1 | get_form_metadata | xml_content | Разбор Form.xml (атрибуты, команды). |
 | 1 | get_module_info | uri_or_path | Тип модуля по пути к `.bsl`. |
@@ -66,4 +70,4 @@
 
 ---
 
-**Канонический AI route:** `get_1c_quick_guide` → exact API: `search_1c_help_keyword` / общий вопрос: `get_1c_code_answer` → при необходимости `get_1c_help_topic` → внешний `document_diagnostics`. **URI для внешнего LSP:** Docker — `file:///projects/<путь>`; кириллица — URL-encoding. Координаты LSP: 0-based.
+**Канонический AI route:** `get_1c_quick_guide` → exact API: `get_1c_api_answer` / topic search: `search_1c_help_keyword` or `search_1c_help` → `get_1c_help_topic` → standards/snippets: `search_1c_standards` / `search_1c_snippets` → metadata: `search_1c_metadata_exact` / `search_1c_metadata_semantic` / `search_1c_metadata_fields` → внешний `document_diagnostics`. **URI для внешнего LSP:** Docker — `file:///projects/<путь>`; кириллица — URL-encoding. Координаты LSP: 0-based.

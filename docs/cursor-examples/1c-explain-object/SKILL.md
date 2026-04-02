@@ -22,7 +22,7 @@ get_1c_metadata_object(object_id="Document/Sales")
 ```
 
 Даёт: тип объекта, реквизиты с типами, табличные части, full_name.
-При поиске объекта сначала: `search_1c_metadata(query, config_version?)`.
+При поиске объекта сначала: `search_1c_metadata_exact(query, config_version?)`; если точное имя неизвестно — `search_1c_metadata_semantic(query, config_version?)`.
 
 ### Шаг 2 — Структура формы (1c-help)
 
@@ -67,10 +67,15 @@ project_analysis(analysis_type="symbol_relationships", query="ИмяОбрабо
 ### Шаг 6 — Платформенный контекст (1c-help)
 
 ```
-get_1c_code_answer(query="как работает <тип объекта или API>")
+get_1c_api_answer(name="<Тип.Метод>")
+// или
+search_1c_help(query="<платформенный topic>") → get_1c_help_topic(topic_path=<path>)
+// или
+search_1c_standards(query="<правило>")
+search_1c_snippets(query="<пример кода>")
 ```
 
-Даёт: примеры кода, стандарты, сниппеты из памяти по теме.
+Даёт: точный API, полный topic, стандарты и примеры кода без смешивания всего в одном ответе.
 
 ---
 
@@ -131,8 +136,9 @@ git diff v1.0..v2.0 -- path/to/Documents/Sales/Ext/ObjectModule.bsl
 5. call_graph(uri="file:///projects/Documents/Sales/.../Module.bsl", line=46, character=10)
    → ВалютаПриИзменении → ПересчитатьСуммыСтрок → ОбновитьКурс
 
-6. get_1c_code_answer("валюта документа пересчёт сумм 1С")
-   → платформенный пример + стандарты
+6. search_1c_standards("валюта документа пересчёт сумм 1С")
+   + search_1c_snippets("валюта документа пересчёт сумм 1С")
+   → платформенные правила + примеры
 
 Ответ:
   Поле Валюта заполняется вручную пользователем на форме.

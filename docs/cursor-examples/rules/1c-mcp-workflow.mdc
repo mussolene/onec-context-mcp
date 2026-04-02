@@ -15,11 +15,11 @@ alwaysApply: false
 ## Канонический маршрут
 
 **1c-help (наш MCP):**
-1. Точный API/идентификатор: `search_1c_help_keyword("Тип.Метод")`.
-2. Неточный вопрос по коду или сценарию: `get_1c_code_answer(query)`.
+1. Точный API/идентификатор: `get_1c_api_answer("Тип.Метод")` или `search_1c_help_keyword("Тип.Метод")`.
+2. Общий платформенный topic: `search_1c_help(query)`.
 3. Если нужен полный текст статьи: `get_1c_help_topic(topic_path=<path>)`.
-4. Если нужны стандарты или сниппеты явно: `search_1c_memory(query, domains="standards,snippets")`.
-5. Если нужен объектный контекст: `search_1c_metadata(query)` → `get_1c_metadata_object(object_id)`.
+4. Если нужны стандарты или сниппеты явно: `search_1c_standards(query)` / `search_1c_snippets(query)`.
+5. Если нужен объектный контекст: `search_1c_metadata_exact(query)` или `search_1c_metadata_semantic(query)` → `get_1c_metadata_object(object_id)`. Для реквизитов: `search_1c_metadata_fields(object_query, field_query)`.
 6. Если ответы кажутся неполными: `get_1c_help_index_status`.
 
 **Внешний lsp-bsl-bridge:**
@@ -31,6 +31,6 @@ alwaysApply: false
 ## Чек-лист перед коммитом / ревью
 
 - [ ] Использован минимальный route `1c-help` без broad/legacy tools по умолчанию?
-- [ ] При необходимости использованы `get_1c_code_answer` или `search_1c_help_keyword`?
+- [ ] При необходимости использованы узкие tools (`get_1c_api_answer`, `search_1c_help_keyword`, `search_1c_standards`, `search_1c_snippets`, metadata exact/semantic/fields)?
 - [ ] Вызван `document_diagnostics(uri)` по изменённым модулям — нет ERROR и WARNING?
 - [ ] `save_1c_snippet` вызывался только для действительно переиспользуемого и проверенного кода?
