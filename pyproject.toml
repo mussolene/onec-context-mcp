@@ -77,6 +77,7 @@ ignore = [
 "src/onec_help/cli.py" = ["S324"]  # md5 for slug/filename only, not security
 "src/onec_help/interfaces/cli.py" = ["S324"]  # md5 for slug/filename only, not security
 "src/onec_help/parse_its_v8std.py" = ["S324"]  # md5 for safe_folder_name fallback only
+"src/onec_help/knowledge/loaders/parse_its_v8std.py" = ["S324"]  # md5 for safe_folder_name fallback only
 
 [tool.ruff.lint.isort]
 known-first-party = ["onec_help"]

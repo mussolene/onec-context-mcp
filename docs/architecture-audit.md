@@ -21,7 +21,7 @@
 |---|---|---|---|---|---|---|
 | Help core | Распаковка `.hbk`, TOC, HTML → Markdown | `unpack`, `hbk_container`, `toc_parser`, `html2md`, `categories` | `7z`, `BeautifulSoup` | Лежит рядом с runtime и MCP; нет явного namespace | `onec_help.help_core` | High |
 | Search store | Индексация справки, hybrid/BM25, чтение топиков | `indexer`, `sparse_bm25`, `embedding` | `Qdrant` | Слишком большой `indexer.py`; плотная связка с Qdrant и файловой системой | `onec_help.search_store` | High |
-| Knowledge | Memory, snippets, standards, metadata graph, task context | `memory`, `snippets_loader`, `standards_loader`, `metadata_graph`, `config_crawler`, `context_builder`, `form_metadata`, `bsl_utils` | `Qdrant`, embedding backend | Смешаны разные виды knowledge; часть маршрутов ещё использует legacy search path | `onec_help.knowledge` | High |
+| Knowledge | Memory, snippets, standards, metadata graph, task context | `memory`, `loaders/*`, `metadata_graph`, `config_crawler`, `context_builder`, `form_metadata`, `bsl_utils` | `Qdrant`, embedding backend | Смешаны разные виды knowledge; часть маршрутов ещё использует legacy search path | `onec_help.knowledge` | High |
 | Runtime | Ingest, watchdog, статусы, redis cache, metrics | `ingest`, `watchdog`, `redis_cache`, `dashboard_data`, `mcp_metrics` | `Redis`, `Qdrant` | Runtime-критичные модули лежат в корне; `redis_cache` слишком мягко деградирует в no-op | `onec_help.runtime` | High |
 | Interfaces | MCP server, CLI, dashboard render | `mcp_server`, `cli`, `dashboard_render` | `FastMCP`, terminal UI | Крупные entry modules, слишком много import fan-out | `onec_help.interfaces` | High |
 | Shared config/utils | env, HTTP helpers, общие утилиты | `env_config`, `_http`, `_utils` | stdlib | Плоские cross-cutting imports через весь пакет | `onec_help.shared` | Medium |
@@ -73,17 +73,18 @@ onec_help/
 
 - `knowledge/`
   - `memory.py`
-  - `snippets_loader.py`
-  - `snippet_classifier.py`
-  - `standards_loader.py`
-  - `parse_fastcode.py`
-  - `parse_helpf.py`
-  - `parse_its_v8std.py`
   - `metadata_graph.py`
   - `config_crawler.py`
   - `context_builder.py`
   - `form_metadata.py`
   - `bsl_utils.py`
+  - `loaders/`
+    - `snippets_loader.py`
+    - `snippet_classifier.py`
+    - `standards_loader.py`
+    - `parse_fastcode.py`
+    - `parse_helpf.py`
+    - `parse_its_v8std.py`
 
 - `runtime/`
   - `ingest.py`
