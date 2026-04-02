@@ -19,6 +19,7 @@
 - [reference/mcp-tools-reference.md](reference/mcp-tools-reference.md) - полный reference по параметрам и лимитам
 - [reference/metadata-export.md](reference/metadata-export.md) - route для выгрузки и индексации метаданных 1С
 - [reference/structured-help-scorecard.md](reference/structured-help-scorecard.md) - метрики качества structured help и stop criteria для extractor
+- [reference/structured-help-jsonl-first-plan.md](reference/structured-help-jsonl-first-plan.md) - план перехода к JSONL-first help
 - [reference/embedding.md](reference/embedding.md) - embedding pipeline, backends и retry
 - [reference/help-formats.md](reference/help-formats.md) - форматы `.hbk`, HTML и Markdown
 - [reference/search-and-mcp.md](reference/search-and-mcp.md) - рекомендации по качеству поиска и MCP usage
