@@ -160,4 +160,4 @@ file:///projects/src/DataProcessors/.../Forms/.../Ext/Form/Module.bsl
 
 ## Дополнительно
 
-См. [reference.md](reference.md): URI, примеры вызовов, команды тестирования (pytest, YaxUnit, Vanessa, CoverageBSL). См. `docs/1c-testing-guide.md`: что тестировать YaxUnit, что — Vanessa (xdd/UI), где искать тесты. По запросам и соединениям — `docs/query-joins-standards.md`.
+См. [reference.md](reference.md): URI, примеры вызовов, команды тестирования (pytest, YaxUnit, Vanessa, CoverageBSL). См. `docs/reference/1c-testing-guide.md`: что тестировать YaxUnit, что — Vanessa (xdd/UI), где искать тесты. По запросам и соединениям — `docs/query-joins-standards.md`.

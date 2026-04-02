@@ -1,5 +1,7 @@
 # Metadata Export
 
+Читайте этот файл, если нужно выгрузить и проиндексировать метаданные конфигурации 1С рекомендуемым способом.
+
 Основной артефакт для метаданных 1С в этом репозитории:
 
 - [tools/1c/MetadataExport.epf](/Users/maxon/git/me/1c_hbk_helper/tools/1c/MetadataExport.epf)

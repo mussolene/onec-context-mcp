@@ -3,7 +3,7 @@
 **Дата:** 2026-02-27  
 **Последнее обновление:** 2026-03-01  
 **Инструменты:** pip-audit, bandit, ruff  
-**CI:** trivy, hadolint — [.github/workflows/security.yml](../../.github/workflows/security.yml)
+**CI:** trivy, hadolint — [.github/workflows/security.yml](../../../.github/workflows/security.yml)
 
 ---
 

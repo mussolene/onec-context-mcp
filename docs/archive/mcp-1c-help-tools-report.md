@@ -217,8 +217,8 @@
 
 ## Оформление для Cursor и MCP
 
-- **Skill:** [docs/cursor-examples/1c-mcp-tools-report/SKILL.md](cursor-examples/1c-mcp-tools-report/SKILL.md) — выжимка по полноте знаний, порядку вызовов и подводным камням. Копировать в `.cursor/skills/1c-mcp-tools-report/`.
-- **Правила:** [docs/cursor-examples/rules/1c-mcp-tools-report.mdc](cursor-examples/rules/1c-mcp-tools-report.mdc), [docs/cursor-examples/rules/1c-mcp-workflow.mdc](cursor-examples/rules/1c-mcp-workflow.mdc) — рекомендации при работе с .bsl и Form.xml. Копировать в `.cursor/rules/`.
+- **Skill:** [docs/cursor-examples/1c-mcp-tools-report/SKILL.md](../cursor-examples/1c-mcp-tools-report/SKILL.md) — выжимка по полноте знаний, порядку вызовов и подводным камням. Копировать в `.cursor/skills/1c-mcp-tools-report/`.
+- **Правила:** [docs/cursor-examples/rules/1c-mcp-tools-report.mdc](../cursor-examples/rules/1c-mcp-tools-report.mdc), [docs/cursor-examples/rules/1c-mcp-workflow.mdc](../cursor-examples/rules/1c-mcp-workflow.mdc) — рекомендации при работе с .bsl и Form.xml. Копировать в `.cursor/rules/`.
 - **Промпт MCP:** сервер 1c-help экспонирует промпт `how_to_use_1c_help_and_bsl_bridge(task)` — возвращает инструкцию по 1c-help и lsp-bsl-bridge. Параметр **task** (необязательный): `"all"` (по умолчанию) — полный текст; `"develop"` | `"refactor"` | `"test"` — только релевантный блок (меньше токенов). Вызвать из клиента MCP и вставить результат в чат.
 
 ### Как получить инструкцию по умолчанию и когда вызывать промпт
@@ -281,9 +281,9 @@
 
 ### Оценка: хватает ли справочной информации
 
-- **В репозитории:** отчёт `docs/mcp-1c-help-tools-report.md` (таблицы по всем инструментам, лимиты, подводные камни, порядок вызовов), скилл `docs/cursor-examples/1c-mcp-tools-report/SKILL.md` (выжимка), правила `1c-mcp-workflow.mdc` и `1c-mcp-tools-report.mdc`. Агент может читать эти файлы — этого достаточно, чтобы выбирать нужный инструмент, формат URI и обходить типичные ошибки (topic_path не path, keyword для точного API, URL-encoding для кириллицы).
+- **В репозитории:** отчёт `docs/archive/mcp-1c-help-tools-report.md` (таблицы по всем инструментам, лимиты, подводные камни, порядок вызовов), скилл `docs/cursor-examples/1c-mcp-tools-report/SKILL.md` (выжимка), правила `1c-mcp-workflow.mdc` и `1c-mcp-tools-report.mdc`. Агент может читать эти файлы — этого достаточно, чтобы выбирать нужный инструмент, формат URI и обходить типичные ошибки (topic_path не path, keyword для точного API, URL-encoding для кириллицы).
 - **В MCP:** промпты how_to_use_1c_help_and_bsl_bridge(task), get_mcp_workflow_guide, get_mcp_tools_tips, get_mcp_tools_summary, get_mcp_guides_bundle отдают актуальный текст при настроенном MCP_CURSOR_DOCS_PATH; вызов промптов — со стороны клиента (пользователь вставляет в чат). Агент при необходимости может опереться на файлы в docs/.
-- **Шпаргалка:** [docs/mcp-tools-cheatsheet.md](mcp-tools-cheatsheet.md) — одна страница: инструмент, ключевой параметр, одна строка назначения; плюс промпты и кратко URI/порядок вызовов.
+- **Шпаргалка:** [docs/reference/mcp-tools-cheatsheet.md](../reference/mcp-tools-cheatsheet.md) — одна страница: инструмент, ключевой параметр, одна строка назначения; плюс промпты и кратко URI/порядок вызовов.
 
 **Итог по справочной информации:** для использования данного MCP справочной информации **хватает** (отчёт + скилл + правила в репозитории; при необходимости — промпты MCP для вставки в чат).
 
@@ -300,10 +300,10 @@
 
 ## См. также
 
-- [docs/mcp-tools-cheatsheet.md](mcp-tools-cheatsheet.md) — одностраничная шпаргалка (инструмент + параметр + назначение).
-- [docs/mcp-tools-reference.md](mcp-tools-reference.md) — краткий справочник по 1c-help.
-- [docs/quality-and-pitfalls-analysis.md](quality-and-pitfalls-analysis.md) — качество ответов и подводные камни.
-- [AGENTS.md](../AGENTS.md) — workflow, два MCP, ingest, тестирование.
+- [docs/reference/mcp-tools-cheatsheet.md](../reference/mcp-tools-cheatsheet.md) — одностраничная шпаргалка (инструмент + параметр + назначение).
+- [docs/reference/mcp-tools-reference.md](../reference/mcp-tools-reference.md) — краткий справочник по 1c-help.
+- [docs/archive/quality-and-pitfalls-analysis.md](quality-and-pitfalls-analysis.md) — качество ответов и подводные камни.
+- [AGENTS.md](../../AGENTS.md) — workflow, два MCP, ingest, тестирование.
 
 ---
 

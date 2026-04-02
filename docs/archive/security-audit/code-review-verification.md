@@ -27,5 +27,5 @@
 
 ## CI
 
-- pip-audit, hadolint, trivy — в [.github/workflows/security.yml](../../.github/workflows/security.yml)
+- pip-audit, hadolint, trivy — в [.github/workflows/security.yml](../../../.github/workflows/security.yml)
 - pip обновляется до >=26 перед pip-audit (CVE-2026-1703)

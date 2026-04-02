@@ -1,6 +1,8 @@
 # Справочник MCP-инструментов 1c-help
 
-Единая ссылка на все инструменты MCP-сервера 1c-help: параметры, лимиты, рекомендуемый порядок вызовов.
+Читайте этот файл, когда уже нужен полный reference по MCP tools: параметры, лимиты, порядок вызовов и частые ошибки в аргументах.
+
+Быстрая версия без деталей: [mcp-tools-cheatsheet.md](mcp-tools-cheatsheet.md).
 
 ## Рекомендуемый порядок вызовов
 
@@ -126,8 +128,8 @@
 
 ## См. также
 
-- [docs/mcp-1c-help-tools-report.md](mcp-1c-help-tools-report.md) — исчерпывающий отчёт по всем инструментам 1c-help и lsp-bsl-bridge, результаты прогона, полнота знаний для проекта 1С.
-- [AGENTS.md](../AGENTS.md) — порядок вызовов, два MCP (1c-help + lsp-bsl-bridge), workflow.
-- [docs/cursor-examples/](cursor-examples/README.md) — Skill и Rules для Cursor.
-- [docs/mcp-analysis.md](mcp-analysis.md) — анализ использования и типовые просадки.
-- [docs/quality-and-pitfalls-analysis.md](quality-and-pitfalls-analysis.md) — влияние индексации, обрезка эмбеддингов, как получать готовый код и типичные подводные камни.
+- [../archive/mcp-1c-help-tools-report.md](../archive/mcp-1c-help-tools-report.md) — исчерпывающий отчёт по всем инструментам 1c-help и lsp-bsl-bridge, результаты прогона, полнота знаний для проекта 1С.
+- [../../AGENTS.md](../../AGENTS.md) — порядок вызовов, два MCP (1c-help + lsp-bsl-bridge), workflow.
+- [../cursor-examples/README.md](../cursor-examples/README.md) — Skill и Rules для Cursor.
+- [../archive/mcp-analysis.md](../archive/mcp-analysis.md) — анализ использования и типовые просадки.
+- [../archive/quality-and-pitfalls-analysis.md](../archive/quality-and-pitfalls-analysis.md) — влияние индексации, обрезка эмбеддингов, как получать готовый код и типичные подводные камни.

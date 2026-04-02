@@ -48,9 +48,9 @@ docs/cursor-examples/
 ## Связь с проектом
 
 - См. [AGENTS.md](../../AGENTS.md) — workflow разработки 1С с BSL LS, embedding и индексация.
-- См. [1c-testing-guide.md](../1c-testing-guide.md) — тестирование 1С: YaxUnit (unit), Vanessa-Automation (BDD, xdd, UI), где искать тесты, что применять.
-- См. [embedding.md](../embedding.md) — пайплайн embedding (batch/single, retry, 429), точки интеграции.
-- См. [mcp-tools-cheatsheet.md](../mcp-tools-cheatsheet.md) — одностраничная шпаргалка по инструментам и промптам.
-- См. [mcp-tools-reference.md](../mcp-tools-reference.md) — справочник MCP-инструментов 1c-help (параметры, лимиты, порядок вызовов).
-- См. [mcp-1c-help-tools-report.md](../mcp-1c-help-tools-report.md) — отчёт о полноте 1c-help и lsp-bsl-bridge, результаты прогона, рекомендации; оформлен как skill и правило в 1c-mcp-tools-report.
-- См. [bsl-ls-mcp-setup.md](../bsl-ls-mcp-setup.md) — подключение BSL LS как MCP.
+- См. [1c-testing-guide.md](../reference/1c-testing-guide.md) — тестирование 1С: YaxUnit (unit), Vanessa-Automation (BDD, xdd, UI), где искать тесты, что применять.
+- См. [embedding.md](../reference/embedding.md) — пайплайн embedding (batch/single, retry, 429), точки интеграции.
+- См. [mcp-tools-cheatsheet.md](../reference/mcp-tools-cheatsheet.md) — одностраничная шпаргалка по инструментам и промптам.
+- См. [mcp-tools-reference.md](../reference/mcp-tools-reference.md) — справочник MCP-инструментов 1c-help (параметры, лимиты, порядок вызовов).
+- См. [mcp-1c-help-tools-report.md](../archive/mcp-1c-help-tools-report.md) — отчёт о полноте 1c-help и lsp-bsl-bridge, результаты прогона, рекомендации; оформлен как skill и правило в 1c-mcp-tools-report.
+- См. [bsl-ls-mcp-setup.md](../reference/bsl-ls-mcp-setup.md) — подключение BSL LS как MCP.

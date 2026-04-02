@@ -1,5 +1,7 @@
 # Подключение BSL LS как MCP-сервера в Cursor
 
+Читайте этот файл, если нужно подключить внешний `lsp-bsl-bridge` и использовать диагностику и навигацию по BSL-коду вместе с 1c-help.
+
 Инструкция по настройке **mcp-bsl-lsp-bridge** — MCP-сервера, дающего AI-агентам (Cursor, Claude Code) доступ к BSL Language Server: навигация, поиск, диагностика, рефакторинг для кода 1С и OneScript.
 
 ## Интегрированный вариант (этот проект)
@@ -19,7 +21,7 @@ docker compose -f docker-compose.bsl.yml up -d
 
 Сервис `bsl-bridge` собирается из [mcp-bsl-lsp-bridge](https://github.com/SteelMorgan/mcp-bsl-lsp-bridge) (локальный клон в `deps/`, нужен `make fetch-bsl-bridge`). В `.cursor/mcp.json` добавлен `lsp-bsl-bridge`. Контейнер: `mcp-lsp-1c-hbk-helper`. Проверка: tool `lsp_status`.
 
-**Skill и Rules для Cursor:** см. [docs/cursor-examples/](cursor-examples/README.md) — примеры для индексации; при изменении workflow обновляйте `docs/cursor-examples/` как зависимость.
+**Skill и Rules для Cursor:** см. [docs/cursor-examples/](../cursor-examples/README.md) — примеры для индексации; при изменении workflow обновляйте `docs/cursor-examples/` как зависимость.
 
 Переменные в `.env` (опционально): `BSL_CONTAINER_MEMORY`, `BSL_LS_VERSION`, `MCP_LSP_BSL_JAVA_XMX` и др.
 

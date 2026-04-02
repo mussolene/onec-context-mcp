@@ -7,7 +7,7 @@
 ### Сценарий 1: Написание кода по справке (криптография / библиотека из .nosync)
 
 - **Задача:** «Напиши пример подписания данных через интерфейс из нашей библиотеки» или «как подписать данные в 1С».
-- **Ожидаемый workflow (по [SKILL.md](cursor-examples/1c-mcp-development/SKILL.md)):**
+- **Ожидаемый workflow (по [SKILL.md](../cursor-examples/1c-mcp-development/SKILL.md)):**
   1. Вызов `get_1c_code_answer(query)` для примеров.
   2. При скудном/нерелевантном результате — `search_1c_help_keyword("МенеджерКриптографии")` или точное имя API, затем `get_1c_help_topic(topic_path)`.
   3. Реализация или адаптация кода.
@@ -43,6 +43,6 @@
 
 ## Где обновлять при расхождениях
 
-- **Skill:** [docs/cursor-examples/1c-mcp-development/SKILL.md](cursor-examples/1c-mcp-development/SKILL.md) — матрица выбора инструментов, циклы, типичные промахи.
-- **Rules:** [docs/cursor-examples/rules/1c-mcp-workflow.mdc](cursor-examples/rules/1c-mcp-workflow.mdc), [1c-project-conventions.mdc](cursor-examples/rules/1c-project-conventions.mdc).
-- После изменений в MCP или workflow обновлять также [AGENTS.md](../AGENTS.md) и [docs/cursor-examples/README.md](cursor-examples/README.md) при необходимости.
+- **Skill:** [docs/cursor-examples/1c-mcp-development/SKILL.md](../cursor-examples/1c-mcp-development/SKILL.md) — матрица выбора инструментов, циклы, типичные промахи.
+- **Rules:** [docs/cursor-examples/rules/1c-mcp-workflow.mdc](../cursor-examples/rules/1c-mcp-workflow.mdc), [1c-project-conventions.mdc](../cursor-examples/rules/1c-project-conventions.mdc).
+- После изменений в MCP или workflow обновлять также [AGENTS.md](../../AGENTS.md) и [docs/cursor-examples/README.md](../cursor-examples/README.md) при необходимости.

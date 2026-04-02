@@ -11,7 +11,7 @@ alwaysApply: false
 
 # 1C Testing Workflow
 
-Подробнее: `docs/1c-testing-guide.md` (в репозитории 1c_hbk_helper). При написании/правке тестов 1С использовать MCP: **1c-help** (примеры API, поиск по справке), **lsp-bsl-bridge** (`document_diagnostics` по модулю теста/шагов).
+Подробнее: `docs/reference/1c-testing-guide.md` (в репозитории 1c_hbk_helper). При написании/правке тестов 1С использовать MCP: **1c-help** (примеры API, поиск по справке), **lsp-bsl-bridge** (`document_diagnostics` по модулю теста/шагов).
 
 ## BSL LS (статический анализ)
 

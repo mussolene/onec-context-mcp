@@ -321,7 +321,7 @@ def main() -> None:
             print(f"  {name}: ERROR - {data['error'][:100]}")
         else:
             print(f"  {name}: dim={data['dim']}, latency_ms~{data['latency_first_ms']}, cosine={data['cosine_similar']}")
-    print("\nDone. Use results to choose EMBEDDING_BACKEND and EMBEDDING_API_URL (see docs/embedding-models-analysis.md).")
+    print("\nDone. Use results to choose EMBEDDING_BACKEND and EMBEDDING_API_URL (see docs/archive/embedding-models-analysis.md).")
 
 
 def main_compare() -> None:

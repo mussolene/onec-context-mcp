@@ -2194,7 +2194,7 @@ def _build_mcp_app(help_path: Path) -> Any:
 
 ---
 6) LIMITS
-- query and xml_content: up to 64 KB. Topic content preview: MCP_MAX_TOPIC_CHARS (default 4000). Full topic: get_1c_help_topic(topic_path). Bulk topics: get_1c_help_topics_bulk(paths=[...]). Full report: docs/mcp-1c-help-tools-report.md."""
+- query and xml_content: up to 64 KB. Topic content preview: MCP_MAX_TOPIC_CHARS (default 4000). Full topic: get_1c_help_topic(topic_path). Bulk topics: get_1c_help_topics_bulk(paths=[...]). Full report: docs/archive/mcp-1c-help-tools-report.md."""
 
     @mcp.prompt
     def get_mcp_guides_bundle() -> str:

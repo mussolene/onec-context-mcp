@@ -95,7 +95,7 @@ ruff check src tests && ruff format src tests
 
 ## Инструменты тестирования 1С/BSL
 
-Подробно: `docs/1c-testing-guide.md` в репозитории.
+Подробно: `docs/reference/1c-testing-guide.md` в репозитории.
 
 - **BSL LS** (`document_diagnostics`): статический анализ — ошибки, предупреждения, стиль. Вызывать после каждой правки; это не runtime-тесты.
 - **YaxUnit** (или xUnitFor1C): unit-тесты процедур/функций 1С. **Где искать:** `Tests/`, подсистемы тестов, модули `*Тест*`. Запуск через 1С:Предприятие, EDT или CLI.

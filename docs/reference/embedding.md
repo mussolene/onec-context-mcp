@@ -1,10 +1,12 @@
 # Embedding и индексация
 
+Читайте этот файл, когда нужно менять embedding backend, разбираться с retry/rate limit или проверять согласованность индексации и поиска.
+
 ## Обзор
 
 Эмбеддинги используются для семантического поиска по справке 1С, сниппетам и событиям памяти. Все точки входа используют единый пайплайн: sanitize, truncation, retry, rate limiting.
 
-**Сравнение моделей и выбор под MacBook M1 (2026):** см. [embedding-models-analysis.md](embedding-models-analysis.md).
+**Сравнение моделей и выбор под MacBook M1 (2026):** см. [../archive/embedding-models-analysis.md](../archive/embedding-models-analysis.md).
 
 ## Бэкенды
 

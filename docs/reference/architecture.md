@@ -1,5 +1,9 @@
 # Архитектура 1C Help MCP
 
+Читайте этот файл, если нужен технический reference по сервисам, deployment-режимам и operational поведению.
+
+Краткое объяснение без деталей: [../explanation/how-it-works.md](../explanation/how-it-works.md).
+
 ## Сервисы и ответственность
 
 | Сервис | Роль | Ресурсы | Порт |
@@ -14,7 +18,7 @@
 - **onec_help** — основной индекс справки 1С (пишет ingest/indexer)
 - **onec_help_memory** — snippets, standards, session events (пишут memory, load-snippets, load-standards)
 
-Подробнее об embedding, batch-пайплайне, retry и переменных — см. [docs/embedding.md](embedding.md).
+Подробнее об embedding, batch-пайплайне, retry и переменных — см. [embedding.md](embedding.md).
 
 ## Режимы развёртывания
 

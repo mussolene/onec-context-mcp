@@ -239,7 +239,7 @@ docker exec <ingest-worker-container> tail -500 /app/var/ingest_cache/ingest_std
 3. Перезапуск: при необходимости снова запустить ingest; статус в dashboard обновится после первой записи нового run.
 4. При повторяющихся 429/таймаутах — уменьшить `EMBEDDING_BATCH_SIZE` и `EMBEDDING_WORKERS`, при необходимости увеличить `EMBEDDING_TIMEOUT`.
 
-См. также: `docs/embedding.md`, раздел «Ingest: переиндексация при перезапуске» в AGENTS.md.
+См. также: `docs/reference/embedding.md`, раздел «Ingest: переиндексация при перезапуске» в AGENTS.md.
 
 ---
 

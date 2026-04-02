@@ -51,7 +51,7 @@
   2) при нерелевантности — `search_1c_help_keyword` с точным именем API → `get_1c_help_topic(topic_path)`;  
   3) при нескольких совпадениях в `get_1c_function_info` — `choose_index` (1-based);  
   4) после рабочего кода — `save_1c_snippet`.  
-  Реализация инструментов и описание в `docs/mcp-tools-reference.md` этому соответствуют.
+  Реализация инструментов и описание в `docs/reference/mcp-tools-reference.md` этому соответствуют.
 - **Типичные ошибки из skill:** в коде используется только `topic_path`; в справочнике явно указано «параметр только topic_path (не path)».
 
 ---
@@ -82,7 +82,7 @@
    ```
    чтобы не задевать контракт инструментов.
 2. **Живая проверка:** периодически запускать интеграционные тесты с поднятым MCP (`MCP_INTEGRATION=1`) для проверки связки MCP + Qdrant + Redis.
-3. **Документация:** при добавлении новых инструментов обновлять `docs/mcp-tools-reference.md` и при необходимости `docs/mcp-1c-help-tools-report.md` и skill в `docs/cursor-examples/`.
+3. **Документация:** при добавлении новых инструментов обновлять `docs/reference/mcp-tools-reference.md` и при необходимости `docs/archive/mcp-1c-help-tools-report.md` и skill в `docs/cursor-examples/`.
 
 ---
 
@@ -115,9 +115,9 @@
 
 ## 7. Связанные документы
 
-- [docs/mcp-tools-reference.md](mcp-tools-reference.md) — параметры и лимиты всех инструментов.
-- [docs/mcp-1c-help-tools-report.md](mcp-1c-help-tools-report.md) — полнота знаний и примеры прогона по проекту (.nosync).
-- [AGENTS.md](../AGENTS.md) — порядок вызовов, два MCP (1c-help + lsp-bsl-bridge).
+- [docs/reference/mcp-tools-reference.md](../reference/mcp-tools-reference.md) — параметры и лимиты всех инструментов.
+- [docs/archive/mcp-1c-help-tools-report.md](mcp-1c-help-tools-report.md) — полнота знаний и примеры прогона по проекту (.nosync).
+- [AGENTS.md](../../AGENTS.md) — порядок вызовов, два MCP (1c-help + lsp-bsl-bridge).
 - Skill: `.cursor/skills/1c-mcp-development/SKILL.md` — матрица выбора инструментов и циклы (написание кода, рефакторинг).
 
 *(Раздел 6 добавлен по результатам повторной проверки вызовов всех инструментов в чате.)*

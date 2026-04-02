@@ -5,7 +5,7 @@ description: Выжимка по роли MCP 1c-help и внешнего lsp-bs
 
 # Отчёт по инструментам MCP (выжимка)
 
-Основано на [docs/mcp-1c-help-tools-report.md](../../mcp-1c-help-tools-report.md). Полный отчёт — таблицы по инструментам 1c-help и внешнего lsp-bsl-bridge, результаты прогона, лимиты и подводные камни.
+Основано на [docs/archive/mcp-1c-help-tools-report.md](../../archive/mcp-1c-help-tools-report.md). Полный отчёт — таблицы по инструментам 1c-help и внешнего lsp-bsl-bridge, результаты прогона, лимиты и подводные камни.
 
 ## Полнота знаний: когда чего хватает
 
@@ -67,5 +67,5 @@ description: Выжимка по роли MCP 1c-help и внешнего lsp-bs
 
 ## Ссылки
 
-- **В этом репозитории (1c_hbk_helper):** шпаргалка [mcp-tools-cheatsheet.md](../../mcp-tools-cheatsheet.md), отчёт [mcp-1c-help-tools-report.md](../../mcp-1c-help-tools-report.md), [mcp-tools-reference.md](../../mcp-tools-reference.md), [AGENTS.md](../../AGENTS.md).
+- **В этом репозитории (1c_hbk_helper):** шпаргалка [mcp-tools-cheatsheet.md](../../reference/mcp-tools-cheatsheet.md), отчёт [mcp-1c-help-tools-report.md](../../archive/mcp-1c-help-tools-report.md), [mcp-tools-reference.md](../../reference/mcp-tools-reference.md), [AGENTS.md](../../../AGENTS.md).
 - **Вне этого репозитория:** те же руководства можно получить через MCP 1c-help — промпт **get_mcp_guides_bundle** (если сервер запущен с MCP_CURSOR_DOCS_PATH).

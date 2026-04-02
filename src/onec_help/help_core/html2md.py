@@ -1,6 +1,6 @@
 """Convert 1C help HTML to Markdown (one .md per article).
 Supports: (1) V8SH_* schema (Syntax Helper), (2) Legacy schema (H1–H6, tables, STRONG sections).
-See docs/help_formats.md for formal spec."""
+See docs/reference/help-formats.md for formal spec."""
 
 import html
 import os

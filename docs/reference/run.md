@@ -1,10 +1,14 @@
 # Запуск 1C Help
 
+Читайте этот файл, если нужен расширенный запуск: локальный `pip`, Docker Compose details, advanced сценарии и troubleshooting.
+
+Если нужен быстрый старт без деталей, начните с [../getting-started/quick-start.md](../getting-started/quick-start.md).
+
 ## Локально
 
 ### Вариант A: ingest (рекомендуется)
 
-Одна команда: распаковка .hbk, конвертация в Markdown, индексация в Qdrant. Подробнее см. [README.md](../README.md).
+Одна команда: распаковка `.hbk`, конвертация в Markdown, индексация в Qdrant. Верхний вход проекта: [../../README.md](../../README.md).
 
 ```bash
 # Qdrant уже запущен (Docker)

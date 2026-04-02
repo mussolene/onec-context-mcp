@@ -1,6 +1,6 @@
 # Runbook: аудит безопасности и NDA
 
-Пошаговый сценарий проведения аудита по плану «Security Audit and NDA» (см. `docs/security-audit-prompt.md`).
+Пошаговый сценарий проведения аудита по плану «Security Audit and NDA» (см. [security-audit-prompt.md](../security-audit-prompt.md)).
 
 ## Фаза 1: Подготовка
 
@@ -46,7 +46,7 @@
    - [ ] MCP rate limit и лимиты query/code_snippet (64 KB)
 
 2. **Docker**
-   - В CI: [.github/workflows/security.yml](../../.github/workflows/security.yml) — hadolint, trivy fs
+   - В CI: [.github/workflows/security.yml](../../../.github/workflows/security.yml) — hadolint, trivy fs
    - Локально (если установлены): `trivy fs .`, `hadolint Dockerfile`
 
 ## Фаза 4: Отчёт

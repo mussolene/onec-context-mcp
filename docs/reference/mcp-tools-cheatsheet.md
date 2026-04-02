@@ -1,6 +1,8 @@
 # MCP 1c-help и внешний lsp-bsl-bridge — шпаргалка
 
-Одна страница: инструмент → ключевой параметр → назначение. Подробно: [mcp-1c-help-tools-report.md](mcp-1c-help-tools-report.md).
+Читайте этот файл, если нужна короткая памятка по выбору инструмента без полного reference.
+
+Одна страница: инструмент → ключевой параметр → назначение. Подробно: [../archive/mcp-1c-help-tools-report.md](../archive/mcp-1c-help-tools-report.md).
 
 ---
 

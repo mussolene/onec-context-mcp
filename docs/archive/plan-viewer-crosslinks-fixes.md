@@ -8,7 +8,7 @@
 - **Обработка ошибок:** при ошибке `fetch` (не OK или `data.error`) в области контента показывается сообщение об ошибке вместо пустого экрана.
 
 ### 2. Кросс-ссылки в контенте из индекса (Markdown)
-- В `tree._rewrite_content_links()` учёт текущей страницы: относительные ссылки в Markdown (например `[Текст](OtherTopic)`) разрешаются относительно текущей страницы: для темы `8.2.19.130/1cv8_ru/MessageWindow` ссылка `OtherTopic` превращается в `/content/8.2.19.130/1cv8_ru/OtherTopic`, а не в `/content/OtherTopic`.
+- В `tree._rewrite_content_links()` учёт текущей страницы: относительные ссылки в Markdown на соседнюю тему разрешаются относительно текущей страницы; для темы `8.2.19.130/1cv8_ru/MessageWindow` ссылка `OtherTopic` превращается в `/content/8.2.19.130/1cv8_ru/OtherTopic`, а не в `/content/OtherTopic`.
 - Контент из Qdrant (Markdown → HTML) передаётся в `_rewrite_content_links(html, base, current_file)` с соответствующим `current_file`/путём, поэтому ссылки внутри статей из индекса ведут на корректные пути.
 
 ### 3. Что уже было и остаётся

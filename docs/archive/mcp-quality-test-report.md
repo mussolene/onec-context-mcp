@@ -18,7 +18,7 @@
 
 ## Чек-лист запросов
 
-Источники: [tests/fixtures/mcp_crypto_queries.json](../tests/fixtures/mcp_crypto_queries.json) (крипто), [mcp-tools-test-report.md](mcp-tools-test-report.md) (СКД и общие).
+Источники: [tests/fixtures/mcp_crypto_queries.json](../../tests/fixtures/mcp_crypto_queries.json) (крипто), [mcp-tools-test-report.md](mcp-tools-test-report.md) (СКД и общие).
 
 | № | Запрос | Инструмент(ы) | Релевантность | Полнота | Примечание |
 |---|--------|----------------|---------------|---------|------------|
@@ -36,6 +36,6 @@
 
 ## См. также
 
-- [mcp-tools-reference.md](mcp-tools-reference.md) — параметры и порядок вызовов.
+- [mcp-tools-reference.md](../reference/mcp-tools-reference.md) — параметры и порядок вызовов.
 - [quality-and-pitfalls-analysis.md](quality-and-pitfalls-analysis.md) — причины просадок качества и рекомендации.
-- [docs/cursor-examples/1c-mcp-development/SKILL.md](cursor-examples/1c-mcp-development/SKILL.md) — матрица выбора инструментов и типичные промахи.
+- [docs/cursor-examples/1c-mcp-development/SKILL.md](../cursor-examples/1c-mcp-development/SKILL.md) — матрица выбора инструментов и типичные промахи.
