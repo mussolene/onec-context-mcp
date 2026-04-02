@@ -204,6 +204,7 @@ clear-dashboard-errors:
 
 # Построить compact snapshot из KD2 XML выгрузки.
 # Пример: make kd2-snapshot-build XML_PATH=/data/kd2/ВыгрузкаБП30.xml OUT=data/kd2_snapshot
+# XML рекомендуется получать через tools/1c/MetadataExport.epf, а не через выгрузку конфигурации в файлы.
 kd2-snapshot-build:
 	@test -n "$(XML_PATH)" || (echo "Usage: make kd2-snapshot-build XML_PATH=/path/export.xml OUT=data/kd2_snapshot" && exit 1)
 	$(COMPOSE) exec $(INGEST_SERVICE) python -m onec_help kd2-snapshot-build "$(XML_PATH)" -o "$(or $(OUT),data/kd2_snapshot)"
@@ -289,7 +290,7 @@ help:
 	@echo "  make qdrant-logs      Логи qdrant (при exit 101)"
 	@echo "  make ingest-logs     Логи ingest-worker (эмбеддинги, fallback)"
 	@echo "  make reset-metadata-watchdog  Сбросить metadata в watchdog и сразу запустить metadata-graph-build (нужен make ingest-up)"
-	@echo "  make kd2-snapshot-build      Построить compact snapshot из KD2 XML (XML_PATH=... OUT=...)"
+	@echo "  make kd2-snapshot-build      Построить compact snapshot из KD2 XML (источник XML: tools/1c/MetadataExport.epf)"
 	@echo "  make metadata-build          Запустить metadata-graph-build вручную (primary: KD2 XML/snapshot; files route deprecated)"
 	@echo "  make metadata-watchdog-debug Диагностика: путь конфигурации, find_config_root, число файлов, ключ Redis"
 	@echo "  make ollama-logs      Последние 100 строк лога Ollama (~/.ollama/logs/server.log)"

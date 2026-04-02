@@ -9,7 +9,7 @@
 
 Справка 1С: распаковка .hbk (7z), конвертация в Markdown, индексация в Qdrant, MCP-сервер для поиска и чтения справки.
 
-Метаданные конфигурации 1С теперь ориентированы на **KD 2.0 XML export → compact snapshot → Qdrant**. Старый route через выгрузку конфигурации в файлы (`data/config`, `ONEC_CONFIG_SOURCE_DIR`) оставлен как **deprecated fallback**, а не как основной источник.
+Метаданные конфигурации 1С теперь ориентированы на **KD 2.0 XML export → compact snapshot → Qdrant**. Основной артефакт обработки лежит в [tools/1c/MetadataExport.epf](/Users/maxon/git/me/1c_hbk_helper/tools/1c/MetadataExport.epf). Старый route через выгрузку конфигурации в файлы (`data/config`, `ONEC_CONFIG_SOURCE_DIR`) оставлен как **deprecated fallback**, а не как основной источник.
 
 Контрибьюторам: см. [CONTRIBUTING.md](CONTRIBUTING.md) (формат коммитов — Conventional Commits).
 
@@ -127,6 +127,8 @@ pip install -e ".[dev]"
 Primary route:
 
 ```bash
+cp tools/1c/MetadataExport.epf <каталог-с-обработками-в-1С>/
+# выгрузить XML через MetadataExport.epf в data/kd2/<Имя>.xml
 python -m onec_help kd2-snapshot-build /path/ВыгрузкаБП30.xml -o data/kd2_snapshot
 python -m onec_help metadata-graph-build data/kd2_snapshot --source-format kd2-snapshot
 ```
@@ -144,6 +146,8 @@ python -m onec_help metadata-graph-build data/config --source-format files
 ```
 
 Route `files` оставлен только для сценариев, где нужен full-fidelity source по формам/модулям/UI и где KD 2.0 выгрузка пока недостаточна.
+
+Подробно: [docs/metadata-export.md](/Users/maxon/git/me/1c_hbk_helper/docs/metadata-export.md)
 | `WATCHDOG_ENABLED` | По умолчанию `1` — watchdog включён (split: ingest-worker; full: в фоне). `0` — отключить | `1` |
 | `WATCHDOG_POLL_INTERVAL` | Интервал проверки новых .hbk (секунды) | `600` |
 | `WATCHDOG_PENDING_INTERVAL` | Интервал обработки pending embeddings (секунды) | `600` |
