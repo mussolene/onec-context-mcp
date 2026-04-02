@@ -5,6 +5,7 @@ from pathlib import Path
 from onec_help.knowledge.help_structured import (
     build_structured_api_snapshot,
     extract_api_records_from_topic,
+    extract_structured_records_from_html_topic,
     extract_structured_records_from_topic,
     index_structured_api_members,
     index_structured_api_objects,
@@ -73,10 +74,11 @@ def test_build_structured_api_snapshot_from_mocked_index(tmp_path: Path) -> None
         }
     ]
     with patch("onec_help.knowledge.help_structured.iter_help_topics_from_index", return_value=topics):
-        manifest = build_structured_api_snapshot(tmp_path)
+        manifest = build_structured_api_snapshot(tmp_path, unpacked_dir=tmp_path / "missing-unpacked")
     assert manifest["objects"] == 1
     assert manifest["members"] == 1
     assert manifest["examples"] == 1
+    assert manifest["source"] == "indexed_topics"
     assert len(load_api_objects(tmp_path)) == 1
     assert len(load_api_members(tmp_path)) == 1
     assert len(load_api_examples(tmp_path)) == 1
@@ -106,12 +108,13 @@ def test_build_structured_api_snapshot_skips_generic_topic(tmp_path: Path) -> No
         },
     ]
     with patch("onec_help.knowledge.help_structured.iter_help_topics_from_index", return_value=topics):
-        manifest = build_structured_api_snapshot(tmp_path)
+        manifest = build_structured_api_snapshot(tmp_path, unpacked_dir=tmp_path / "missing-unpacked")
     assert manifest["objects"] == 1
     assert manifest["members"] == 1
     members = load_api_members(tmp_path)
     assert len(members) == 1
     assert members[0]["full_name"] == "HTTPСоединение.Получить"
+    assert manifest["source"] == "indexed_topics"
 
 
 def test_index_structured_api_objects_uses_dummy_vector(tmp_path: Path) -> None:
@@ -191,3 +194,125 @@ def test_extract_structured_records_from_topic_builds_links() -> None:
         "HTTPСоединение.ПолучитьЗаголовки",
         "HTTPЗапрос",
     ]
+
+
+def test_extract_structured_records_from_topic_parses_inline_sections() -> None:
+    topic = {
+        "path": "8.3.27/shcntx_ru/Get.md",
+        "title": "HTTPСоединение.Получить (HTTPConnection.Get)",
+        "text": (
+            "# HTTPСоединение.Получить (HTTPConnection.Get)\n\n"
+            "HTTPСоединение (HTTPConnection)\n"
+            "Получить (Get)\n"
+            "Синтаксис: Получить(<HTTPЗапрос>, <ИмяВыходногоФайла>) "
+            "Параметры: <HTTPЗапрос> (обязательный) Тип: HTTPЗапрос . HTTP-запрос. "
+            "<ИмяВыходногоФайла> (необязательный) Тип: Строка . Имя файла. "
+            "Возвращаемое значение: Тип: HTTPОтвет . "
+            "Описание: Получает данные с ресурса. "
+            "Доступность: Сервер, толстый клиент. "
+        ),
+        "version": "8.3.27.1859",
+        "language": "ru",
+        "entity_type": "method",
+        "breadcrumb": ["Объекты", "HTTPСоединение"],
+    }
+    _obj, member, _examples, _links = extract_structured_records_from_topic(topic)
+    assert member is not None
+    assert member["syntax"] == "Получить(<HTTPЗапрос>, <ИмяВыходногоФайла>)"
+    assert member["returns"] == "Тип: HTTPОтвет ."
+    assert [param["name"] for param in member["params"]] == ["<HTTPЗапрос>", "<ИмяВыходногоФайла>"]
+    assert member["params"][0]["type"] == "HTTPЗапрос"
+    assert member["availability"] == "Сервер, толстый клиент."
+    assert member["summary"] == "Получает данные с ресурса."
+
+
+def test_extract_structured_records_from_topic_parses_property_type_from_description() -> None:
+    topic = {
+        "path": "8.3.27/shcntx_ru/Visible.md",
+        "title": "Automation сервер.Visible (Automation server.Visible)",
+        "text": (
+            "# Automation сервер.Visible (Automation server.Visible)\n\n"
+            "Automation сервер (Automation server)\n"
+            "Visible (Visible)\n"
+            "Использование: Чтение и запись. "
+            "Описание: Тип: Булево . Показывает или скрывает UI. "
+            "Доступность: Интеграция. "
+            "Примечание: Истина - показан, Ложь - скрыт."
+        ),
+        "version": "8.3.27.1859",
+        "language": "ru",
+        "entity_type": "property",
+        "breadcrumb": ["Объекты", "Automation сервер"],
+    }
+    _obj, member, _examples, _links = extract_structured_records_from_topic(topic)
+    assert member is not None
+    assert member["returns"] == "Булево"
+    assert member["summary"] == "Тип: Булево . Показывает или скрывает UI."
+    assert member["availability"] == "Интеграция."
+
+
+def test_extract_structured_records_from_html_topic_reads_v8_sections(tmp_path: Path) -> None:
+    html_path = tmp_path / "Get.html"
+    html_path.write_text(
+        """<html><body>
+<h1 class="V8SH_pagetitle">COMSafeArray.GetDimensions (COMSafeArray.GetDimensions)</h1>
+<p class="V8SH_title">COMSafeArray (COMSafeArray)</p>
+<p class="V8SH_heading">GetDimensions (GetDimensions)</p>
+<p class="V8SH_chapter">Синтаксис:</p>GetDimensions()
+<p class="V8SH_chapter">Возвращаемое значение:</p>Тип: Число.
+<p class="V8SH_chapter">Описание:</p><p>Получает количество измерений массива.</p>
+<p class="V8SH_chapter">Доступность: </p><p>Сервер, толстый клиент.</p>
+<p class="V8SH_chapter">Пример:</p><table><tr><td>КоличествоИзмерений = Массив.GetDimensions();</td></tr></table>
+</body></html>""",
+        encoding="utf-8",
+    )
+    _obj, member, examples, _links = extract_structured_records_from_html_topic(
+        html_path,
+        version="8.3.27.1859",
+        language="ru",
+        topic_path="8.3.27.1859/shcntx_ru/objects/catalog234/COMSafeArray/methods/GetDimensions1600.html",
+        title="GetDimensions",
+        breadcrumb=["COMSafeArray"],
+        entity_type="topic",
+    )
+    assert member is not None
+    assert member["full_name"] == "COMSafeArray.GetDimensions"
+    assert member["syntax"] == "GetDimensions()"
+    assert member["returns"] == "Тип: Число."
+    assert member["availability"] == "Сервер, толстый клиент."
+    assert examples and "GetDimensions" in examples[0]["code"]
+
+
+def test_build_structured_api_snapshot_prefers_unpacked_html(tmp_path: Path) -> None:
+    unpacked_dir = tmp_path / "unpacked"
+    stem_dir = unpacked_dir / "8.3.27.1859" / "shcntx_ru"
+    html_dir = stem_dir / "objects" / "catalog63" / "catalog578" / "catalog2125" / "HTTPConnection" / "methods"
+    html_dir.mkdir(parents=True, exist_ok=True)
+    (stem_dir / ".hbk_info.json").write_text(
+        '{"version":"8.3.27.1859","language":"ru","label":"Синтаксис"}',
+        encoding="utf-8",
+    )
+    (stem_dir / ".toc.json").write_text(
+        '[{"path":"/objects/catalog63/catalog578/catalog2125/HTTPConnection/methods/Get1442.html","title_ru":"Получить","title_en":"Get","breadcrumb":["HTTPСоединение"],"entity_type":"topic"}]',
+        encoding="utf-8",
+    )
+    (html_dir / "Get1442.html").write_text(
+        """<html><body>
+<h1 class="V8SH_pagetitle">HTTPСоединение.Получить (HTTPConnection.Get)</h1>
+<p class="V8SH_title">HTTPСоединение (HTTPConnection)</p>
+<p class="V8SH_heading">Получить (Get)</p>
+<p class="V8SH_chapter">Синтаксис:</p>Получить(&lt;HTTPЗапрос&gt;)
+<p class="V8SH_chapter">Параметры:</p><div class="V8SH_rubric"><p>&lt;HTTPЗапрос&gt;</p><a>HTTPЗапрос</a></div>
+<p class="V8SH_chapter">Возвращаемое значение:</p>Тип: HTTPОтвет.
+<p class="V8SH_chapter">Описание:</p><p>Получает ресурс.</p>
+<p class="V8SH_chapter">Доступность: </p><p>Сервер.</p>
+</body></html>""",
+        encoding="utf-8",
+    )
+    manifest = build_structured_api_snapshot(tmp_path / "snapshot", unpacked_dir=unpacked_dir)
+    members = load_api_members(tmp_path / "snapshot")
+    assert manifest["source"] == "unpacked_html"
+    assert manifest["members"] == 1
+    assert members[0]["full_name"] == "HTTPСоединение.Получить"
+    assert members[0]["syntax"] == "Получить(<HTTPЗапрос>)"
+    assert members[0]["params"][0]["type"] == "HTTPЗапрос"

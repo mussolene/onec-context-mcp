@@ -7,6 +7,10 @@ import re
 from pathlib import Path
 from typing import Any
 
+from bs4 import BeautifulSoup
+from bs4.element import NavigableString, Tag
+
+from ..help_core.html2md import _read_html_file, html_to_md_content
 from ..shared import env_config
 
 API_OBJECTS_FILE = "api_objects.jsonl"
@@ -48,6 +52,23 @@ _GENERIC_BREADCRUMB = {
 _CODE_BLOCK_RE = re.compile(r"```(?:\w+)?\s*\n(.*?)```", re.DOTALL)
 _STRUCTURED_MEMBER_KINDS = {"method", "property", "event", "constructor", "function"}
 _STRUCTURED_OBJECT_KINDS = {"type", "manager", "global_context", "metadata_object", "collection", "enum"}
+_INLINE_SECTION_LABELS = {
+    "Синтаксис:": "syntax",
+    "Параметры:": "params",
+    "Возвращаемое значение:": "returns",
+    "Описание:": "description",
+    "Описание варианта метода:": "description",
+    "Доступность:": "availability",
+    "Пример:": "example",
+    "Примечание:": "note",
+    "Использование в версии:": "availability",
+}
+_INLINE_SECTION_RE = re.compile(
+    "|".join(
+        re.escape(label)
+        for label in sorted(_INLINE_SECTION_LABELS, key=len, reverse=True)
+    )
+)
 
 
 def get_help_structured_dir() -> Path:
@@ -71,6 +92,18 @@ def _compact_summary(value: str, max_chars: int = 500) -> str:
     if len(text) <= max_chars:
         return text
     return text[: max_chars - 3].rstrip() + "..."
+
+
+def _strip_inline_title_noise(text: str, title: str, breadcrumb: list[str] | None) -> str:
+    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    normalized_title = _strip_title_suffix(title).lower()
+    noise = {normalized_title}
+    for item in breadcrumb or []:
+        raw = str(item or "").strip().lower()
+        if raw:
+            noise.add(raw)
+    cleaned = [line for line in lines if _strip_title_suffix(line).lower() not in noise]
+    return _normalize_text("\n".join(cleaned))
 
 
 def _strip_title_suffix(title: str) -> str:
@@ -194,6 +227,32 @@ def _split_markdown_sections(text: str) -> tuple[str, str, dict[str, str]]:
 def _parse_param_lines(text: str) -> list[dict[str, str]]:
     params: list[dict[str, str]] = []
     lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    inline_matches = list(
+        re.finditer(
+            r"(<[^>]+>\s*\((?:обязательный|необязательный)\).*?)(?=(<[^>]+>\s*\((?:обязательный|необязательный)\))|$)",
+            " ".join(lines),
+            re.IGNORECASE,
+        )
+    )
+    if inline_matches:
+        for match in inline_matches:
+            chunk = " ".join(match.group(1).split())
+            name_match = re.match(r"(<[^>]+>)\s*\(([^)]+)\)", chunk)
+            if not name_match:
+                continue
+            type_match = re.search(r"Тип:\s*(.+?)(?:\s+\.\s+|\.$)", chunk)
+            description = chunk
+            if type_match:
+                description = chunk[type_match.end() :].strip()
+            params.append(
+                {
+                    "name": name_match.group(1).strip(),
+                    "type": (type_match.group(1).strip() if type_match else "—"),
+                    "description": description,
+                }
+            )
+        if params:
+            return params
     idx = 0
     while idx < len(lines):
         line = lines[idx]
@@ -242,6 +301,55 @@ def _extract_see_also(section_text: str) -> list[str]:
     return out
 
 
+def _extract_inline_sections(text: str) -> tuple[str, dict[str, str]]:
+    normalized = _normalize_text(text)
+    if not normalized:
+        return "", {}
+    matches = list(_INLINE_SECTION_RE.finditer(normalized))
+    if not matches:
+        return normalized, {}
+    intro = normalized[: matches[0].start()].strip()
+    sections: dict[str, str] = {}
+    for idx, match in enumerate(matches):
+        label = match.group(0)
+        key = _INLINE_SECTION_LABELS[label]
+        start = match.end()
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(normalized)
+        value = _normalize_text(normalized[start:end])
+        if not value:
+            continue
+        if key in sections and sections[key]:
+            sections[key] = f"{sections[key]}\n\n{value}"
+        else:
+            sections[key] = value
+    return intro, sections
+
+
+def _clean_syntax(text: str) -> str:
+    value = _normalize_text(text)
+    if value in {"```", "```\n```"}:
+        return ""
+    if value.startswith("```") and value.endswith("```"):
+        value = _CODE_BLOCK_RE.sub(lambda m: m.group(1).strip(), value).strip()
+    return value
+
+
+def _clean_returns(text: str) -> str:
+    value = _normalize_text(text)
+    if value in {"Описание:", "Тип:"}:
+        return ""
+    return value
+
+
+def _returns_from_description(description: str) -> str:
+    if not description:
+        return ""
+    match = re.search(r"Тип:\s*(.+?)(?:\s+\.\s+|\.$)", " ".join(description.split()))
+    if not match:
+        return ""
+    return match.group(1).strip()
+
+
 def _split_full_name(name: str) -> tuple[str, str]:
     value = (name or "").strip()
     if "." in value:
@@ -276,26 +384,31 @@ def _make_object_stub(
     }
 
 
-def extract_structured_records_from_topic(
-    topic: dict[str, Any],
+def _build_structured_records(
+    *,
+    title: str,
+    payload_title: str,
+    intro: str,
+    sections: dict[str, str],
+    version: str,
+    language: str,
+    path: str,
+    entity_type: str,
+    breadcrumb: list[str],
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None, list[dict[str, Any]], list[dict[str, Any]]]:
-    """Extract structured object/member records, official examples and related links from indexed topic payload."""
-    text = _normalize_text(str(topic.get("text") or ""))
-    payload_title = str(topic.get("title") or "").strip()
-    title, intro, sections = _split_markdown_sections(text)
-    title = title or payload_title or str(topic.get("path") or "").strip()
-    version = str(topic.get("version") or "")
-    language = str(topic.get("language") or "")
-    path = str(topic.get("path") or "")
-    entity_type = str(topic.get("entity_type") or "topic").strip() or "topic"
-    breadcrumb = list(topic.get("breadcrumb") or [])
+    """Build object/member/example/link records from normalized extracted sections."""
+    title = title or payload_title or path
     member_kind = _infer_member_kind(path, title, entity_type)
     object_kind = _infer_object_kind(path, title)
     if member_kind == "topic" and "." in _strip_title_suffix(title) and (
         sections.get("syntax") or sections.get("params") or sections.get("returns")
     ):
         member_kind = "method"
-    summary_source = intro or sections.get("returns") or sections.get("syntax") or text
+    if not sections:
+        intro, inline_sections = _extract_inline_sections(intro)
+        sections = inline_sections
+    intro = _strip_inline_title_noise(intro, title, breadcrumb)
+    summary_source = sections.get("description") or intro or sections.get("returns") or sections.get("syntax") or title
     summary = _compact_summary(summary_source, 500)
     see_also = _extract_see_also(sections.get("see_also", ""))
 
@@ -315,9 +428,9 @@ def extract_structured_records_from_topic(
             "kind": member_kind,
             "title": title,
             "summary": summary,
-            "syntax": sections.get("syntax", ""),
+            "syntax": _clean_syntax(sections.get("syntax", "")),
             "params": _parse_param_lines(sections.get("params", "")),
-            "returns": sections.get("returns", ""),
+            "returns": _clean_returns(sections.get("returns", "")),
             "availability": sections.get("availability", ""),
             "version": version,
             "language": language,
@@ -334,6 +447,8 @@ def extract_structured_records_from_topic(
                 breadcrumb=breadcrumb[:-1] if breadcrumb else [],
                 owner_kind=owner_kind if owner_kind in _STRUCTURED_OBJECT_KINDS else "type",
             )
+        if member_kind == "property" and not member_record["returns"]:
+            member_record["returns"] = _returns_from_description(sections.get("description", "")) or _returns_from_description(summary)
     elif _should_index_object_topic(
         path,
         title,
@@ -407,6 +522,199 @@ def extract_structured_records_from_topic(
             )
 
     return object_record, member_record, examples, links
+
+
+def extract_structured_records_from_topic(
+    topic: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, list[dict[str, Any]], list[dict[str, Any]]]:
+    """Extract structured object/member records, official examples and related links from indexed topic payload."""
+    text = _normalize_text(str(topic.get("text") or ""))
+    payload_title = str(topic.get("title") or "").strip()
+    title, intro, sections = _split_markdown_sections(text)
+    if not sections:
+        intro, inline_sections = _extract_inline_sections(intro or text)
+        sections = inline_sections
+    return _build_structured_records(
+        title=title,
+        payload_title=payload_title,
+        intro=intro,
+        sections=sections,
+        version=str(topic.get("version") or ""),
+        language=str(topic.get("language") or ""),
+        path=str(topic.get("path") or ""),
+        entity_type=str(topic.get("entity_type") or "topic").strip() or "topic",
+        breadcrumb=list(topic.get("breadcrumb") or []),
+    )
+
+
+def _chapter_heading_text(tag: Tag) -> str:
+    return tag.get_text(separator=" ", strip=True)
+
+
+def _find_html_chapter(soup: BeautifulSoup, prefix: str) -> Tag | None:
+    for tag in soup.find_all("p", class_="V8SH_chapter"):
+        if _chapter_heading_text(tag).startswith(prefix):
+            return tag
+    return None
+
+
+def _iter_chapter_nodes(chapter: Tag) -> list[Any]:
+    nodes: list[Any] = []
+    for sibling in chapter.next_siblings:
+        if isinstance(sibling, Tag) and sibling.name == "p" and "V8SH_chapter" in (sibling.get("class") or []):
+            break
+        if isinstance(sibling, Tag) and sibling.name == "hr":
+            break
+        nodes.append(sibling)
+    return nodes
+
+
+def _nodes_text(nodes: list[Any]) -> str:
+    parts: list[str] = []
+    for node in nodes:
+        if isinstance(node, NavigableString):
+            text = str(node).strip()
+        elif isinstance(node, Tag):
+            if node.name == "br":
+                text = "\n"
+            else:
+                text = node.get_text(separator=" ", strip=True)
+        else:
+            text = str(node).strip()
+        if text:
+            parts.append(text)
+    return _normalize_text("\n".join(parts))
+
+
+def _chapter_text(soup: BeautifulSoup, prefix: str) -> str:
+    chapter = _find_html_chapter(soup, prefix)
+    if chapter is None:
+        return ""
+    return _nodes_text(_iter_chapter_nodes(chapter))
+
+
+def _chapter_example_text(soup: BeautifulSoup) -> str:
+    chapter = _find_html_chapter(soup, "Пример:")
+    if chapter is None:
+        return ""
+    nodes = _iter_chapter_nodes(chapter)
+    descriptions: list[str] = []
+    code_blocks: list[str] = []
+    for node in nodes:
+        if isinstance(node, Tag) and node.name == "pre":
+            code = node.get_text(separator="\n", strip=True)
+            if code:
+                code_blocks.append(code)
+        elif isinstance(node, Tag) and node.name == "table":
+            code = "\n".join(
+                " ".join(cell.get_text(strip=True) for cell in row.find_all(["td", "th"]))
+                for row in node.find_all("tr")
+            ).strip()
+            if code:
+                code_blocks.append(code)
+        else:
+            text = _nodes_text([node])
+            if text:
+                descriptions.append(text)
+    parts = []
+    if descriptions:
+        parts.append(_normalize_text("\n".join(descriptions)))
+    for code in code_blocks:
+        parts.append(f"```bsl\n{code}\n```")
+    return _normalize_text("\n\n".join(parts))
+
+
+def _chapter_params_text(soup: BeautifulSoup) -> str:
+    chapter = _find_html_chapter(soup, "Параметры:")
+    if chapter is None:
+        return ""
+    nodes = _iter_chapter_nodes(chapter)
+    rubric_params: list[str] = []
+    for node in nodes:
+        if isinstance(node, Tag) and node.name == "div" and "V8SH_rubric" in (node.get("class") or []):
+            p_tag = node.find("p")
+            a_tag = node.find("a")
+            name = p_tag.get_text(strip=True) if p_tag else "—"
+            type_name = a_tag.get_text(strip=True) if a_tag else "—"
+            rubric_params.append(f"- **{name}** ({type_name})")
+    if rubric_params:
+        return "\n".join(rubric_params)
+    return _nodes_text(nodes)
+
+
+def _see_also_text(soup: BeautifulSoup) -> str:
+    chapter = _find_html_chapter(soup, "См. также:")
+    if chapter is None:
+        return ""
+    names: list[str] = []
+    for node in _iter_chapter_nodes(chapter):
+        if isinstance(node, Tag):
+            for link in node.find_all("a"):
+                text = link.get_text(strip=True)
+                if text:
+                    names.append(text)
+    if not names:
+        return _nodes_text(_iter_chapter_nodes(chapter))
+    return "\n".join(names)
+
+
+def extract_structured_records_from_html_topic(
+    html_path: Path,
+    *,
+    version: str,
+    language: str,
+    topic_path: str,
+    title: str = "",
+    breadcrumb: list[str] | None = None,
+    entity_type: str = "topic",
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, list[dict[str, Any]], list[dict[str, Any]]]:
+    """Extract structured records directly from unpacked HTML help article."""
+    raw_html = _read_html_file(html_path)
+    if not raw_html.strip():
+        return None, None, [], []
+    soup = BeautifulSoup(raw_html, "html.parser")
+    title_tag = soup.find("h1", class_="V8SH_pagetitle")
+    page_title = title_tag.get_text(strip=True) if title_tag else title
+    if title_tag is None:
+        fallback_md = html_to_md_content(html_path)
+        return extract_structured_records_from_topic(
+            {
+                "path": topic_path,
+                "title": title,
+                "text": fallback_md,
+                "version": version,
+                "language": language,
+                "entity_type": entity_type,
+                "breadcrumb": breadcrumb or [],
+            }
+        )
+    sections = {
+        "description": _chapter_text(soup, "Описание:"),
+        "syntax": _chapter_text(soup, "Синтаксис:"),
+        "params": _chapter_params_text(soup),
+        "returns": _chapter_text(soup, "Возвращаемое значение:"),
+        "availability": _chapter_text(soup, "Доступность:"),
+        "example": _chapter_example_text(soup),
+        "see_also": _see_also_text(soup),
+        "note": _chapter_text(soup, "Примечание:"),
+    }
+    intro_parts = []
+    if sections["description"]:
+        intro_parts.append(sections["description"])
+    if sections["note"]:
+        intro_parts.append(sections["note"])
+    intro = _normalize_text("\n\n".join(part for part in intro_parts if part))
+    return _build_structured_records(
+        title=page_title,
+        payload_title=title,
+        intro=intro,
+        sections=sections,
+        version=version,
+        language=language,
+        path=topic_path,
+        entity_type=entity_type,
+        breadcrumb=breadcrumb or [],
+    )
 
 
 def extract_api_records_from_topic(topic: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -532,26 +840,102 @@ def _write_jsonl(path: Path, items: list[dict[str, Any]]) -> None:
             fh.write(json.dumps(item, ensure_ascii=False) + "\n")
 
 
+def iter_help_topics_from_unpacked(
+    *, unpacked_dir: Path | None = None
+) -> list[dict[str, Any]]:
+    """Read unpacked HTML help articles with TOC metadata from data/unpacked."""
+    base = (unpacked_dir or Path(env_config.get_data_unpacked_dir())).expanduser().resolve()
+    if not base.exists():
+        return []
+    topics: list[dict[str, Any]] = []
+    for version_dir in sorted(p for p in base.iterdir() if p.is_dir() and not p.name.startswith(".")):
+        for stem_dir in sorted(p for p in version_dir.iterdir() if p.is_dir() and not p.name.startswith(".")):
+            info_path = stem_dir / ".hbk_info.json"
+            toc_path = stem_dir / ".toc.json"
+            if not info_path.is_file() or not toc_path.is_file():
+                continue
+            try:
+                info = json.loads(info_path.read_text(encoding="utf-8"))
+                toc_items = json.loads(toc_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError, TypeError):
+                continue
+            language = str(info.get("language") or "")
+            version = str(info.get("version") or version_dir.name)
+            toc_map: dict[str, dict[str, Any]] = {}
+            for item in toc_items:
+                if not isinstance(item, dict):
+                    continue
+                rel = str(item.get("path") or "").strip()
+                if not rel:
+                    continue
+                toc_map[rel] = item
+            for html_path in stem_dir.rglob("*.html"):
+                try:
+                    rel = "/" + str(html_path.relative_to(stem_dir)).replace("\\", "/")
+                except ValueError:
+                    continue
+                toc_item = toc_map.get(rel, {})
+                full_path = f"{version}/{stem_dir.name}{rel}"
+                topics.append(
+                    {
+                        "html_path": html_path,
+                        "path": full_path,
+                        "title": str(toc_item.get("title_ru") or toc_item.get("title_en") or ""),
+                        "version": version,
+                        "language": language,
+                        "entity_type": str(toc_item.get("entity_type") or "topic"),
+                        "breadcrumb": list(toc_item.get("breadcrumb") or []),
+                    }
+                )
+    return topics
+
+
 def build_structured_api_snapshot(
     output_dir: Path | None = None,
     *,
+    unpacked_dir: Path | None = None,
     qdrant_host: str | None = None,
     qdrant_port: int | None = None,
     collection: str = "onec_help",
 ) -> dict[str, Any]:
-    """Build structured API snapshot from indexed help topics."""
+    """Build structured API snapshot from unpacked HTML help or indexed topics as fallback."""
     out_dir = (output_dir or get_help_structured_dir()).expanduser().resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
-    topics = iter_help_topics_from_index(
-        qdrant_host=qdrant_host,
-        qdrant_port=qdrant_port,
-        collection=collection,
-    )
+    html_topics = iter_help_topics_from_unpacked(unpacked_dir=unpacked_dir)
+    source_kind = "unpacked_html"
+    topics = []
+    if not html_topics:
+        topics = iter_help_topics_from_index(
+            qdrant_host=qdrant_host,
+            qdrant_port=qdrant_port,
+            collection=collection,
+        )
+        source_kind = "indexed_topics"
 
     objects_by_name: dict[str, dict[str, Any]] = {}
     members: list[dict[str, Any]] = []
     examples: list[dict[str, Any]] = []
     links: list[dict[str, Any]] = []
+
+    for topic in html_topics:
+        object_record, member_record, topic_examples, topic_links = extract_structured_records_from_html_topic(
+            Path(topic["html_path"]),
+            version=str(topic.get("version") or ""),
+            language=str(topic.get("language") or ""),
+            topic_path=str(topic.get("path") or ""),
+            title=str(topic.get("title") or ""),
+            breadcrumb=list(topic.get("breadcrumb") or []),
+            entity_type=str(topic.get("entity_type") or "topic"),
+        )
+        if object_record is not None:
+            key = str(object_record.get("full_name") or object_record.get("object_name") or "")
+            prev = objects_by_name.get(key)
+            if prev is None or (not prev.get("topic_path") and object_record.get("topic_path")):
+                objects_by_name[key] = object_record
+        if member_record is not None:
+            members.append(member_record)
+        examples.extend(topic_examples)
+        links.extend(topic_links)
 
     for topic in topics:
         object_record, member_record, topic_examples, topic_links = extract_structured_records_from_topic(topic)
@@ -581,7 +965,11 @@ def build_structured_api_snapshot(
         "members": len(members),
         "examples": len(examples),
         "links": len(links),
-        "source_collection": collection,
+        "source": source_kind,
+        "source_collection": collection if source_kind == "indexed_topics" else "",
+        "source_unpacked_dir": str((unpacked_dir or Path(env_config.get_data_unpacked_dir())).expanduser().resolve())
+        if source_kind == "unpacked_html"
+        else "",
     }
     (out_dir / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2),
