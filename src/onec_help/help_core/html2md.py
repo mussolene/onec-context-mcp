@@ -254,6 +254,194 @@ def _read_html_file(path: Path) -> str:
     return read_file_with_encoding_fallback(path)
 
 
+def _v8sh_heading_text(tag) -> str:
+    return tag.get_text(separator=" ", strip=True)
+
+
+def _find_v8sh_chapter(soup: BeautifulSoup, prefix: str):
+    for tag in soup.find_all(class_="V8SH_chapter"):
+        if getattr(tag, "get_text", None) and _v8sh_heading_text(tag).startswith(prefix):
+            return tag
+    return None
+
+
+def _iter_v8sh_chapter_nodes(chapter) -> list[Any]:
+    nodes: list[Any] = []
+    for sibling in chapter.next_siblings:
+        if getattr(sibling, "get", None) and "V8SH_chapter" in (sibling.get("class") or []):
+            break
+        if getattr(sibling, "name", None) == "hr":
+            break
+        nodes.append(sibling)
+    return nodes
+
+
+def _v8sh_nodes_text(nodes: list[Any]) -> str:
+    parts: list[str] = []
+    for node in nodes:
+        if isinstance(node, str):
+            text = node.strip()
+        elif getattr(node, "name", None) == "br":
+            text = "\n"
+        elif getattr(node, "get_text", None):
+            text = node.get_text(separator=" ", strip=True)
+        else:
+            text = str(node).strip()
+        if text:
+            parts.append(text)
+    return _normalize_md_text("\n".join(parts)).strip()
+
+
+def _v8sh_compact_prose(text: str) -> str:
+    value = _normalize_md_text(text)
+    value = re.sub(r":\s*\n\s*", ": ", value)
+    value = re.sub(r"\n\s*\.\s*\n", " .\n", value)
+    value = re.sub(r"\n{2,}", "\n", value)
+    return value.strip()
+
+
+def _v8sh_rubric_params(nodes: list[Any]) -> list[str]:
+    items: list[str] = []
+    idx = 0
+    while idx < len(nodes):
+        node = nodes[idx]
+        if not (getattr(node, "get", None) and "V8SH_rubric" in (node.get("class") or [])):
+            idx += 1
+            continue
+        name_tag = node.find(["p", "div"]) if getattr(node, "find", None) else None
+        type_tag = node.find("a") if getattr(node, "find", None) else None
+        name = name_tag.get_text(strip=True) if name_tag else node.get_text(" ", strip=True)
+        type_name = type_tag.get_text(strip=True) if type_tag else "—"
+        desc_nodes: list[Any] = []
+        look_ahead = idx + 1
+        while look_ahead < len(nodes):
+            next_node = nodes[look_ahead]
+            if getattr(next_node, "get", None) and "V8SH_rubric" in (next_node.get("class") or []):
+                break
+            desc_nodes.append(next_node)
+            look_ahead += 1
+        description = _v8sh_nodes_text(desc_nodes)
+        if type_name == "—":
+            for desc_node in desc_nodes:
+                if getattr(desc_node, "name", None):
+                    desc_type = desc_node if desc_node.name == "a" else desc_node.find("a")
+                    if desc_type:
+                        type_name = desc_type.get_text(strip=True) or "—"
+                        break
+        if description:
+            description = re.sub(
+                r"^Тип:\s*.+?(?:\s+\.\s*|\.\s*|\n+)",
+                "",
+                description,
+                flags=re.IGNORECASE | re.DOTALL,
+            ).strip()
+        bullet = f"- **{name}** ({type_name})"
+        if description:
+            bullet += f" — {description}"
+        items.append(bullet)
+        idx = look_ahead
+    return items
+
+
+def extract_v8sh_sections(soup: BeautifulSoup) -> dict[str, str]:
+    """Extract normalized sections from V8SH help HTML for both Markdown and structured JSONL."""
+    sections = {
+        "description": "",
+        "syntax": "",
+        "params": "",
+        "returns": "",
+        "example": "",
+        "see_also": "",
+        "note": "",
+        "version": "",
+        "availability": "",
+    }
+
+    chapter_map = {
+        "description": "Описание:",
+        "syntax": "Синтаксис:",
+        "returns": "Возвращаемое значение:",
+        "note": "Примечание:",
+        "availability": "Доступность:",
+    }
+    for key, prefix in chapter_map.items():
+        chapter = _find_v8sh_chapter(soup, prefix)
+        if chapter is not None:
+            sections[key] = _v8sh_nodes_text(_iter_v8sh_chapter_nodes(chapter))
+    if sections["returns"]:
+        sections["returns"] = _v8sh_compact_prose(sections["returns"])
+
+    params_chapter = _find_v8sh_chapter(soup, "Параметры:")
+    if params_chapter is not None:
+        params_nodes = _iter_v8sh_chapter_nodes(params_chapter)
+        rubric_params = _v8sh_rubric_params(params_nodes)
+        sections["params"] = "\n".join(rubric_params) if rubric_params else _v8sh_nodes_text(params_nodes)
+
+    example_chapter = _find_v8sh_chapter(soup, "Пример:")
+    if example_chapter is not None:
+        example_nodes = _iter_v8sh_chapter_nodes(example_chapter)
+        descriptions: list[str] = []
+        code_blocks: list[str] = []
+        for node in example_nodes:
+            if getattr(node, "name", None) == "pre":
+                code = node.get_text(separator="\n", strip=True)
+                if code:
+                    code_blocks.append(code)
+            elif getattr(node, "name", None) == "table":
+                code = "\n".join(
+                    " ".join(cell.get_text(strip=True) for cell in row.find_all(["td", "th"]))
+                    for row in node.find_all("tr")
+                ).strip()
+                if code:
+                    code_blocks.append(code)
+            else:
+                text = _v8sh_nodes_text([node])
+                if text:
+                    descriptions.append(text)
+        parts: list[str] = []
+        if descriptions:
+            parts.append(_normalize_md_text("\n".join(descriptions)))
+        for code in code_blocks:
+            parts.append(f"```bsl\n{code}\n```")
+        sections["example"] = _normalize_md_text("\n\n".join(parts))
+
+    see_also_chapter = _find_v8sh_chapter(soup, "См. также:")
+    if see_also_chapter is not None:
+        names: list[str] = []
+        for node in _iter_v8sh_chapter_nodes(see_also_chapter):
+            if getattr(node, "find_all", None):
+                for link in node.find_all("a"):
+                    text = link.get_text(strip=True)
+                    if text:
+                        names.append(text)
+        sections["see_also"] = "\n".join(names) if names else _v8sh_nodes_text(_iter_v8sh_chapter_nodes(see_also_chapter))
+
+    version_heading = None
+    for tag in soup.find_all(class_="V8SH_chapter"):
+        raw = _v8sh_heading_text(tag) or ""
+        if raw.startswith("Использование в версии"):
+            version_heading = tag
+            break
+    if version_heading is not None:
+        parts = []
+        for sib in version_heading.next_siblings:
+            if getattr(sib, "get", None) and "V8SH_chapter" in (sib.get("class") or []):
+                break
+            if getattr(sib, "get", None) and "V8SH_versionInfo" in (sib.get("class") or []):
+                t = sib.get_text(separator=" ", strip=True)
+                if t:
+                    parts.append(t)
+        sections["version"] = _normalize_md_text("\n".join(parts))
+    if not sections["version"]:
+        for wrapper in soup.find_all(class_="__SINCE_SHOW_STYLE__"):
+            text = wrapper.get_text(" ", strip=True)
+            if text:
+                sections["version"] = _normalize_md_text(text)
+                break
+
+    return sections
+
+
 def html_to_md_content(html_path) -> str:
     """
     Extract help article from HTML and return Markdown string.
@@ -281,211 +469,42 @@ def html_to_md_content(html_path) -> str:
     lines: list[str] = []
     lines.append(f"# {title}\n")
 
-    # Description
-    desc_tag = soup.find(
-        "p",
-        class_="V8SH_chapter",
-        string=lambda t: t and "Описание:" in (t if isinstance(t, str) else t),
-    )
-    if not desc_tag and soup.find("p", class_="V8SH_chapter"):
-        for p in soup.find_all("p", class_="V8SH_chapter"):
-            if p.get_text(strip=True) == "Описание:":
-                desc_tag = p
-                break
-    if desc_tag:
-        next_p = desc_tag.find_next_sibling()
-        if next_p and next_p.name == "p":
-            lines.append("## Описание\n\n")
-            lines.append(next_p.get_text(separator=" ", strip=True) + "\n\n")
-        else:
-            n = desc_tag.find_next()
-            if n and getattr(n, "get_text", None):
-                lines.append("## Описание\n\n")
-                lines.append(n.get_text(separator=" ", strip=True) + "\n\n")
-
-    # Syntax
-    syntax_heading = soup.find(
-        "p",
-        class_="V8SH_chapter",
-        string=lambda t: t and "Синтаксис:" in (t if isinstance(t, str) else t),
-    )
-    if not syntax_heading:
-        for p in soup.find_all("p", class_="V8SH_chapter"):
-            if p.get_text(strip=True) == "Синтаксис:":
-                syntax_heading = p
-                break
-    if syntax_heading:
-        lines.append("## Синтаксис\n\n```\n")
-        pre = syntax_heading.find_next("pre")
-        if pre:
-            lines.append(pre.get_text(separator="\n", strip=True) + "\n")
-        else:
-            next_ = syntax_heading.find_next(string=True)
-            if next_:
-                syntax_text = str(next_).strip()
-                if syntax_text and syntax_text != "Синтаксис:":
-                    lines.append(syntax_text + "\n")
-        lines.append("```\n\n")
-
-    # Parameters
-    params_heading = soup.find(
-        "p",
-        class_="V8SH_chapter",
-        string=lambda t: t and "Параметры:" in (t if isinstance(t, str) else t),
-    )
-    if not params_heading:
-        for p in soup.find_all("p", class_="V8SH_chapter"):
-            if p.get_text(strip=True) == "Параметры:":
-                params_heading = p
-                break
-    if params_heading:
+    sections = extract_v8sh_sections(soup)
+    if sections["description"]:
+        lines.append("## Описание\n\n")
+        lines.append(sections["description"] + "\n\n")
+    lines.append("## Синтаксис\n\n```\n")
+    if sections["syntax"]:
+        lines.append(sections["syntax"] + "\n")
+    lines.append("```\n\n")
+    if sections["params"]:
         lines.append("## Параметры\n\n")
-        for div in params_heading.find_all_next("div", class_="V8SH_rubric"):
-            if div.find_previous("p", class_="V8SH_chapter") != params_heading:
-                break
-            p_tag = div.find("p")
-            a_tag = div.find("a")
-            name = p_tag.get_text(strip=True) if p_tag else "—"
-            typ = a_tag.get_text(strip=True) if a_tag else "—"
-            lines.append(f"- **{name}** ({typ})\n")
-        lines.append("\n")
-
-    # Return value
-    ret_heading = soup.find(
-        "p",
-        class_="V8SH_chapter",
-        string=lambda t: t and "Возвращаемое значение:" in (t if isinstance(t, str) else t),
-    )
-    if not ret_heading:
-        for p in soup.find_all("p", class_="V8SH_chapter"):
-            if p.get_text(strip=True) == "Возвращаемое значение:":
-                ret_heading = p
-                break
-    if ret_heading:
-        next_p = ret_heading.find_next_sibling("p")
-        if next_p:
-            ret_text = next_p.get_text(separator=" ", strip=True)
-            if ret_text:
-                lines.append("## Возвращаемое значение\n\n")
-                lines.append(ret_text + "\n\n")
+        lines.append(sections["params"] + "\n\n")
+    if sections["returns"]:
+        lines.append("## Возвращаемое значение\n\n")
+        lines.append(sections["returns"] + "\n\n")
+    if sections["example"]:
+        lines.append("## Пример\n\n")
+        if sections["example"].startswith("```"):
+            lines.append(sections["example"] + "\n\n")
         else:
-            next_ = ret_heading.find_next(string=True)
-            if next_:
-                ret_text = str(next_).strip()
-                if ret_text and "Возвращаемое значение" not in ret_text:
-                    lines.append("## Возвращаемое значение\n\n")
-                    lines.append(ret_text + "\n\n")
-
-    # Examples
-    ex_heading = soup.find(
-        "p",
-        class_="V8SH_chapter",
-        string=lambda t: t and "Пример:" in (t if isinstance(t, str) else t),
-    )
-    if not ex_heading:
-        for p in soup.find_all("p", class_="V8SH_chapter"):
-            if p.get_text(strip=True) == "Пример:":
-                ex_heading = p
-                break
-    if ex_heading:
-        code_block = ex_heading.find_next("pre") or ex_heading.find_next("table")
-        if code_block:
-            lines.append("## Пример\n\n```\n")
-            if code_block.name == "table":
-                rows = code_block.find_all("tr")
-                text = "\n".join(
-                    " ".join(cell.get_text(strip=True) for cell in row.find_all(["td", "th"]))
-                    for row in rows
-                )
-                lines.append(text + "\n")
-            else:
-                lines.append(code_block.get_text(separator="\n", strip=True) + "\n")
-            lines.append("```\n\n")
-
-    # See also
-    see_heading = soup.find(
-        "p",
-        class_="V8SH_chapter",
-        string=lambda t: t and "См. также:" in (t if isinstance(t, str) else t),
-    )
-    if not see_heading:
-        for p in soup.find_all("p", class_="V8SH_chapter"):
-            if p.get_text(strip=True) == "См. также:":
-                see_heading = p
-                break
-    if see_heading:
-        links = see_heading.find_all_next("a", limit=20)
-        if links:
-            lines.append("## См. также\n\n")
-            for a in links:
-                lines.append(f"- {a.get_text(strip=True)}\n")
-            lines.append("\n")
-
-    # Примечание
-    note_heading = soup.find(
-        "p",
-        class_="V8SH_chapter",
-        string=lambda t: t and "Примечание:" in (t if isinstance(t, str) else t),
-    )
-    if not note_heading:
-        for p in soup.find_all("p", class_="V8SH_chapter"):
-            if p.get_text(strip=True) == "Примечание:":
-                note_heading = p
-                break
-    if note_heading:
-        next_p = note_heading.find_next_sibling("p") or note_heading.find_next(string=True)
-        if next_p:
-            note_text = (
-                next_p.get_text(separator=" ", strip=True)
-                if hasattr(next_p, "get_text")
-                else str(next_p).strip()
-            )
-            if note_text and "Примечание" not in note_text:
-                lines.append("## Примечание\n\n")
-                lines.append(note_text + "\n\n")
-
-    # Использование в версии — в справке 1С контент в p.V8SH_versionInfo (следующие за заголовком)
-    version_heading = None
-    for p in soup.find_all("p", class_="V8SH_chapter"):
-        raw = p.get_text(separator=" ", strip=True) or ""
-        if raw.startswith("Использование в версии"):
-            version_heading = p
-            break
-    if version_heading:
-        parts = []
-        for sib in version_heading.find_next_siblings():
-            if sib.name == "p" and "V8SH_versionInfo" in (sib.get("class") or []):
-                t = sib.get_text(separator=" ", strip=True)
-                if t:
-                    parts.append(t)
-            elif sib.name == "p" and "V8SH_chapter" in (sib.get("class") or []):
-                break
-        if parts:
-            lines.append("## Использование в версии\n\n")
-            lines.append("\n\n".join(parts) + "\n\n")
-
-    # Доступность
-    avail_heading = soup.find(
-        "p",
-        class_="V8SH_chapter",
-        string=lambda t: t and "Доступность:" in (t if isinstance(t, str) else t),
-    )
-    if not avail_heading:
-        for p in soup.find_all("p", class_="V8SH_chapter"):
-            if "Доступность:" in (p.get_text(strip=True) or ""):
-                avail_heading = p
-                break
-    if avail_heading:
-        next_p = avail_heading.find_next_sibling("p") or avail_heading.find_next(string=True)
-        if next_p:
-            avail_text = (
-                next_p.get_text(separator=" ", strip=True)
-                if hasattr(next_p, "get_text")
-                else str(next_p).strip()
-            )
-            if avail_text and "Доступность" not in avail_text:
-                lines.append("## Доступность\n\n")
-                lines.append(avail_text + "\n\n")
+            lines.append("```\n" + sections["example"] + "\n```\n\n")
+    if sections["see_also"]:
+        lines.append("## См. также\n\n")
+        for target in sections["see_also"].splitlines():
+            target = target.strip()
+            if target:
+                lines.append(f"- {target}\n")
+        lines.append("\n")
+    if sections["note"]:
+        lines.append("## Примечание\n\n")
+        lines.append(sections["note"] + "\n\n")
+    if sections["version"]:
+        lines.append("## Использование в версии\n\n")
+        lines.append(sections["version"] + "\n\n")
+    if sections["availability"]:
+        lines.append("## Доступность\n\n")
+        lines.append(sections["availability"] + "\n\n")
 
     out = "".join(lines).strip()
     if not out or out.strip() == (f"# {title}").strip():

@@ -8,9 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from bs4 import BeautifulSoup
-from bs4.element import NavigableString, Tag
 
-from ..help_core.html2md import _read_html_file, html_to_md_content
+from ..help_core.html2md import _read_html_file, extract_v8sh_sections, html_to_md_content
 from ..shared import env_config
 
 API_OBJECTS_FILE = "api_objects.jsonl"
@@ -229,13 +228,16 @@ def _split_markdown_sections(text: str) -> tuple[str, str, dict[str, str]]:
 def _parse_param_lines(text: str) -> list[dict[str, str]]:
     params: list[dict[str, str]] = []
     lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
-    inline_matches = list(
-        re.finditer(
-            r"(<[^>]+>\s*\((?:обязательный|необязательный)\).*?)(?=(<[^>]+>\s*\((?:обязательный|необязательный)\))|$)",
-            " ".join(lines),
-            re.IGNORECASE,
+    inline_matches = []
+    if not any("**" in line for line in lines):
+        inline_matches = list(
+            re.finditer(
+                r"(<[^>]+>\s*\((?:обязательный|необязательный)\).*?)(?=(<[^>]+>\s*\((?:обязательный|необязательный)\))|$)",
+                " ".join(lines),
+                re.IGNORECASE,
+            )
         )
-    )
+
     if inline_matches:
         for match in inline_matches:
             chunk = " ".join(match.group(1).split())
@@ -272,9 +274,15 @@ def _parse_param_lines(text: str) -> list[dict[str, str]]:
                 idx += 1
             params.append({"name": name, "type": type_value or "—", "description": description})
         else:
-            m = re.match(r"\*\*(.+?)\*\*\s+\((.+?)\)\s*$", line)
+            m = re.match(r"\*\*(.+?)\*\*\s+\((.+?)\)(?:\s+—\s+(.*))?$", line)
             if m:
-                params.append({"name": m.group(1).strip(), "type": m.group(2).strip(), "description": ""})
+                params.append(
+                    {
+                        "name": m.group(1).strip(),
+                        "type": m.group(2).strip(),
+                        "description": (m.group(3) or "").strip(),
+                    }
+                )
             elif line:
                 params.append({"name": line, "type": "", "description": ""})
         idx += 1
@@ -599,117 +607,6 @@ def extract_structured_records_from_topic(
     )
 
 
-def _chapter_heading_text(tag: Tag) -> str:
-    return tag.get_text(separator=" ", strip=True)
-
-
-def _find_html_chapter(soup: BeautifulSoup, prefix: str) -> Tag | None:
-    for tag in soup.find_all("p", class_="V8SH_chapter"):
-        if _chapter_heading_text(tag).startswith(prefix):
-            return tag
-    return None
-
-
-def _iter_chapter_nodes(chapter: Tag) -> list[Any]:
-    nodes: list[Any] = []
-    for sibling in chapter.next_siblings:
-        if isinstance(sibling, Tag) and sibling.name == "p" and "V8SH_chapter" in (sibling.get("class") or []):
-            break
-        if isinstance(sibling, Tag) and sibling.name == "hr":
-            break
-        nodes.append(sibling)
-    return nodes
-
-
-def _nodes_text(nodes: list[Any]) -> str:
-    parts: list[str] = []
-    for node in nodes:
-        if isinstance(node, NavigableString):
-            text = str(node).strip()
-        elif isinstance(node, Tag):
-            if node.name == "br":
-                text = "\n"
-            else:
-                text = node.get_text(separator=" ", strip=True)
-        else:
-            text = str(node).strip()
-        if text:
-            parts.append(text)
-    return _normalize_text("\n".join(parts))
-
-
-def _chapter_text(soup: BeautifulSoup, prefix: str) -> str:
-    chapter = _find_html_chapter(soup, prefix)
-    if chapter is None:
-        return ""
-    return _nodes_text(_iter_chapter_nodes(chapter))
-
-
-def _chapter_example_text(soup: BeautifulSoup) -> str:
-    chapter = _find_html_chapter(soup, "Пример:")
-    if chapter is None:
-        return ""
-    nodes = _iter_chapter_nodes(chapter)
-    descriptions: list[str] = []
-    code_blocks: list[str] = []
-    for node in nodes:
-        if isinstance(node, Tag) and node.name == "pre":
-            code = node.get_text(separator="\n", strip=True)
-            if code:
-                code_blocks.append(code)
-        elif isinstance(node, Tag) and node.name == "table":
-            code = "\n".join(
-                " ".join(cell.get_text(strip=True) for cell in row.find_all(["td", "th"]))
-                for row in node.find_all("tr")
-            ).strip()
-            if code:
-                code_blocks.append(code)
-        else:
-            text = _nodes_text([node])
-            if text:
-                descriptions.append(text)
-    parts = []
-    if descriptions:
-        parts.append(_normalize_text("\n".join(descriptions)))
-    for code in code_blocks:
-        parts.append(f"```bsl\n{code}\n```")
-    return _normalize_text("\n\n".join(parts))
-
-
-def _chapter_params_text(soup: BeautifulSoup) -> str:
-    chapter = _find_html_chapter(soup, "Параметры:")
-    if chapter is None:
-        return ""
-    nodes = _iter_chapter_nodes(chapter)
-    rubric_params: list[str] = []
-    for node in nodes:
-        if isinstance(node, Tag) and node.name == "div" and "V8SH_rubric" in (node.get("class") or []):
-            p_tag = node.find("p")
-            a_tag = node.find("a")
-            name = p_tag.get_text(strip=True) if p_tag else "—"
-            type_name = a_tag.get_text(strip=True) if a_tag else "—"
-            rubric_params.append(f"- **{name}** ({type_name})")
-    if rubric_params:
-        return "\n".join(rubric_params)
-    return _nodes_text(nodes)
-
-
-def _see_also_text(soup: BeautifulSoup) -> str:
-    chapter = _find_html_chapter(soup, "См. также:")
-    if chapter is None:
-        return ""
-    names: list[str] = []
-    for node in _iter_chapter_nodes(chapter):
-        if isinstance(node, Tag):
-            for link in node.find_all("a"):
-                text = link.get_text(strip=True)
-                if text:
-                    names.append(text)
-    if not names:
-        return _nodes_text(_iter_chapter_nodes(chapter))
-    return "\n".join(names)
-
-
 def extract_structured_records_from_html_topic(
     html_path: Path,
     *,
@@ -740,15 +637,18 @@ def extract_structured_records_from_html_topic(
                 "breadcrumb": breadcrumb or [],
             }
         )
+    extracted = extract_v8sh_sections(soup)
     sections = {
-        "description": _chapter_text(soup, "Описание:"),
-        "syntax": _chapter_text(soup, "Синтаксис:"),
-        "params": _chapter_params_text(soup),
-        "returns": _chapter_text(soup, "Возвращаемое значение:"),
-        "availability": _chapter_text(soup, "Доступность:"),
-        "example": _chapter_example_text(soup),
-        "see_also": _see_also_text(soup),
-        "note": _chapter_text(soup, "Примечание:"),
+        "description": extracted["description"],
+        "syntax": extracted["syntax"],
+        "params": extracted["params"],
+        "returns": extracted["returns"],
+        "availability": _normalize_text(
+            "\n".join(part for part in (extracted["availability"], extracted["version"]) if part)
+        ),
+        "example": extracted["example"],
+        "see_also": extracted["see_also"],
+        "note": extracted["note"],
     }
     intro_parts = []
     if sections["description"]:

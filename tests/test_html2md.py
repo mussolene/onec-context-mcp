@@ -14,6 +14,7 @@ from onec_help.help_core.html2md import (
     build_docs,
     extract_links_from_markdown,
     extract_outgoing_links,
+    extract_v8sh_sections,
     html_to_md_content,
     read_file_with_encoding_fallback,
     resolve_href,
@@ -246,6 +247,53 @@ def test_html_to_md_fallback_body_text(tmp_path: Path) -> None:
     )
     md = html_to_md_content(f)
     assert "Only Title" in md
+
+
+def test_extract_v8sh_sections_handles_div_based_legacy_markup() -> None:
+    soup = BeautifulSoup(
+        """<html><body>
+        <h1 class="V8SH_pagetitle">Automation сервер.Connect (Automation server.Connect)</h1>
+        <div class="V8SH_chapter"><p>Синтаксис:</p></div>Connect(&lt;СтрокаСоединения&gt;)
+        <div class="V8SH_chapter"><p>Параметры:</p></div>
+        <div class="V8SH_rubric"><p>&lt;СтрокаСоединения&gt; (обязательный)</p></div>
+        Тип: <a href="x">Строка</a>. <br>Строка параметров соединения.
+        <div class="V8SH_chapter"><p>Возвращаемое значение:</p></div>Тип: <a href="b">Булево</a>. <br>Истина при успехе.
+        <div class="V8SH_chapter"><p>Описание:</p></div>Выполняет соединение.
+        <div class="V8SH_chapter"><p>Доступность:</p></div>Интеграция.
+        </body></html>""",
+        "html.parser",
+    )
+    sections = extract_v8sh_sections(soup)
+    assert sections["syntax"] == "Connect(<СтрокаСоединения>)"
+    assert "**<СтрокаСоединения> (обязательный)** (Строка)" in sections["params"]
+    assert "Строка параметров соединения." in sections["params"]
+    assert sections["returns"] == "Тип: Булево .\nИстина при успехе."
+    assert sections["description"] == "Выполняет соединение."
+    assert sections["availability"] == "Интеграция."
+
+
+def test_html_to_md_content_uses_shared_v8sh_sections_for_div_markup(tmp_path: Path) -> None:
+    f = tmp_path / "legacy-v8sh.html"
+    f.write_text(
+        """<html><body>
+        <h1 class="V8SH_pagetitle">Automation сервер.Connect (Automation server.Connect)</h1>
+        <div class="V8SH_chapter"><p>Синтаксис:</p></div>Connect(&lt;СтрокаСоединения&gt;)
+        <div class="V8SH_chapter"><p>Параметры:</p></div>
+        <div class="V8SH_rubric"><p>&lt;СтрокаСоединения&gt; (обязательный)</p></div>
+        Тип: <a href="x">Строка</a>. <br>Строка параметров соединения.
+        <div class="V8SH_chapter"><p>Возвращаемое значение:</p></div>Тип: <a href="b">Булево</a>. <br>Истина при успехе.
+        <div class="V8SH_chapter"><p>Описание:</p></div>Выполняет соединение.
+        <div class="V8SH_chapter"><p>Доступность:</p></div>Интеграция.
+        </body></html>""",
+        encoding="utf-8",
+    )
+    md = html_to_md_content(f)
+    assert "## Синтаксис" in md
+    assert "Connect(<СтрокаСоединения>)" in md
+    assert "## Параметры" in md
+    assert "**<СтрокаСоединения> (обязательный)** (Строка)" in md
+    assert "## Возвращаемое значение" in md
+    assert "Истина при успехе." in md
 
 
 def test_build_docs_extensionless_html(tmp_path: Path) -> None:

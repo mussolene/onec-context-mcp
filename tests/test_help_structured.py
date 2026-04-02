@@ -313,6 +313,44 @@ def test_extract_structured_records_from_html_topic_reads_v8_sections(tmp_path: 
     assert examples and "GetDimensions" in examples[0]["code"]
 
 
+def test_extract_structured_records_from_html_topic_uses_shared_legacy_v8sh_parser(
+    tmp_path: Path,
+) -> None:
+    html_path = tmp_path / "Connect.html"
+    html_path.write_text(
+        """<html><body>
+<h1 class="V8SH_pagetitle">Automation сервер.Connect (Automation server.Connect)</h1>
+<div class="V8SH_title">Automation сервер (Automation server)</div>
+<div class="V8SH_heading">Connect (Connect)</div>
+<div class="V8SH_chapter"><p>Синтаксис:</p></div>Connect(&lt;СтрокаСоединения&gt;)
+<div class="V8SH_chapter"><p>Параметры:</p></div>
+<div class="V8SH_rubric"><p>&lt;СтрокаСоединения&gt; (обязательный)</p></div>
+Тип: <a href="v8help://SyntaxHelperLanguage/def_String">Строка</a>. <br>Строка параметров соединения.
+<div class="V8SH_chapter"><p>Возвращаемое значение:</p></div>Тип: <a href="v8help://SyntaxHelperLanguage/def_Boolean">Булево</a>. <br>Истина при успехе.
+<div class="V8SH_chapter"><p>Описание:</p></div>Выполняет соединение системы 1С:Предприятие с информационной базой.<br>
+<div class="V8SH_chapter"><p>Доступность:</p></div>Интеграция.
+</body></html>""",
+        encoding="utf-8",
+    )
+    _obj, member, _examples, _links = extract_structured_records_from_html_topic(
+        html_path,
+        version="8.2.19.130",
+        language="ru",
+        topic_path="8.2.19.130/shcntx_ru/objects/catalog1369/Automation server/methods/Connect2743.html",
+        title="Connect",
+        breadcrumb=["Automation сервер"],
+        entity_type="topic",
+    )
+    assert member is not None
+    assert member["full_name"] == "Automation сервер.Connect"
+    assert member["syntax"] == "Connect(<СтрокаСоединения>)"
+    assert member["params"][0]["name"] == "<СтрокаСоединения> (обязательный)"
+    assert member["params"][0]["type"] == "Строка"
+    assert "Строка параметров соединения." in member["params"][0]["description"]
+    assert member["returns"] == "Тип: Булево .\nИстина при успехе."
+    assert "Интеграция" in member["availability"]
+
+
 def test_build_structured_api_snapshot_prefers_unpacked_html(tmp_path: Path) -> None:
     unpacked_dir = tmp_path / "unpacked"
     stem_dir = unpacked_dir / "8.3.27.1859" / "shcntx_ru"
