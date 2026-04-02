@@ -269,11 +269,12 @@ def _object_to_markdown(
     lines.append(f"# {type_ru}: {obj.name}")
     if obj.full_name:
         lines.append(f"\n**Представление:** {obj.full_name}")
-    lines.append(f"\n**Конфигурация:** {crawl.config_name} (версия {crawl.config_version})")
+    attrs = obj.attributes or {}
+    obj_config_name = attrs.get("config_name") or crawl.config_name
+    obj_config_version = attrs.get("config_version") or crawl.config_version
+    lines.append(f"\n**Конфигурация:** {obj_config_name} (версия {obj_config_version})")
     if obj.path:
         lines.append(f"**Путь:** {obj.path}")
-
-    attrs = obj.attributes or {}
     parent_id = attrs.get("parent_id")
     if parent_id:
         lines.append(f"\n**Родительский объект:** `{parent_id}`")

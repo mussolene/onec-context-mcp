@@ -2,6 +2,7 @@ from pathlib import Path
 
 from onec_help.knowledge.kd2_metadata import (
     crawl_kd2_xml,
+    crawl_kd2_xml_exports,
     load_kd2_snapshot,
     write_kd2_snapshot,
 )
@@ -118,3 +119,23 @@ def test_kd2_snapshot_roundtrip(tmp_path: Path) -> None:
     assert (snapshot_dir / "objects.jsonl").is_file()
     assert (snapshot_dir / "fields.jsonl").is_file()
     assert (snapshot_dir / "manifest.json").is_file()
+
+
+def test_crawl_kd2_xml_exports_merges_multiple_files(tmp_path: Path) -> None:
+    xml_one = tmp_path / "one.xml"
+    xml_two = tmp_path / "two.xml"
+    xml_one.write_text(KD2_XML.replace("3.0.1.1", "3.0.1.1"), encoding="utf-8")
+    xml_two.write_text(
+        KD2_XML.replace("ТестоваяКонфигурация", "ВтораяКонфигурация").replace("3.0.1.1", "5.0.0.2").replace(
+            "РеализацияТоваровУслуг", "ЗаказПокупателя"
+        ),
+        encoding="utf-8",
+    )
+
+    crawl = crawl_kd2_xml_exports([xml_one, xml_two])
+
+    assert crawl.config_version == "multiple"
+    assert len(crawl.objects) == 4
+    names = {obj.name for obj in crawl.objects}
+    assert "РеализацияТоваровУслуг" in names
+    assert "ЗаказПокупателя" in names

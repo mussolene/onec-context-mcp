@@ -100,6 +100,33 @@ def pick_primary_kd2_xml_export(path: Path) -> Path | None:
     return max(exports, key=lambda item: item.stat().st_mtime)
 
 
+def crawl_kd2_xml_exports(paths: list[str | Path]) -> CrawlResult:
+    """Parse and merge multiple KD2 XML exports into one CrawlResult."""
+    crawls = [crawl_kd2_xml(path) for path in paths]
+    if not crawls:
+        raise FileNotFoundError("No KD2 XML exports provided")
+    if len(crawls) == 1:
+        return crawls[0]
+    all_objects: list[ConfigObject] = []
+    all_relations = []
+    config_labels: list[str] = []
+    for crawl in crawls:
+        all_objects.extend(crawl.objects)
+        all_relations.extend(crawl.relations)
+        label = f"{crawl.config_name} ({crawl.config_version})".strip()
+        if label and label not in config_labels:
+            config_labels.append(label)
+    root_dir = crawls[0].root_dir.parent if crawls[0].root_dir.is_file() else crawls[0].root_dir
+    return CrawlResult(
+        root_dir=root_dir,
+        config_name=", ".join(config_labels[:3]) + ("…" if len(config_labels) > 3 else ""),
+        config_version="multiple",
+        platform_version=None,
+        objects=all_objects,
+        relations=all_relations,
+    )
+
+
 def _normalize_object_name(record: dict[str, str]) -> str:
     return (record.get("Имя") or record.get("Description") or "").strip()
 
