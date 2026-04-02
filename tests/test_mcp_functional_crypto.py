@@ -63,7 +63,7 @@ def crypto_queries() -> list[dict]:
 @pytest.mark.parametrize("entry", _load_crypto_queries(), ids=lambda e: e.get("id", "item"))
 def test_mcp_crypto_query_returns_relevant_content(entry: dict) -> None:
     """Each crypto/scenario query returns non-empty response with at least one expected marker."""
-    tool = entry.get("tool", "get_1c_code_answer")
+    tool = entry.get("tool", "search_1c_help_keyword")
     args = entry.get("args", {})
     markers = entry.get("expected_markers", [])
     out = _call_mcp_via_http(tool, args)

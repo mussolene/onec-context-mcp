@@ -323,9 +323,24 @@ def _match_priority(query_lower: str, title_lower: str, path_stem_lower: str = "
     candidates = [item for item in (title_lower, path_stem_lower) if item]
     if any(candidate == query_lower for candidate in candidates):
         return 0
-    if any(candidate.startswith(query_lower + " ") or candidate.startswith(query_lower + "(") for candidate in candidates):
+    if any(
+        candidate.startswith(query_lower + suffix)
+        for candidate in candidates
+        for suffix in (" (", " [", " —", ":")
+    ):
+        return 0
+    if any(
+        candidate.startswith(query_lower + suffix)
+        for candidate in candidates
+        for suffix in (" ", "(")
+    ):
         return 1
-    if any(candidate.startswith(query_lower) for candidate in candidates):
+    for candidate in candidates:
+        if not candidate.startswith(query_lower):
+            continue
+        tail = candidate[len(query_lower) : len(query_lower) + 1]
+        if tail and (tail.isalnum() or tail == "_"):
+            return 2
         return 1
     if any(query_lower in candidate for candidate in candidates):
         return 2

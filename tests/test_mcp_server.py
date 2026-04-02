@@ -80,6 +80,19 @@ def test_hybrid_search_handles_score_none(mock_search, mock_search_keyword) -> N
     assert "b.md" in paths
 
 
+def test_match_priority_prefers_exact_member_over_longer_prefix() -> None:
+    """Exact member title should outrank longer prefix hits like ПолучитьЗаголовки."""
+    exact = mcp_server._match_priority(
+        "httpсоединение.получить",
+        "httpсоединение.получить (httpconnection.get)",
+    )
+    longer = mcp_server._match_priority(
+        "httpсоединение.получить",
+        "httpсоединение.получитьзаголовки (httpconnection.head)",
+    )
+    assert exact < longer
+
+
 def test_extract_keyword_tokens_type_method() -> None:
     """_extract_keyword_tokens extracts Type.Method as whole string."""
     tokens = mcp_server._extract_keyword_tokens("HTTPСоединение.Получить пример")

@@ -41,6 +41,7 @@ WORKDIR /app
 
 # Установленные пакеты, скрипты, docs для самодокументируемого MCP (правила и скилл)
 COPY --from=builder /usr/local/lib/python3.14/site-packages /usr/local/lib/python3.14/site-packages
+COPY src/ /app/src/
 COPY entrypoint.sh entrypoint-mcp-only.sh crontab ./
 COPY docs/ /app/docs/
 RUN chmod +x /app/entrypoint.sh /app/entrypoint-mcp-only.sh \
@@ -49,6 +50,7 @@ RUN chmod +x /app/entrypoint.sh /app/entrypoint-mcp-only.sh \
 
 ENV PORT=5000
 ENV MCP_CURSOR_DOCS_PATH=/app/docs
+ENV PYTHONPATH=/app/src
 EXPOSE 5000
 
 ENV HELP_PATH=/data

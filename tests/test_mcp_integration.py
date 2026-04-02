@@ -57,10 +57,10 @@ def test_search_1c_help_keyword_type_method() -> None:
     assert "HTTPСоединение" in out or "No keyword matches" in out
 
 
-def test_get_1c_code_answer_low_score_hint() -> None:
-    """get_1c_code_answer may show keyword hint for low-relevance query."""
+def test_get_1c_api_answer_http_get() -> None:
+    """get_1c_api_answer should return exact API answer for HTTP GET."""
     out = _call_mcp_via_http(
-        "get_1c_code_answer",
-        {"query": "как вывести СКД в таблицу", "limit": 3, "include_memory": False},
+        "get_1c_api_answer",
+        {"name": "HTTPСоединение.Получить"},
     )
-    assert "Запрос" in out or "search_1c_help_keyword" in out or "No results" in out
+    assert "HTTPСоединение.Получить" in out or "No exact keyword matches" in out

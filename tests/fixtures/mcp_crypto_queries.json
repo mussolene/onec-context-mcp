@@ -13,8 +13,8 @@
   },
   {
     "id": "hash",
-    "tool": "get_1c_code_answer",
-    "args": {"query": "как получить хеш данных в 1С", "limit": 3, "include_memory": false},
+    "tool": "search_1c_help",
+    "args": {"query": "как получить хеш данных в 1С", "limit": 3},
     "expected_markers": ["Хеш", "хеш", "Хеширование", "данн"]
   },
   {
@@ -24,9 +24,9 @@
     "expected_markers": ["Сертификат", "сертификат", "path", ".md"]
   },
   {
-    "id": "code_answer_crypto",
-    "tool": "get_1c_code_answer",
-    "args": {"query": "как подписать данные", "limit": 3, "include_memory": false},
-    "expected_markers": ["подпис", "Криптограф", "МенеджерКриптографии", "search_1c_help_keyword", "No results"]
+    "id": "crypto_snippets",
+    "tool": "search_1c_snippets",
+    "args": {"query": "как подписать данные", "limit": 3},
+    "expected_markers": ["подпис", "Криптограф", "МенеджерКриптографии", "Пример", "Ничего не найдено"]
   }
 ]
