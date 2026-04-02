@@ -296,6 +296,38 @@ def test_html_to_md_content_uses_shared_v8sh_sections_for_div_markup(tmp_path: P
     assert "Тип: Булево . Истина при успехе." in md
 
 
+def test_html_to_md_content_legacy_object_overview_keeps_body_text(tmp_path: Path) -> None:
+    f = tmp_path / "catalog56.html"
+    f.write_text(
+        """<html><body>
+        <h1 class="V8SH_pagetitle">Интерфейс (обычный)</h1>
+        <div class="V8SH_title">Интерфейс (обычный)</div>
+        В этом разделе описываются объекты, предназначенные для интерактивной работы пользователя.
+        </body></html>""",
+        encoding="utf-8",
+    )
+    md = html_to_md_content(f)
+    assert md.startswith("# Интерфейс (обычный)")
+    assert "интерактивной работы пользователя" in md
+
+
+def test_extract_v8sh_sections_reads_fields_without_colon() -> None:
+    soup = BeautifulSoup(
+        """<html><body>
+        <h1 class="V8SH_pagetitle">Документ.&lt;Имя документа&gt;</h1>
+        <div class="V8SH_chapter"><p>Синтаксис</p></div>Документ.&lt;Имя документа&gt;
+        <div class="V8SH_chapter"><p>Поля</p></div>
+        <a href="x">Дата (Date)</a><br><a href="y">Номер (Number)</a><br>
+        <div class="V8SH_chapter"><p>Описание:</p></div>Предназначена для получения записей документов.
+        </body></html>""",
+        "html.parser",
+    )
+    sections = extract_v8sh_sections(soup)
+    assert sections["syntax"] == "Документ.<Имя документа>"
+    assert "Дата (Date)" in sections["fields"]
+    assert "Номер (Number)" in sections["fields"]
+
+
 def test_build_docs_extensionless_html(tmp_path: Path) -> None:
     """build_docs processes extension-less files that look like HTML."""
     (tmp_path / "noext").write_text("<html><body><h1>No Ext</h1></body></html>", encoding="utf-8")

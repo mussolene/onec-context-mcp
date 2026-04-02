@@ -28,6 +28,7 @@ API_COLLECTION_NAME = API_MEMBERS_COLLECTION_NAME
 _SECTION_ALIASES: dict[str, str] = {
     "Описание": "description",
     "Синтаксис": "syntax",
+    "Поля": "fields",
     "Параметры": "params",
     "Возвращаемое значение": "returns",
     "Пример": "example",
@@ -55,6 +56,7 @@ _STRUCTURED_MEMBER_KINDS = {"method", "property", "event", "constructor", "funct
 _STRUCTURED_OBJECT_KINDS = {"type", "manager", "global_context", "metadata_object", "collection", "enum"}
 _INLINE_SECTION_LABELS = {
     "Синтаксис:": "syntax",
+    "Поля:": "fields",
     "Параметры:": "params",
     "Возвращаемое значение:": "returns",
     "Описание:": "description",
@@ -159,6 +161,12 @@ def _infer_member_kind(topic_path: str, title: str, entity_type: str) -> str:
 def _infer_object_kind(topic_path: str, title: str) -> str:
     path = (topic_path or "").replace("\\", "/").lower()
     title_base = _strip_title_suffix(title)
+    if "/tables/" in path:
+        return "table"
+    if "/shquery_" in path:
+        return "query_topic"
+    if "/shclang_" in path or "/embedlang" in path:
+        return "language_topic"
     if title_base.startswith("Глобальный контекст"):
         return "global_context"
     if title_base.startswith("ОбъектМетаданных:"):
@@ -183,8 +191,13 @@ def _has_structured_api_sections(sections: dict[str, str]) -> bool:
 def _should_index_object_topic(topic_path: str, title: str, sections: dict[str, str], kind: str) -> bool:
     if kind in _STRUCTURED_OBJECT_KINDS:
         return True
+    if kind in {"table", "query_topic", "language_topic"}:
+        return True
     if not _has_structured_api_sections(sections):
-        return False
+        path = (topic_path or "").replace("\\", "/").lower()
+        return "/objects/" in path and not any(
+            marker in path for marker in ("/methods/", "/properties/", "/events/", "/ctors/")
+        )
     path = (topic_path or "").replace("\\", "/").lower()
     title_base = _strip_title_suffix(title)
     if title_base.startswith("ОбъектМетаданных:"):
@@ -444,7 +457,7 @@ def _build_structured_records(
     title = title or payload_title or path
     member_kind = _infer_member_kind(path, title, entity_type)
     object_kind = _infer_object_kind(path, title)
-    if member_kind == "topic" and "." in _strip_title_suffix(title) and (
+    if member_kind == "topic" and "." in _strip_title_suffix(title) and "/tables/" not in path.replace("\\", "/").lower() and (
         sections.get("syntax") or sections.get("params") or sections.get("returns")
     ):
         member_kind = "method"
@@ -527,7 +540,7 @@ def _build_structured_records(
             "id": _topic_point_id(path, version, language),
             "object_name": full_name,
             "full_name": full_name,
-            "kind": object_kind if object_kind in _STRUCTURED_OBJECT_KINDS else "type",
+            "kind": object_kind if object_kind in (_STRUCTURED_OBJECT_KINDS | {"table", "query_topic", "language_topic"}) else "type",
             "title": title,
             "summary": summary,
             "description": description,
@@ -647,6 +660,7 @@ def extract_structured_records_from_html_topic(
     sections = {
         "description": extracted["description"],
         "syntax": extracted["syntax"],
+        "fields": extracted.get("fields", ""),
         "params": extracted["params"],
         "returns": extracted["returns"],
         "availability": _normalize_text(
@@ -657,6 +671,13 @@ def extract_structured_records_from_html_topic(
         "note": extracted["note"],
     }
     intro_parts = []
+    if not any(sections.values()):
+        fallback_md = html_to_md_content(html_path)
+        md_title, md_intro, md_sections = _split_markdown_sections(fallback_md)
+        page_title = page_title or md_title or title
+        sections = md_sections or sections
+        if md_intro:
+            intro_parts.append(md_intro)
     if sections["description"]:
         intro_parts.append(sections["description"])
     if sections["note"]:

@@ -353,6 +353,83 @@ def test_extract_structured_records_from_html_topic_uses_shared_legacy_v8sh_pars
     assert "Интеграция" in member["availability"]
 
 
+def test_extract_structured_records_from_html_topic_indexes_table_topic(tmp_path: Path) -> None:
+    html_path = tmp_path / "table5.html"
+    html_path.write_text(
+        """<html><body>
+<h1 class="V8SH_pagetitle">Документ.&lt;Имя документа&gt; (Document.&lt;Имя документа&gt;)</h1>
+<div class="V8SH_chapter"><p>Синтаксис</p></div>Документ.&lt;Имя документа&gt; (Document.&lt;Имя документа&gt;)
+<div class="V8SH_chapter"><p>Поля</p></div><a href="x">Дата (Date)</a><br><a href="y">Номер (Number)</a><br>
+<div class="V8SH_chapter"><p>Описание:</p></div>Предназначена для получения записей документов.
+</body></html>""",
+        encoding="utf-8",
+    )
+    obj, member, _examples, _links = extract_structured_records_from_html_topic(
+        html_path,
+        version="8.2.19.130",
+        language="ru",
+        topic_path="8.2.19.130/shcntx_ru/tables/table5.html",
+        title="Документ.<Имя документа>",
+        breadcrumb=[],
+        entity_type="topic",
+    )
+    assert member is None
+    assert obj is not None
+    assert obj["kind"] == "table"
+    assert obj["source_sections"]["syntax"] == "Документ.<Имя документа> (Document.<Имя документа>)"
+    assert "Дата (Date)" in obj["source_sections"]["fields"]
+    assert "Номер (Number)" in obj["source_sections"]["fields"]
+
+
+def test_extract_structured_records_from_html_topic_indexes_language_topic(tmp_path: Path) -> None:
+    html_path = tmp_path / "source_format.html"
+    html_path.write_text(
+        """<html><body><h1 class="V8SH_pagetitle">Формат программного модуля</h1>
+        <div class="V8SH_title">Формат программного модуля</div>
+        Исходный текст программного модуля может состоять из операторов и комментариев.
+        </body></html>""",
+        encoding="utf-8",
+    )
+    obj, member, _examples, _links = extract_structured_records_from_html_topic(
+        html_path,
+        version="8.2.19.130",
+        language="ru",
+        topic_path="8.2.19.130/shclang_ru/source_format.html",
+        title="Формат программного модуля",
+        breadcrumb=[],
+        entity_type="topic",
+    )
+    assert member is None
+    assert obj is not None
+    assert obj["kind"] == "language_topic"
+    assert "операторов и комментариев" in obj["summary"]
+
+
+def test_extract_structured_records_from_html_topic_indexes_object_overview(tmp_path: Path) -> None:
+    html_path = tmp_path / "catalog56.html"
+    html_path.write_text(
+        """<html><body>
+        <h1 class="V8SH_pagetitle">Интерфейс (обычный)</h1>
+        <div class="V8SH_title">Интерфейс (обычный)</div>
+        В этом разделе описываются объекты, предназначенные для интерактивной работы пользователя.
+        </body></html>""",
+        encoding="utf-8",
+    )
+    obj, member, _examples, _links = extract_structured_records_from_html_topic(
+        html_path,
+        version="8.2.19.130",
+        language="ru",
+        topic_path="8.2.19.130/shcntx_ru/objects/catalog56.html",
+        title="Интерфейс (обычный)",
+        breadcrumb=[],
+        entity_type="topic",
+    )
+    assert member is None
+    assert obj is not None
+    assert obj["kind"] == "type"
+    assert "интерактивной работы пользователя" in obj["summary"]
+
+
 def test_build_structured_api_snapshot_prefers_unpacked_html(tmp_path: Path) -> None:
     unpacked_dir = tmp_path / "unpacked"
     stem_dir = unpacked_dir / "8.3.27.1859" / "shcntx_ru"

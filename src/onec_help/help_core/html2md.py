@@ -259,8 +259,12 @@ def _v8sh_heading_text(tag) -> str:
 
 
 def _find_v8sh_chapter(soup: BeautifulSoup, prefix: str):
+    normalized_prefix = prefix.rstrip(":").strip().lower()
     for tag in soup.find_all(class_="V8SH_chapter"):
-        if getattr(tag, "get_text", None) and _v8sh_heading_text(tag).startswith(prefix):
+        if not getattr(tag, "get_text", None):
+            continue
+        heading = _v8sh_heading_text(tag).rstrip(":").strip().lower()
+        if heading.startswith(normalized_prefix):
             return tag
     return None
 
@@ -360,6 +364,7 @@ def extract_v8sh_sections(soup: BeautifulSoup) -> dict[str, str]:
     sections = {
         "description": "",
         "syntax": "",
+        "fields": "",
         "params": "",
         "returns": "",
         "example": "",
@@ -370,11 +375,12 @@ def extract_v8sh_sections(soup: BeautifulSoup) -> dict[str, str]:
     }
 
     chapter_map = {
-        "description": "Описание:",
-        "syntax": "Синтаксис:",
-        "returns": "Возвращаемое значение:",
-        "note": "Примечание:",
-        "availability": "Доступность:",
+        "description": "Описание",
+        "syntax": "Синтаксис",
+        "fields": "Поля",
+        "returns": "Возвращаемое значение",
+        "note": "Примечание",
+        "availability": "Доступность",
     }
     for key, prefix in chapter_map.items():
         chapter = _find_v8sh_chapter(soup, prefix)
@@ -383,13 +389,13 @@ def extract_v8sh_sections(soup: BeautifulSoup) -> dict[str, str]:
     if sections["returns"]:
         sections["returns"] = _v8sh_compact_prose(sections["returns"])
 
-    params_chapter = _find_v8sh_chapter(soup, "Параметры:")
+    params_chapter = _find_v8sh_chapter(soup, "Параметры")
     if params_chapter is not None:
         params_nodes = _iter_v8sh_chapter_nodes(params_chapter)
         rubric_params = _v8sh_rubric_params(params_nodes)
         sections["params"] = "\n".join(rubric_params) if rubric_params else _v8sh_nodes_text(params_nodes)
 
-    example_chapter = _find_v8sh_chapter(soup, "Пример:")
+    example_chapter = _find_v8sh_chapter(soup, "Пример")
     if example_chapter is not None:
         example_nodes = _iter_v8sh_chapter_nodes(example_chapter)
         descriptions: list[str] = []
@@ -417,7 +423,7 @@ def extract_v8sh_sections(soup: BeautifulSoup) -> dict[str, str]:
             parts.append(f"```bsl\n{code}\n```")
         sections["example"] = _normalize_md_text("\n\n".join(parts))
 
-    see_also_chapter = _find_v8sh_chapter(soup, "См. также:")
+    see_also_chapter = _find_v8sh_chapter(soup, "См. также")
     if see_also_chapter is not None:
         names: list[str] = []
         for node in _iter_v8sh_chapter_nodes(see_also_chapter):
@@ -485,10 +491,13 @@ def html_to_md_content(html_path) -> str:
     if sections["description"]:
         lines.append("## Описание\n\n")
         lines.append(sections["description"] + "\n\n")
-    lines.append("## Синтаксис\n\n```\n")
     if sections["syntax"]:
+        lines.append("## Синтаксис\n\n```\n")
         lines.append(sections["syntax"] + "\n")
-    lines.append("```\n\n")
+        lines.append("```\n\n")
+    if sections["fields"]:
+        lines.append("## Поля\n\n")
+        lines.append(sections["fields"] + "\n\n")
     if sections["params"]:
         lines.append("## Параметры\n\n")
         lines.append(sections["params"] + "\n\n")
