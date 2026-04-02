@@ -2154,7 +2154,7 @@ def _build_mcp_app(help_path: Path) -> Any:
 ---
 2) 1c-HELP — ORDER OF CALLS
 - Exact API: get_1c_api_answer(name) first for Тип.Метод. General platform topics: search_1c_help(query) or search_1c_help_keyword with exact API name (e.g. "МенеджерКриптографии.Подписать") → get_1c_help_topic(topic_path=<path>) using path from results. IMPORTANT: parameter is topic_path, not path. Example: get_1c_help_topic(topic_path="8.3.27/shcntx_ru/...CryptoManager.html").
-- Task-local context: get_1c_task_context(query, file_uri=..., symbol_name=...) before broad get_1c_context_bundle.
+- Task-local context: get_1c_task_context(query, file_uri=..., symbol_name=...).
 - Need explicit standards/snippets: search_1c_standards(query), search_1c_snippets(query), or legacy search_1c_memory(query, domains="standards,snippets").
 - Empty or poor results: call get_1c_help_index_status first to check index health → then search_1c_help_keyword with exact Тип.Метод.
 - After working code: save_1c_snippet(code_snippet, description, title) only for reusable verified code.
@@ -2187,7 +2187,6 @@ def _build_mcp_app(help_path: Path) -> Any:
 - search_1c_metadata_fields(object_query, field_query, config_version=None, object_type=None): field/requisite lookup.
 - get_1c_metadata_object(object_id, config_version=None): details for one object (requisites, tabular sections). Pass config_version from metadata search to avoid ambiguity.
 - get_1c_task_context(query, file_uri=None, symbol_name=None, diagnostics_json=None): compact anti-hallucination context for AI.
-- get_1c_context_bundle(query, config_version=None): legacy broad context when you explicitly need a wider bundle.
 
 ---
 6) LIMITS

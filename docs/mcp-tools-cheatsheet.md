@@ -27,10 +27,7 @@
 | 2 | get_1c_help_related | topic_path | Смежные темы по исходящим ссылкам. |
 | 2 | get_1c_help_topics_bulk | paths | Несколько тем за вызов. |
 | 2 | save_1c_snippet | code_snippet | Сохранить проверенный переиспользуемый код. |
-| 3 | search_1c_help | query | Общий семантический поиск; не основной AI route. |
 | 3 | list_1c_help_titles | path_prefix | Обзор индекса. |
-| 3 | get_1c_context_bundle | query | Широкий bundle-контекст; expert/legacy tool. |
-| 3 | search_1c_help_with_content | query | Legacy/deprecated путь. |
 
 ---
 
