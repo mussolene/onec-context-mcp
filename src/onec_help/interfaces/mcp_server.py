@@ -647,6 +647,156 @@ def _format_structured_api_object(item: dict[str, Any], *, include_path: bool = 
     return "\n\n".join(lines)
 
 
+_QUESTION_VERSION_MARKERS = (
+    "с какой версии",
+    "начиная с какой версии",
+    "в какой версии",
+    "с версии",
+    "когда появился",
+    "когда доступен",
+)
+_QUESTION_EXAMPLE_MARKERS = (
+    "пример",
+    "как использовать",
+    "как выполнить",
+    "как получить",
+    "как сделать",
+)
+_QUESTION_RESTRICTION_MARKERS = (
+    "доступен ли",
+    "можно ли",
+    "ограничени",
+    "только на сервере",
+    "только на клиенте",
+    "интерактивный ввод",
+    "доступность",
+)
+_QUESTION_HEADINGS: dict[str, tuple[str, ...]] = {
+    "version": ("Доступность", "Использование в версии", "Примечание", "Описание"),
+    "restriction": ("Доступность", "Примечание", "Описание"),
+    "example": ("Пример", "Описание"),
+    "general": ("Описание", "Синтаксис", "Доступность", "Пример"),
+}
+
+
+def _classify_help_question(question: str) -> str:
+    q = (question or "").strip().lower()
+    if any(marker in q for marker in _QUESTION_VERSION_MARKERS):
+        return "version"
+    if any(marker in q for marker in _QUESTION_EXAMPLE_MARKERS):
+        return "example"
+    if any(marker in q for marker in _QUESTION_RESTRICTION_MARKERS):
+        return "restriction"
+    return "general"
+
+
+def _extract_question_api_names(question: str) -> list[str]:
+    tokens = _extract_keyword_tokens(question)
+    extra = re.findall(
+        r"[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё0-9_]*(?:\.[A-Za-zА-Яа-яЁё0-9_]+)?",
+        question or "",
+    )
+    seen: set[str] = set()
+    out: list[str] = []
+    for token in [*tokens, *extra]:
+        value = token.strip()
+        if len(value) < 3:
+            continue
+        key = value.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(value)
+    return out[:8]
+
+
+def _dedup_structured_hits(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    dedup: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for item in items:
+        key = (
+            str(item.get("full_name") or item.get("name") or item.get("title") or ""),
+            str(item.get("version") or ""),
+            str(item.get("topic_path") or item.get("path") or ""),
+        )
+        dedup[key] = item
+    return list(dedup.values())
+
+
+def _question_structured_sort_key(
+    question: str,
+    intent: str,
+    item: dict[str, Any],
+) -> tuple[int, int, bool, str]:
+    query = (question or "").strip()
+    has_fact = bool(item.get("availability")) if intent in {"version", "restriction"} else bool(item.get("summary"))
+    return (
+        _structured_api_sort_key(query, item)[0],
+        _member_sort_key(query.lower(), str(item.get("name") or item.get("title") or "").lower()),
+        not has_fact,
+        str(item.get("topic_path") or ""),
+    )
+
+
+def _search_help_question_candidates(
+    question: str,
+    *,
+    version: str | None,
+    language: str | None,
+) -> list[dict[str, Any]]:
+    names = _extract_question_api_names(question)
+    items: list[dict[str, Any]] = []
+    for name in names:
+        items.extend(_get_api_member(name, version=version, language=language))
+        items.extend(_get_api_object(name, version=version, language=language))
+    items.extend(_search_api_members(question, limit=5, version=version, language=language))
+    items.extend(_search_api_objects(question, limit=3, version=version, language=language))
+    return _dedup_structured_hits(items)
+
+
+def _extract_markdown_heading_section(content: str, headings: tuple[str, ...]) -> str:
+    if not content:
+        return ""
+    heading_pattern = "|".join(re.escape(h) for h in headings)
+    pattern = re.compile(
+        rf"(?ms)^#+\s*(?:{heading_pattern})\s*:?\s*$\n(.*?)(?=^#+\s|\Z)"
+    )
+    chunks = [m.group(1).strip() for m in pattern.finditer(content) if m.group(1).strip()]
+    if not chunks:
+        return ""
+    return "\n\n".join(chunks[:2]).strip()
+
+
+def _extract_fact_from_topic(content: str, intent: str) -> str:
+    section = _extract_markdown_heading_section(content, _QUESTION_HEADINGS.get(intent, _QUESTION_HEADINGS["general"]))
+    if section:
+        return section[:1600]
+    compact = " ".join((content or "").split())
+    if not compact:
+        return ""
+    return compact[:1200]
+
+
+def _format_question_answer(
+    question: str,
+    *,
+    answer: str,
+    candidate: dict[str, Any] | None = None,
+) -> str:
+    lines = [f"Вопрос: {question}", "", f"Ответ: {answer.strip()}"]
+    if candidate:
+        api_name = candidate.get("full_name") or candidate.get("name") or candidate.get("title")
+        if api_name:
+            lines.append(f"API: {api_name}")
+        meta: list[str] = []
+        if candidate.get("version"):
+            meta.append(str(candidate.get("version")))
+        if candidate.get("topic_path"):
+            meta.append(f"path: {candidate.get('topic_path')}")
+        if meta:
+            lines.append("Источник: " + " | ".join(meta))
+    return "\n".join(lines)
+
+
 def _summarize_diagnostics_json(diagnostics_json: str | None) -> str:
     if not diagnostics_json:
         return ""
@@ -1112,6 +1262,117 @@ def _build_mcp_app(help_path: Path) -> Any:
                 lines.append(f"   {item.get('description')}")
             lines.append(f"```bsl\n{_compact_code(str(item.get('code') or ''), 1200)}\n```")
         return "\n".join(lines)
+
+    @mcp.tool()
+    @_record_mcp_tool
+    def answer_1c_help_question(
+        question: str,
+        version: str | None = None,
+        language: str | None = None,
+        detail: str = "compact",
+    ) -> str:
+        """Answer a natural-language question against 1C platform help.
+        Use for questions like 'с какой версии доступно', 'можно ли использовать', 'покажи пример'.
+        For exact API names, get_1c_api_answer(name) is still faster."""
+        err = _check_rate_limit()
+        if err:
+            return err
+        question_clean, err = _truncate_if_needed((question or "").strip(), MAX_QUERY_CHARS, "question")
+        if err:
+            return err
+        if not question_clean:
+            return "Provide a question, for example: с какой версии доступен метод HTTPСоединение.Получить."
+
+        intent = _classify_help_question(question_clean)
+        if intent == "example":
+            examples = _search_official_examples(
+                question_clean,
+                limit=3,
+                version=version,
+                language=language,
+            )
+            if examples:
+                best = examples[0]
+                description = str(best.get("description") or "").strip()
+                code = _compact_code(str(best.get("code") or ""), 1200)
+                answer = description or "Найден официальный пример."
+                return _format_question_answer(
+                    question_clean,
+                    answer=f"{answer}\n\n```bsl\n{code}\n```",
+                    candidate={
+                        "full_name": best.get("full_name") or best.get("api_name") or best.get("title"),
+                        "version": best.get("version"),
+                        "topic_path": best.get("topic_path"),
+                    },
+                )
+
+        candidates = sorted(
+            _search_help_question_candidates(
+                question_clean,
+                version=version,
+                language=language,
+            ),
+            key=lambda item: _question_structured_sort_key(question_clean, intent, item),
+        )
+        if candidates:
+            best = candidates[0]
+            if detail == "full" and best.get("topic_path"):
+                content = _get_topic(
+                    str(best.get("topic_path")),
+                    version=version,
+                    language=language,
+                    prefer_index=True,
+                )
+                if content:
+                    fact = _extract_fact_from_topic(content, intent)
+                    if fact:
+                        return _format_question_answer(question_clean, answer=fact, candidate=best)
+            if intent in {"version", "restriction"} and best.get("availability"):
+                return _format_question_answer(
+                    question_clean,
+                    answer=str(best.get("availability")),
+                    candidate=best,
+                )
+            if best.get("summary"):
+                answer = str(best.get("summary"))
+                if detail == "compact" and best.get("availability") and intent in {"version", "restriction"}:
+                    answer = f"{answer}\n\nДоступность: {best.get('availability')}"
+                return _format_question_answer(question_clean, answer=answer, candidate=best)
+            if best.get("topic_path"):
+                content = _get_topic(
+                    str(best.get("topic_path")),
+                    version=version,
+                    language=language,
+                    prefer_index=True,
+                )
+                fact = _extract_fact_from_topic(content or "", intent)
+                if fact:
+                    return _format_question_answer(question_clean, answer=fact, candidate=best)
+
+        topic_hits = _rank_keyword_results(
+            question_clean,
+            _search_keyword(question_clean, limit=5, version=version, language=language),
+        )
+        if topic_hits:
+            best_topic = topic_hits[0]
+            path = str(best_topic.get("path") or "")
+            content = _get_topic(path, version=version, language=language, prefer_index=True)
+            fact = _extract_fact_from_topic(content or "", intent)
+            if fact:
+                return _format_question_answer(
+                    question_clean,
+                    answer=fact,
+                    candidate={
+                        "full_name": best_topic.get("title") or path,
+                        "version": best_topic.get("version"),
+                        "topic_path": path,
+                    },
+                )
+
+        return (
+            "Не удалось уверенно ответить по structured и topic слоям. "
+            "Уточните API-имя или передайте version, например 8.3.27.1859."
+        )
 
     def _search_memory_blocks(
         query: str,
@@ -2349,7 +2610,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         This tool is designed for autonomous AI invocation (unlike the prompt version which targets user invocation)."""
         _guide_develop = (
             "1C-HELP DEVELOP WORKFLOW:\n"
-            "1. Exact API (Тип.Метод) → get_1c_api_answer(name). Structured object/type → get_1c_api_object(name). Related API → get_1c_api_related(name).\n"
+            "1. Exact API (Тип.Метод) → get_1c_api_answer(name). Natural-language help question → answer_1c_help_question(question). Structured object/type → get_1c_api_object(name). Related API → get_1c_api_related(name).\n"
             "2. Official examples from platform help → search_1c_official_examples(query). Full topic only if needed → get_1c_help_topic(topic_path=<path>).\n"
             "3. General platform topic → search_1c_help_keyword('Тип.Метод') or search_1c_help(query) → get_1c_help_topic(topic_path=<path>).\n"
             "4. Local task context → get_1c_task_context(query, file_uri=..., symbol_name=...).\n"
@@ -2391,7 +2652,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         Not the default AI route; for autonomous workflow use get_1c_quick_guide instead."""
         block_develop = """1c-HELP + external LSP — DEVELOP (human/onboarding prompt)
 - AI-first route: get_1c_quick_guide(task="develop") first.
-- Exact API: get_1c_api_answer(name). Structured object: get_1c_api_object(name).
+- Exact API: get_1c_api_answer(name). Natural-language question: answer_1c_help_question(question). Structured object: get_1c_api_object(name).
 - Official examples from platform help: search_1c_official_examples(query).
 - General platform lookup: search_1c_help_keyword("Тип.Метод") or search_1c_help(query) → get_1c_help_topic(topic_path=<path>).
 - Local anti-hallucination context: get_1c_task_context(query, file_uri=..., symbol_name=...).
@@ -2426,7 +2687,7 @@ def _build_mcp_app(help_path: Path) -> Any:
 
 ---
 2) 1c-HELP — ORDER OF CALLS
-- Exact API: get_1c_api_answer(name) first for Тип.Метод. Structured truth-source: get_1c_api_object(name). Official examples: search_1c_official_examples(query). General platform topics: search_1c_help(query) or search_1c_help_keyword with exact API name (e.g. "МенеджерКриптографии.Подписать") → get_1c_help_topic(topic_path=<path>) using path from results. IMPORTANT: parameter is topic_path, not path. Example: get_1c_help_topic(topic_path="8.3.27/shcntx_ru/...CryptoManager.html").
+- Exact API: get_1c_api_answer(name) first for Тип.Метод. Natural-language factual question: answer_1c_help_question(question, version=...). Structured truth-source: get_1c_api_object(name). Official examples: search_1c_official_examples(query). General platform topics: search_1c_help(query) or search_1c_help_keyword with exact API name (e.g. "МенеджерКриптографии.Подписать") → get_1c_help_topic(topic_path=<path>) using path from results. IMPORTANT: parameter is topic_path, not path. Example: get_1c_help_topic(topic_path="8.3.27/shcntx_ru/...CryptoManager.html").
 - Task-local context: get_1c_task_context(query, file_uri=..., symbol_name=...).
 - Need explicit standards/snippets: search_1c_standards(query), search_1c_snippets(query), or legacy search_1c_memory(query, domains="standards,snippets").
 - Empty or poor results: call get_1c_help_index_status first to check index health → then search_1c_help_keyword with exact Тип.Метод.

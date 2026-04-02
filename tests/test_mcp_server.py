@@ -576,6 +576,71 @@ def test_mcp_tool_search_1c_official_examples_via_app(help_sample_dir: Path) -> 
     assert "Соединение.Получить" in text
 
 
+def test_mcp_tool_answer_1c_help_question_uses_structured_availability(help_sample_dir: Path) -> None:
+    """Natural-language factual question should answer from structured availability when possible."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(
+        mcp_server,
+        "_search_help_question_candidates",
+        return_value=[
+            {
+                "name": "МенеджерКриптографии.ИнтерактивныйВвод",
+                "full_name": "МенеджерКриптографии.ИнтерактивныйВвод",
+                "summary": "Интерактивный ввод параметров криптографии.",
+                "availability": "Использование в версии: 8.3.27.1859 и выше.",
+                "topic_path": "CryptoInput.md",
+                "version": "8.3.27.1859",
+            }
+        ],
+    ):
+        result = asyncio.run(
+            app.call_tool(
+                "answer_1c_help_question",
+                {"question": "с какой версии в менеджере криптографии доступен интерактивный ввод"},
+            )
+        )
+    text = result.content[0].text if result.content else ""
+    assert "Использование в версии" in text
+    assert "МенеджерКриптографии.ИнтерактивныйВвод" in text
+
+
+def test_mcp_tool_answer_1c_help_question_falls_back_to_topic_fact(help_sample_dir: Path) -> None:
+    """Natural-language factual question should read topic fallback when structured item lacks fact field."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(
+        mcp_server,
+        "_search_help_question_candidates",
+        return_value=[
+            {
+                "name": "МенеджерКриптографии.ИнтерактивныйВвод",
+                "full_name": "МенеджерКриптографии.ИнтерактивныйВвод",
+                "summary": "",
+                "availability": "",
+                "topic_path": "CryptoInput.md",
+                "version": "8.3.27.1859",
+            }
+        ],
+    ):
+        with patch.object(
+            mcp_server,
+            "_get_topic",
+            return_value=(
+                "# МенеджерКриптографии.ИнтерактивныйВвод\n\n"
+                "## Использование в версии\n"
+                "Доступно начиная с версии 8.3.27.1859.\n"
+            ),
+        ):
+            result = asyncio.run(
+                app.call_tool(
+                    "answer_1c_help_question",
+                    {"question": "с какой версии доступен интерактивный ввод менеджера криптографии"},
+                )
+            )
+    text = result.content[0].text if result.content else ""
+    assert "8.3.27.1859" in text
+    assert "Источник" in text
+
+
 def test_mcp_tool_search_1c_help_keyword_merges_structured_hits(help_sample_dir: Path) -> None:
     """search_1c_help_keyword should render structured API hit before broad topic noise."""
     app = mcp_server._build_mcp_app(help_sample_dir)
