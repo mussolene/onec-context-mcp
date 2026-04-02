@@ -1,4 +1,4 @@
-"""MCP server for 1C Help: search_1c_help, get_1c_help_topic, get_1c_function_info."""
+"""MCP server for 1C Help structured API, metadata, memory and diagnostics."""
 
 import functools
 import inspect
@@ -1027,154 +1027,76 @@ def _build_mcp_app(help_path: Path) -> Any:
 
     @mcp.tool()
     @_record_mcp_tool
-    def search_1c_help(
-        query: str,
-        limit: int = 8,
-        version: str | None = None,
-        language: str | None = None,
-        include_user_memory: bool = False,
-    ) -> str:
-        """Search 1C help by natural language (semantic). Returns list of relevant topics with title, path, and snippet.
-        For exact API names use get_1c_api_answer or search_1c_help_keyword.
-        query: search text (e.g. 'Формат', 'Запрос.ПакетПолучения', 'синтаксис ОбъединитьПериоды').
-        limit: max results (default 8). version, language: optional filters.
-        include_user_memory: if True, also search saved snippets and mark source.
-        Tip: if results are irrelevant or low quality, try search_1c_help_keyword with exact API name (e.g. Тип.Метод)."""
-        err = _check_rate_limit()
-        if err:
-            return err
-        q, err = _truncate_if_needed(query or "", MAX_QUERY_CHARS, "query")
-        if err:
-            return err
-        results = _search(q, limit=limit, version=version, language=language)
-        memory_results: list[dict[str, Any]] = []
-        if include_user_memory:
-            try:
-                from ..knowledge.memory import get_memory_store
-
-                memory_results = get_memory_store().search_long(query, limit=min(5, limit))
-            except Exception as e:
-                logging.getLogger(__name__).debug("search_long failed: %s", e)
-        if not results and not memory_results:
-            return "No results found. Ensure build-index was run and Qdrant is available."
-        lines = []
-        idx = 1
-        for r in results:
-            meta = _format_result_meta(r)
-            lines.append(f"{idx}. **{r.get('title', '')}**{meta} (path: {r.get('path', '')})")
-            text = r.get("text", "")[: _snippet_max_chars()]
-            lines.append(f"   {text}...")
-            idx += 1
-        for m in memory_results:
-            payload = m.get("payload", {})
-            lines.append(f"{idx}. " + _format_memory_block(payload))
-            idx += 1
-        return "\n".join(lines)
-
-    @mcp.tool()
-    @_record_mcp_tool
-    def search_1c_help_keyword(
+    def search_1c_api(
         query: str,
         limit: int = 10,
         version: str | None = None,
         language: str | None = None,
+        include_examples: bool = True,
     ) -> str:
-        """Search 1C help by exact substring/BM25 in title and text (e.g. 'Формат', 'РегистрНакопления.ОстаткиИОбороты').
-        Use when semantic search misses specific API names or returns irrelevant results.
-        query: the search string — pass exact API name or Type.Method (e.g. 'HTTPСоединение.Получить').
-        For exact API answers prefer get_1c_api_answer. limit: max results (default 10). version, language: optional filters.
-        Tip: if no matches, try search_1c_help for semantic search or synonym (e.g. ПакетПолучения → ВыполнитьПакет)."""
+        """Search structured 1C platform help across API members, objects and official examples.
+        Use for exact API names, synonyms and natural-language API lookup without topic-layer fallback."""
         err = _check_rate_limit()
         if err:
             return err
-        q_raw = (query or "").strip()
-        if not q_raw:
-            return "Provide query (the search string, e.g. 'HTTPСоединение.Получить')."
-        q, err = _truncate_if_needed(q_raw, MAX_QUERY_CHARS, "query")
+        q = (query or "").strip()
+        if not q:
+            return "Provide query, for example HTTPСоединение.Получить or интерактивный ввод криптографии."
+        q, err = _truncate_if_needed(q, MAX_QUERY_CHARS, "query")
         if err:
             return err
-        structured_hits = _get_api_member(q, version=version, language=language)
-        structured_hits = sorted(structured_hits, key=lambda item: _structured_api_sort_key(q, item))
-        results = _search_keyword(
-            q,
-            limit=limit,
-            version=version,
-            language=language,
-        )
-        results = _rank_keyword_results(q, results)
-        if structured_hits:
-            structured_lines = []
-            used_paths = {str(hit.get("topic_path") or hit.get("path") or "") for hit in structured_hits[:limit]}
-            row_num = 1
-            for hit in structured_hits[:limit]:
-                meta = _format_result_meta(
-                    {
-                        "entity_type": hit.get("entity_type") or hit.get("kind") or "topic",
-                        "breadcrumb": hit.get("breadcrumb") or [],
-                    }
-                )
-                path = hit.get("topic_path") or hit.get("path") or ""
-                structured_lines.append(
-                    f"{row_num}. **{hit.get('name') or hit.get('title') or ''}**{meta} (path: {path})"
-                )
-                if hit.get("summary"):
-                    structured_lines.append(f"   {str(hit.get('summary'))[: _snippet_max_chars()]}...")
-                row_num += 1
-            topic_results = [r for r in results if (r.get("path") or "") not in used_paths]
-            for hit in topic_results[: max(0, limit - len(structured_hits[:limit]))]:
-                meta = _format_result_meta(hit)
-                structured_lines.append(
-                    f"{row_num}. **{hit.get('title', '')}**{meta} (path: {hit.get('path', '')})"
-                )
-                structured_lines.append(f"   {hit.get('text', '')[: _snippet_max_chars()]}...")
-                row_num += 1
-            return "\n".join(structured_lines)
-        if not results:
-            return "No keyword matches. Try search_1c_help for semantic search."
-        lines = []
-        for i, r in enumerate(results, 1):
-            meta = _format_result_meta(r)
-            lines.append(f"{i}. **{r.get('title', '')}**{meta} (path: {r.get('path', '')})")
-            text = r.get("text", "")[: _snippet_max_chars()]
-            lines.append(f"   {text}...")
-        return "\n".join(lines)
 
-    @mcp.tool()
-    @_record_mcp_tool
-    def search_1c_help_with_content(
-        query: str,
-        limit: int = 3,
-        version: str | None = None,
-        language: str | None = None,
-    ) -> str:
-        """[DEPRECATED] Broad manual reading helper.
-        Kept for backward compatibility only. Will be removed in a future version.
-        query: search text. limit: max topics (default 3). version, language: optional filters."""
-        err = _check_rate_limit()
-        if err:
-            return err
-        q, err = _truncate_if_needed(query or "", MAX_QUERY_CHARS, "query")
-        if err:
-            return err
-        results, _ = _hybrid_search(q, limit=limit, version=version, language=language)
-        if not results:
-            return "No results found. Ensure build-index was run and Qdrant is available."
-        parts = []
-        parts.append(
-            "[DEPRECATED] Prefer get_1c_api_answer or search_1c_help_keyword + get_1c_help_topic. "
-            "Use this legacy tool only for broad manual reading."
+        members = sorted(
+            _search_api_members(q, limit=max(limit, 5), version=version, language=language),
+            key=lambda item: _structured_api_sort_key(q, item),
         )
-        for _i, r in enumerate(results, 1):
-            path = r.get("path", "")
-            if not path:
-                continue
-            content = _get_topic(path, version=version, language=language, prefer_index=True)
-            if content:
-                max_chars = _max_topic_content_chars()
-                if len(content) > max_chars:
-                    content = content[:max_chars] + "\n\n..."
-                parts.append(f"---\n## {path}\n\n{content}")
-        return "\n\n".join(parts) if parts else "No content could be retrieved."
+        objects = sorted(
+            _search_api_objects(q, limit=max(4, limit // 2), version=version, language=language),
+            key=lambda item: _structured_api_sort_key(q, item),
+        )
+        examples = (
+            _search_official_examples(q, limit=max(2, min(limit, 4)), version=version, language=language)
+            if include_examples
+            else []
+        )
+
+        sections: list[str] = []
+        if members:
+            lines = []
+            for idx, item in enumerate(members[:limit], 1):
+                meta = _format_result_meta(
+                    {"entity_type": item.get("entity_type") or item.get("kind"), "breadcrumb": item.get("breadcrumb") or []}
+                )
+                lines.append(
+                    f"{idx}. **{item.get('full_name') or item.get('name') or item.get('title') or ''}**{meta}"
+                )
+                summary = str(item.get("summary") or item.get("description") or "").strip()
+                if summary:
+                    lines.append(f"   {summary[: _snippet_max_chars()]}...")
+            sections.append("## API members\n" + "\n".join(lines))
+        if objects:
+            lines = []
+            for idx, item in enumerate(objects[: max(3, min(limit, 6))], 1):
+                meta = _format_result_meta(
+                    {"entity_type": item.get("entity_type") or item.get("kind"), "breadcrumb": item.get("breadcrumb") or []}
+                )
+                lines.append(f"{idx}. **{item.get('name') or item.get('title') or ''}**{meta}")
+                summary = str(item.get("summary") or item.get("description") or "").strip()
+                if summary:
+                    lines.append(f"   {summary[: _snippet_max_chars()]}...")
+            sections.append("## API objects\n" + "\n".join(lines))
+        if examples:
+            lines = []
+            for idx, item in enumerate(examples[: max(2, min(limit, 4))], 1):
+                title = item.get("title") or item.get("api_name") or "Example"
+                lines.append(f"{idx}. **{title}**")
+                description = str(item.get("description") or "").strip()
+                if description:
+                    lines.append(f"   {description[: _snippet_max_chars()]}...")
+            sections.append("## Official examples\n" + "\n".join(lines))
+        if not sections:
+            return "No structured API results found. Rebuild structured help index or уточните запрос/version."
+        return "\n\n".join(sections)
 
     @mcp.tool()
     @_record_mcp_tool
@@ -1473,45 +1395,6 @@ def _build_mcp_app(help_path: Path) -> Any:
 
     @mcp.tool()
     @_record_mcp_tool
-    def get_1c_help_topic(
-        topic_path: str | None = None,
-        path: str | None = None,
-        version: str | None = None,
-        language: str | None = None,
-        prefer_index: bool = True,
-    ) -> str:
-        """Get full help topic content in Markdown by path. Path from search results (e.g. 'zif3_CryptoManager.md').
-        Pass the topic path as **topic_path** or **path** (both accepted).
-        Content is read from index by default; can fall back to disk only if prefer_index=False.
-        version, language: optional filters when reading from index.
-        prefer_index: if True, read only from index (skip disk).
-        Tip: get path from search_1c_help or search_1c_help_keyword first."""
-        err = _check_rate_limit()
-        if err:
-            return err
-        topic = (topic_path or path or "").strip()
-        if not topic:
-            return "Provide topic_path or path (the help topic path from search results)."
-        content = _get_topic(
-            topic,
-            version=version,
-            language=language,
-            prefer_index=prefer_index,
-        )
-        if content:
-            try:
-                from ..knowledge.memory import get_memory_store
-
-                title = content.split("\n")[0].strip().lstrip("#").strip() or ""
-                get_memory_store().write_event(
-                    "get_topic",
-                    {"topic_path": topic, "title": title},
-                )
-            except Exception as e:
-                logging.getLogger(__name__).debug("write_event get_topic failed: %s", e)
-            return content
-        return "Topic not found."
-
     @mcp.tool()
     @_record_mcp_tool
     def save_1c_snippet(
@@ -2022,67 +1905,6 @@ def _build_mcp_app(help_path: Path) -> Any:
 
     @mcp.tool()
     @_record_mcp_tool
-    def get_1c_help_related(
-        topic_path: str | None = None,
-        path: str | None = None,
-        version: str | None = None,
-        language: str | None = None,
-    ) -> str:
-        """Get list of related topics for a given help topic path.
-        Returns paths and titles from outgoing links in the topic.
-        Pass the topic path as **topic_path** or **path** (e.g. 'Format971.md').
-        version, language: optional filters when reading from index."""
-        from ..search_store.indexer import get_1c_help_related as _get_related
-
-        topic = (topic_path or path or "").strip()
-        if not topic:
-            return "Provide topic_path or path (the help topic path from search results)."
-        items = _get_related(
-            topic,
-            version=version,
-            language=language,
-        )
-        if not items:
-            # Fallback: surface unresolved link titles so the AI can follow up
-            from ..search_store.indexer import get_1c_help_unresolved_links as _get_unresolved
-
-            unresolved = _get_unresolved(topic, version=version, language=language)
-            if unresolved:
-                lines = []
-                for lnk in unresolved[:8]:
-                    title = lnk.get("target_title") or lnk.get("link_text", "")
-                    if not title:
-                        continue
-                    hits = _search_keyword(title, limit=1, version=version, language=language)
-                    if hits and hits[0].get("path"):
-                        lines.append(f"- **{title}** — `{hits[0]['path']}`")
-                    else:
-                        lines.append(f"- **{title}** (not found in index — try search_1c_help_keyword)")
-                if lines:
-                    return "Related topics (resolved from link titles):\n" + "\n".join(lines)
-                return "No related topics found. Try search_1c_help_keyword with the topic name."
-            stem = topic.split("/")[-1].replace(".html", "").replace(".md", "")
-            return (
-                "No related topics found for this path. outgoing_links may not be populated for all topics. "
-                f"Try: search_1c_help_keyword(query=\"{stem}\") to find related topics by name."
-            )
-        lines = [f"- **{r.get('title', '')}** — `{r.get('path', '')}`" for r in items]
-        return "\n".join(lines)
-
-    @mcp.tool()
-    @_record_mcp_tool
-    def list_1c_help_titles(limit: int = 100, path_prefix: str = "") -> str:
-        """List topic titles and paths for browsing. path_prefix: filter by path start.
-        Paths in index have format '<version>/<stem>/<rel_path>' (e.g. '8.3.27.1859/shcntx_ru/zif/...').
-        Use path_prefix like '8.3' to filter by version, or leave empty to browse all topics."""
-        items = _list_titles(limit=limit, path_prefix=path_prefix)
-        if not items:
-            return "No topics in index or prefix filter too strict."
-        lines = [
-            f"{i}. **{r.get('title', '')}** — `{r.get('path', '')}`" for i, r in enumerate(items, 1)
-        ]
-        return "\n".join(lines)
-
     @mcp.tool()
     @_record_mcp_tool
     def compare_1c_help(
@@ -2095,7 +1917,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         """Compare a help topic between two platform versions.
         topic_path_or_query: path from search (with or without version prefix) or short query (e.g. 'CryptoManager'). For short queries server uses keyword search first (path/title match) and prefers results with a meaningful title (not Untitled); then semantic fallback.
         version_left, version_right: platform versions, e.g. '8.2.19.130', '8.3.27.1859'.
-        For best predictability pass exact path from search_1c_help_keyword. include_diff: if True, append unified diff."""
+        For best predictability pass an exact path from the internal topic index when available. include_diff: if True, append unified diff."""
         from ..search_store.indexer import compare_1c_help as _compare
 
         return _compare(
@@ -2284,10 +2106,9 @@ def _build_mcp_app(help_path: Path) -> Any:
         symbol_name: str | None = None,
         limit: int = 5,
     ) -> str:
-        """Legacy broad context: combine help topics, memory and configuration metadata objects.
-        Use when you need all three sources: help docs, memory (snippets/standards), AND config objects (Documents, Catalogs, Registers).
+        """Legacy broad context: combine help snippets, memory and configuration metadata objects.
+        Use when you need all three sources: structured help, memory (snippets/standards), AND config objects (Documents, Catalogs, Registers).
         For AI work prefer get_1c_task_context and explicit narrow tools; this tool is intentionally broader and more verbose.
-        Returns topic snippets (not full content) — call get_1c_help_topic or get_1c_help_topics_bulk for full text.
         query: main search text or API name. config_version: e.g. '3.0.184.16'; optional if one config loaded.
         file_uri, symbol_name: accepted for context narrowing.
         limit: max items per source (default 5)."""
@@ -2467,118 +2288,40 @@ def _build_mcp_app(help_path: Path) -> Any:
         path: str | None = None,
         choose_index: int | None = None,
     ) -> str:
-        """Get description, syntax, parameters, return value for a 1C function/method.
-        name: e.g. 'Формат', 'МенеджерКриптографии.Подписать'. path: optional exact topic path.
-        When ambiguous (e.g. Формат → function vs format topic), use choose_index=1,2,... or search_1c_help_keyword for exact API.
-        Tip: for exact API names always pass full Тип.Метод (e.g. HTTPСоединение.Получить). If no match, try search_1c_help_keyword with synonym."""
+        """Get structured description, syntax, parameters and return value for a 1C function/method.
+        name: e.g. 'Формат', 'МенеджерКриптографии.Подписать'.
+        For exact API names prefer full Тип.Метод (e.g. HTTPСоединение.Получить)."""
         name_clean = name.strip()
         if not name_clean:
             return "Provide a function or method name."
-        if path:
-            content = _get_topic(path)
-            return content or "Topic not found."
-        results = _rank_keyword_results(name_clean, _search_keyword(name_clean, limit=40))
-        if not results:
-            results = _search(name_clean, limit=40)
-        name_lower = name_clean.lower()
-        scored = [
-            (
-                result,
-                _match_priority(
-                    name_lower,
-                    (result.get("title") or "").lower(),
-                    _result_path_stem(result),
-                ),
-            )
-            for result in results
-        ]
-        relevant = [(r, p) for r, p in scored if p <= 2]
-        if not relevant:
-            relevant = scored
-        relevant.sort(
-            key=lambda x: (
-                x[1],
-                _member_sort_key(name_lower, (x[0].get("title") or "").lower()),
-            )
+        structured = sorted(
+            _get_api_member(name_clean, version=None, language=None),
+            key=lambda item: _structured_api_sort_key(name_clean, item),
         )
-        best_priority = relevant[0][1] if relevant else 3
-        best = [r for r, p in relevant if p == best_priority]
-        if best_priority == 3:
-            lines = [
-                f"No exact match for «{name_clean}».",
-                f'Try: search_1c_help_keyword(query="{name_clean}"), then get_1c_help_topic(topic_path) for full content.',
-                "For methods use full Тип.Метод (e.g. HTTPСоединение.Получить). Synonym? e.g. ПакетПолучения → ВыполнитьПакет.",
-                "",
-                "Keyword suggestions (from index):",
-            ]
-            for i, r in enumerate(relevant[:8], 1):
-                lines.append(f"{i}. {r[0].get('title', '')} — `{r[0].get('path', '')}`")
-            lines.append("")
-            lines.append(
-                "Call with path=<exact_path> or get_1c_function_info(name=..., choose_index=N) if one matches."
-            )
-            return "\n".join(lines)
-        if len(best) > 1:
-            idx = choose_index
-            if idx is not None and 1 <= idx <= len(best):
-                content = _get_topic(best[idx - 1]["path"])
-                return content or "Topic not found."
-            lines = [
-                f"Several matches for «{name_clean}». Use choose_index (1–{len(best)}) to select:",
-                "",
-            ]
-            for i, r in enumerate(best[:10], 1):
-                lines.append(f"  {i}. {r.get('title', '')} — `{r.get('path', '')}`")
-            lines.append("")
-            lines.append("Example: get_1c_function_info(name=..., choose_index=2)")
-            content = _get_topic(best[0]["path"])
-            if content:
-                lines.append("\n---\nContent of first match:\n\n" + content)
-            return "\n".join(lines)
-        if best:
-            content = _get_topic(best[0]["path"])
-            if content:
-                return content
-        return "No topic found for this name. Try search_1c_help or search_1c_help_keyword first."
-
-    @mcp.tool()
-    @_record_mcp_tool
-    def get_1c_help_topics_bulk(
-        paths: _StrList,
-        max_chars_per_topic: int = 4000,
-        version: str | None = None,
-        language: str | None = None,
-    ) -> str:
-        """Get full content of multiple help topics in one call. More efficient than N separate get_1c_help_topic calls.
-        paths: list of topic paths from search results (up to 10). Silently skips paths not found.
-        max_chars_per_topic: truncation limit per topic (default 4000 from MCP_MAX_TOPIC_CHARS). 0 = no limit.
-        version, language: optional filters when reading from index.
-        Tip: get paths from search_1c_help_keyword or search_1c_help first."""
-        err = _check_rate_limit()
-        if err:
-            return err
-        if not paths:
-            return "Provide at least one path in paths list."
-        paths = paths[:10]  # hard limit
-        parts: list[str] = []
-        not_found: list[str] = []
-        for p in paths:
-            p = (p or "").strip()
-            if not p:
-                continue
-            content = _get_topic(p, version=version, language=language, prefer_index=True)
-            if content:
-                if max_chars_per_topic > 0 and len(content) > max_chars_per_topic:
-                    content = content[:max_chars_per_topic] + "\n\n..."
-                parts.append(f"---\n## {p}\n\n{content}")
-            else:
-                not_found.append(p)
-        if not parts:
-            return "No topics found for the provided paths. Check paths from search results."
-        result = "\n\n".join(parts)
-        if not_found:
-            result += f"\n\n*Not found ({len(not_found)}): {', '.join(not_found[:5])}*"
-        return result
+        if structured:
+            best = structured
+            if choose_index is not None and 1 <= choose_index <= len(best):
+                return _format_structured_api_object(best[choose_index - 1], include_rich_sections=True)
+            if len(best) > 1:
+                lines = [
+                    f"Several structured matches for «{name_clean}». Use choose_index (1–{len(best)}) to select:",
+                    "",
+                ]
+                for i, item in enumerate(best[:10], 1):
+                    lines.append(
+                        f"  {i}. {item.get('full_name') or item.get('name') or item.get('title', '')}"
+                        f" — {item.get('version') or 'unknown version'}"
+                    )
+                lines.append("")
+                lines.append("Example: get_1c_function_info(name=..., choose_index=2)")
+                lines.append("")
+                lines.append(_format_structured_api_object(best[0], include_rich_sections=True))
+                return "\n".join(lines)
+            return _format_structured_api_object(best[0], include_rich_sections=True)
+        return (
+            f"No structured API match found for «{name_clean}». "
+            "Use get_1c_api_answer for exact API names or search_1c_api for broader lookup."
+        )
 
     @mcp.tool()
     @_record_mcp_tool
@@ -2589,8 +2332,8 @@ def _build_mcp_app(help_path: Path) -> Any:
         _guide_develop = (
             "1C-HELP DEVELOP WORKFLOW:\n"
             "1. Exact API (Тип.Метод) → get_1c_api_answer(name). Natural-language help question → answer_1c_help_question(question). Structured object/type → get_1c_api_object(name). Related API → get_1c_api_related(name).\n"
-            "2. Official examples from platform help → search_1c_official_examples(query). Full topic only if needed → get_1c_help_topic(topic_path=<path>).\n"
-            "3. General platform topic → search_1c_help_keyword('Тип.Метод') or search_1c_help(query) → get_1c_help_topic(topic_path=<path>).\n"
+            "2. Broad structured lookup across members/objects/examples → search_1c_api(query).\n"
+            "3. Official examples from platform help → search_1c_official_examples(query).\n"
             "4. Local task context → get_1c_task_context(query, file_uri=..., symbol_name=...).\n"
             "5. Standards only → search_1c_standards(query). Curated snippets only → search_1c_snippets(query).\n"
             "6. Metadata exact → search_1c_metadata_exact(query). Metadata semantic → search_1c_metadata_semantic(query).\n"
@@ -2630,11 +2373,9 @@ def _build_mcp_app(help_path: Path) -> Any:
         Not the default AI route; for autonomous workflow use get_1c_quick_guide instead."""
         block_develop = """1c-HELP + external LSP — DEVELOP (human/onboarding prompt)
 - AI-first route: get_1c_quick_guide(task="develop") first.
-- Exact API: get_1c_api_answer(name). Natural-language question: answer_1c_help_question(question). Structured object: get_1c_api_object(name).
+- Exact API: get_1c_api_answer(name). Natural-language question: answer_1c_help_question(question). Structured object: get_1c_api_object(name). Broad structured lookup: search_1c_api(query).
 - Official examples from platform help: search_1c_official_examples(query).
-- General platform lookup: search_1c_help_keyword("Тип.Метод") or search_1c_help(query) → get_1c_help_topic(topic_path=<path>).
 - Local anti-hallucination context: get_1c_task_context(query, file_uri=..., symbol_name=...).
-- Correct: get_1c_help_topic(topic_path="Format971.md"). Wrong: get_1c_help_topic(path=...).
 - Need standards/snippets explicitly: search_1c_standards(query), search_1c_snippets(query), or legacy search_1c_memory(query, domains="standards,snippets").
 - Metadata exact: search_1c_metadata_exact(query). Metadata semantic: search_1c_metadata_semantic(query). Fields: search_1c_metadata_fields(object_query, field_query).
 - Empty or poor help results: first call get_1c_help_index_status to verify index.
@@ -2665,13 +2406,13 @@ def _build_mcp_app(help_path: Path) -> Any:
 
 ---
 2) 1c-HELP — ORDER OF CALLS
-- Exact API: get_1c_api_answer(name) first for Тип.Метод. Natural-language factual question: answer_1c_help_question(question, version=...). Structured truth-source: get_1c_api_object(name). Official examples: search_1c_official_examples(query). General platform topics: search_1c_help(query) or search_1c_help_keyword with exact API name (e.g. "МенеджерКриптографии.Подписать") → get_1c_help_topic(topic_path=<path>) using path from results. IMPORTANT: parameter is topic_path, not path. Example: get_1c_help_topic(topic_path="8.3.27/shcntx_ru/...CryptoManager.html").
+- Exact API: get_1c_api_answer(name) first for Тип.Метод. Natural-language factual question: answer_1c_help_question(question, version=...). Structured truth-source: get_1c_api_object(name). Broad structured lookup: search_1c_api(query). Official examples: search_1c_official_examples(query).
 - Task-local context: get_1c_task_context(query, file_uri=..., symbol_name=...).
 - Need explicit standards/snippets: search_1c_standards(query), search_1c_snippets(query), or legacy search_1c_memory(query, domains="standards,snippets").
-- Empty or poor results: call get_1c_help_index_status first to check index health → then search_1c_help_keyword with exact Тип.Метод.
+- Empty or poor results: call get_1c_help_index_status first to check index health → then search_1c_api with exact Тип.Метод or short natural-language reformulation.
 - After working code: save_1c_snippet(code_snippet, description, title) only for reusable verified code.
 - get_form_metadata(xml_content): pass full Form.xml with all xmlns; truncated XML returns empty attributes. get_module_info(uri_or_path): path to Module.bsl or ObjectModule.bsl.
-- For methods always use full Тип.Метод in search_1c_help_keyword and get_1c_function_info.
+- For methods always use full Тип.Метод in get_1c_api_answer and get_1c_function_info.
 - Use search_1c_memory(domains=...) only as umbrella legacy tool when separate standards/snippets routes are not enough.
 
 ---
@@ -2702,7 +2443,7 @@ def _build_mcp_app(help_path: Path) -> Any:
 
 ---
 6) LIMITS
-- query and xml_content: up to 64 KB. Topic content preview: MCP_MAX_TOPIC_CHARS (default 4000). Full topic: get_1c_help_topic(topic_path). Bulk topics: get_1c_help_topics_bulk(paths=[...]). Full report: docs/archive/mcp-1c-help-tools-report.md."""
+- query and xml_content: up to 64 KB. Full report: docs/archive/mcp-1c-help-tools-report.md."""
 
     @mcp.prompt
     def get_mcp_guides_bundle() -> str:
@@ -2857,7 +2598,7 @@ def _build_mcp_app(help_path: Path) -> Any:
 
 ## 11. Узкий маршрут вместо общего answer-tool
 1. Точный API: get_1c_api_answer("Тип.Метод")
-2. Тема/keyword: search_1c_help_keyword("Тип.Метод") → get_1c_help_topic(topic_path=<path>)
+2. Широкий structured lookup: search_1c_api("Тип.Метод") или search_1c_api("натуральный вопрос по API")
 3. Стандарты: search_1c_standards(query)
 4. Сниппеты: search_1c_snippets(query)
 5. Метаданные: search_1c_metadata_exact / search_1c_metadata_semantic / search_1c_metadata_fields

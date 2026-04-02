@@ -69,7 +69,7 @@ project_analysis(analysis_type="symbol_relationships", query="ИмяОбрабо
 ```
 get_1c_api_answer(name="<Тип.Метод>")
 // или
-search_1c_help(query="<платформенный topic>") → get_1c_help_topic(topic_path=<path>)
+answer_1c_help_question(question="<платформенный вопрос>") или search_1c_api(query="<API или широкий вопрос>")
 // или
 search_1c_standards(query="<правило>")
 search_1c_snippets(query="<пример кода>")

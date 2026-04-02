@@ -21,8 +21,13 @@ def test_live_tool_list_matches_narrow_surface(mcp_client: StreamableHttpMcpClie
     """Live MCP should expose the narrow tool surface and hide removed broad tool."""
     names = mcp_client.list_tools()
     assert "get_1c_code_answer" not in names
+    assert "get_1c_help_topic" not in names
+    assert "search_1c_help" not in names
+    assert "search_1c_help_keyword" not in names
     assert "get_1c_api_answer" in names
     assert "get_1c_api_object" in names
+    assert "answer_1c_help_question" in names
+    assert "search_1c_api" in names
     assert "search_1c_official_examples" in names
     assert "search_1c_metadata_exact" in names
     assert "search_1c_metadata_semantic" in names
@@ -35,13 +40,13 @@ def test_get_1c_help_index_status(mcp_client: StreamableHttpMcpClient) -> None:
     assert "Topics indexed" in out or "Collection" in out or "No" in out
 
 
-def test_search_1c_help_keyword_type_method(mcp_client: StreamableHttpMcpClient) -> None:
-    """search_1c_help_keyword finds HTTPСоединение.Получить (Type.Method)."""
+def test_search_1c_api_type_method(mcp_client: StreamableHttpMcpClient) -> None:
+    """search_1c_api finds HTTPСоединение.Получить (Type.Method)."""
     out = mcp_client.call_tool(
-        "search_1c_help_keyword",
+        "search_1c_api",
         {"query": "HTTPСоединение.Получить", "limit": 3},
     )
-    assert "HTTPСоединение" in out or "No keyword matches" in out
+    assert "HTTPСоединение" in out or "No structured API results" in out
 
 
 def test_get_1c_api_answer_http_get(mcp_client: StreamableHttpMcpClient) -> None:

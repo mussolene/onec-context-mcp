@@ -61,7 +61,7 @@ make dashboard ARGS='--once'
 
 1. Убедитесь, что сервер `1c-help` появился в списке MCP.
 2. Вызовите `get_1c_help_index_status`.
-3. Для быстрой проверки поиска вызовите `search_1c_help_keyword` с точным API, например `Формат`.
+3. Для быстрой проверки поиска вызовите `get_1c_api_answer` с точным API, например `Формат`, или `search_1c_api` для широкого structured lookup.
 
 ## Что читать дальше
 

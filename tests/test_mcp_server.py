@@ -290,87 +290,51 @@ def test_build_mcp_app_returns_mcp() -> None:
     app = mcp_server._build_mcp_app(Path("."))
     assert app is not None
     tools = asyncio.run(app.list_tools())
-    assert any(t.name == "search_1c_help" for t in tools)
+    assert any(t.name == "search_1c_api" for t in tools)
+    assert all(t.name != "get_1c_help_topic" for t in tools)
 
 
-def test_mcp_tool_search_1c_help_via_app(help_sample_dir: Path) -> None:
-    """Call search_1c_help tool via _build_mcp_app + call_tool (covers tool code)."""
-    app = mcp_server._build_mcp_app(help_sample_dir)
-    with patch.object(
-        mcp_server, "_search", return_value=[{"title": "Test", "path": "p.html", "text": "snippet"}]
-    ):
-        result = asyncio.run(app.call_tool("search_1c_help", {"query": "test", "limit": 2}))
-    text = result.content[0].text if result.content else ""
-    assert "Test" in text
-    assert "p.html" in text
-
-
-def test_mcp_tool_search_1c_help_keyword_via_app(help_sample_dir: Path) -> None:
-    """Call search_1c_help_keyword tool via app (covers tool code)."""
-    app = mcp_server._build_mcp_app(help_sample_dir)
-    with patch.object(mcp_server, "_get_api_member", return_value=[]):
-        with patch.object(
-            mcp_server,
-            "_search_keyword",
-            return_value=[{"title": "API", "path": "api.html", "text": "x"}],
-        ):
-            result = asyncio.run(
-                app.call_tool("search_1c_help_keyword", {"query": "Запрос", "limit": 3})
-            )
-    text = result.content[0].text if result.content else ""
-    assert "API" in text or "api.html" in text
-
-
-def test_mcp_tool_search_1c_help_keyword_reranks_exact_first(help_sample_dir: Path) -> None:
-    """Exact API hit should be rendered before similar keyword results."""
-    app = mcp_server._build_mcp_app(help_sample_dir)
-    with patch.object(mcp_server, "_get_api_member", return_value=[]):
-        with patch.object(
-            mcp_server,
-            "_search_keyword",
-            return_value=[
-                {"title": "HTTPСоединение.ПолучитьЗаголовки", "path": "Head.md", "text": "head"},
-                {"title": "HTTPСоединение.Получить", "path": "Get.md", "text": "get"},
-            ],
-        ):
-            result = asyncio.run(
-                app.call_tool("search_1c_help_keyword", {"query": "HTTPСоединение.Получить", "limit": 5})
-            )
-    text = result.content[0].text if result.content else ""
-    assert text.splitlines()[0].startswith("1. **HTTPСоединение.Получить**")
-
-
-def test_mcp_tool_search_1c_help_keyword_accepts_keyword_param(help_sample_dir: Path) -> None:
-    """search_1c_help_keyword uses 'query' parameter (keyword alias removed from public API)."""
+def test_mcp_tool_search_1c_api_via_app(help_sample_dir: Path) -> None:
+    """Call search_1c_api tool via _build_mcp_app + call_tool (covers tool code)."""
     app = mcp_server._build_mcp_app(help_sample_dir)
     with patch.object(
         mcp_server,
-        "_search_keyword",
-        return_value=[{"title": "ОстаткиИОбороты", "path": "table12.html", "text": "virtual table"}],
+        "_search_api_members",
+        return_value=[{"name": "Test.Method", "summary": "snippet", "entity_type": "method", "breadcrumb": []}],
     ):
-        result = asyncio.run(
-            app.call_tool("search_1c_help_keyword", {"query": "РегистрНакопления.ОстаткиИОбороты", "limit": 5})
-        )
+        with patch.object(mcp_server, "_search_api_objects", return_value=[]):
+            with patch.object(mcp_server, "_search_official_examples", return_value=[]):
+                result = asyncio.run(app.call_tool("search_1c_api", {"query": "test", "limit": 2}))
     text = result.content[0].text if result.content else ""
-    assert "ОстаткиИОбороты" in text or "table12" in text
+    assert "API members" in text
+    assert "Test.Method" in text
 
 
-def test_mcp_tool_get_1c_help_topic_accepts_path_param(help_sample_dir: Path) -> None:
-    """get_1c_help_topic accepts 'path' as alias for 'topic_path'."""
+def test_mcp_tool_search_1c_api_renders_examples(help_sample_dir: Path) -> None:
+    """search_1c_api renders official examples when include_examples=True."""
     app = mcp_server._build_mcp_app(help_sample_dir)
-    with patch.object(mcp_server, "_get_topic", return_value="# Topic\n\nBody"):
-        result = asyncio.run(app.call_tool("get_1c_help_topic", {"path": "zif3_Format.md"}))
+    with patch.object(mcp_server, "_search_api_members", return_value=[]):
+        with patch.object(mcp_server, "_search_api_objects", return_value=[]):
+            with patch.object(
+                mcp_server,
+                "_search_official_examples",
+                return_value=[{"title": "HTTP GET", "description": "GET example"}],
+            ):
+                result = asyncio.run(app.call_tool("search_1c_api", {"query": "HTTP GET", "limit": 3}))
     text = result.content[0].text if result.content else ""
-    assert "Body" in text or "Topic" in text
+    assert "Official examples" in text
+    assert "HTTP GET" in text
 
 
-def test_mcp_tool_search_1c_help_no_results(help_sample_dir: Path) -> None:
-    """search_1c_help returns message when no results."""
+def test_mcp_tool_search_1c_api_no_results(help_sample_dir: Path) -> None:
+    """search_1c_api returns message when no results."""
     app = mcp_server._build_mcp_app(help_sample_dir)
-    with patch.object(mcp_server, "_search", return_value=[]):
-        result = asyncio.run(app.call_tool("search_1c_help", {"query": "nonexistent", "limit": 2}))
+    with patch.object(mcp_server, "_search_api_members", return_value=[]):
+        with patch.object(mcp_server, "_search_api_objects", return_value=[]):
+            with patch.object(mcp_server, "_search_official_examples", return_value=[]):
+                result = asyncio.run(app.call_tool("search_1c_api", {"query": "nonexistent", "limit": 2}))
     text = result.content[0].text if result.content else ""
-    assert "No results" in text
+    assert "No structured API results" in text
 
 
 def test_mcp_tool_get_1c_help_index_status_via_app(help_sample_dir: Path) -> None:
@@ -426,22 +390,13 @@ def test_mcp_tool_get_1c_help_index_status_ingest_in_progress(help_sample_dir: P
     assert "Failed:" in text or "bad.hbk" in text
 
 
-def test_mcp_tool_get_1c_help_topic_via_app(help_sample_dir: Path) -> None:
-    """Call get_1c_help_topic tool via app."""
-    app = mcp_server._build_mcp_app(help_sample_dir)
-    with patch.object(mcp_server, "_get_topic", return_value="# Title\n\nContent here"):
-        result = asyncio.run(app.call_tool("get_1c_help_topic", {"topic_path": "field626.html"}))
-    text = result.content[0].text if result.content else ""
-    assert "Content here" in text or "Title" in text
-
-
 def test_mcp_tool_rate_limit_returns_error(help_sample_dir: Path) -> None:
     """When _check_rate_limit returns error, tool returns that message."""
     app = mcp_server._build_mcp_app(help_sample_dir)
     with patch.object(
         mcp_server, "_check_rate_limit", return_value="Rate limit exceeded (120/min)."
     ):
-        result = asyncio.run(app.call_tool("search_1c_help", {"query": "x", "limit": 1}))
+        result = asyncio.run(app.call_tool("search_1c_api", {"query": "x", "limit": 1}))
     text = result.content[0].text if result.content else ""
     assert "Rate limit" in text
 
@@ -449,26 +404,9 @@ def test_mcp_tool_rate_limit_returns_error(help_sample_dir: Path) -> None:
 def test_mcp_tool_truncate_query_returns_error(help_sample_dir: Path) -> None:
     """When query exceeds MAX_QUERY_CHARS, tool returns error."""
     app = mcp_server._build_mcp_app(help_sample_dir)
-    result = asyncio.run(app.call_tool("search_1c_help", {"query": "x" * 70000, "limit": 1}))
+    result = asyncio.run(app.call_tool("search_1c_api", {"query": "x" * 70000, "limit": 1}))
     text = result.content[0].text if result.content else ""
     assert "exceeds" in text or "chars" in text
-
-
-def test_mcp_tool_search_1c_help_with_content_via_app(help_sample_dir: Path) -> None:
-    """Call search_1c_help_with_content tool via app."""
-    app = mcp_server._build_mcp_app(help_sample_dir)
-    with patch.object(
-        mcp_server,
-        "_hybrid_search",
-        return_value=([{"path": "a.html", "title": "A", "text": "x"}], {}),
-    ):
-        with patch.object(mcp_server, "_get_topic", return_value="# A\n\nFull content"):
-            result = asyncio.run(
-                app.call_tool("search_1c_help_with_content", {"query": "test", "limit": 1})
-            )
-    text = result.content[0].text if result.content else ""
-    assert "DEPRECATED" in text
-    assert "A" in text or "content" in text
 
 
 def test_mcp_tool_get_1c_code_answer_removed_from_app(help_sample_dir: Path) -> None:
@@ -634,12 +572,12 @@ def test_mcp_tool_answer_1c_help_question_falls_back_to_topic_fact(help_sample_d
     assert "Источник" in text
 
 
-def test_mcp_tool_search_1c_help_keyword_merges_structured_hits(help_sample_dir: Path) -> None:
-    """search_1c_help_keyword should render structured API hit before broad topic noise."""
+def test_mcp_tool_search_1c_api_ranks_structured_member_first(help_sample_dir: Path) -> None:
+    """search_1c_api should render structured API member in the member section."""
     app = mcp_server._build_mcp_app(help_sample_dir)
     with patch.object(
         mcp_server,
-        "_get_api_member",
+        "_search_api_members",
         return_value=[
             {
                 "name": "HTTPСоединение.Получить",
@@ -652,34 +590,14 @@ def test_mcp_tool_search_1c_help_keyword_merges_structured_hits(help_sample_dir:
             }
         ],
     ):
-        with patch.object(
-            mcp_server,
-            "_search_keyword",
-            return_value=[
-                {"title": "HTTPСоединение.ПолучитьЗаголовки", "path": "Head.md", "text": "head"},
-            ],
-        ):
-            result = asyncio.run(
-                app.call_tool("search_1c_help_keyword", {"query": "HTTPСоединение.Получить", "limit": 5})
-            )
+        with patch.object(mcp_server, "_search_api_objects", return_value=[]):
+            with patch.object(mcp_server, "_search_official_examples", return_value=[]):
+                result = asyncio.run(
+                    app.call_tool("search_1c_api", {"query": "HTTPСоединение.Получить", "limit": 5})
+                )
     text = result.content[0].text if result.content else ""
-    assert text.splitlines()[0].startswith("1. **HTTPСоединение.Получить**")
-
-
-def test_mcp_tool_list_1c_help_titles_via_app(help_sample_dir: Path) -> None:
-    """Call list_1c_help_titles tool via app."""
-    app = mcp_server._build_mcp_app(help_sample_dir)
-    with patch.object(
-        mcp_server,
-        "_list_titles",
-        return_value=[
-            {"path": "p1.html", "title": "P1"},
-            {"path": "p2.html", "title": "P2"},
-        ],
-    ):
-        result = asyncio.run(app.call_tool("list_1c_help_titles", {"limit": 10, "path_prefix": ""}))
-    text = result.content[0].text if result.content else ""
-    assert "p1" in text or "P1" in text or "p2" in text
+    assert "## API members" in text
+    assert "HTTPСоединение.Получить" in text
 
 
 def test_mcp_tool_save_1c_snippet_via_app(help_sample_dir: Path, tmp_path: Path) -> None:
@@ -702,35 +620,6 @@ def test_mcp_tool_save_1c_snippet_via_app(help_sample_dir: Path, tmp_path: Path)
         )
     text = result.content[0].text if result.content else ""
     assert "saved" in text.lower() or "ok" in text.lower() or "Test" in text
-
-
-def test_mcp_tool_get_1c_help_related_via_app(help_sample_dir: Path) -> None:
-    """Call get_1c_help_related tool via app."""
-    app = mcp_server._build_mcp_app(help_sample_dir)
-    with patch(
-        "onec_help.search_store.indexer.get_1c_help_related",
-        return_value=[
-            {"path": "related1.html", "title": "Related 1"},
-            {"path": "related2.html", "title": "Related 2"},
-        ],
-    ):
-        result = asyncio.run(
-            app.call_tool(
-                "get_1c_help_related",
-                {"topic_path": "Format971.md", "version": None, "language": None},
-            )
-        )
-    text = result.content[0].text if result.content else ""
-    assert "Related" in text or "related" in text
-
-
-def test_mcp_tool_get_1c_help_related_empty(help_sample_dir: Path) -> None:
-    """get_1c_help_related returns message when no related topics."""
-    app = mcp_server._build_mcp_app(help_sample_dir)
-    with patch("onec_help.search_store.indexer.get_1c_help_related", return_value=[]):
-        result = asyncio.run(app.call_tool("get_1c_help_related", {"topic_path": "x.md"}))
-    text = result.content[0].text if result.content else ""
-    assert "No related" in text
 
 
 def test_mcp_tool_compare_1c_help_via_app(help_sample_dir: Path) -> None:
@@ -761,20 +650,25 @@ def test_mcp_tool_get_1c_function_info_via_app(help_sample_dir: Path) -> None:
     app = mcp_server._build_mcp_app(help_sample_dir)
     with patch.object(
         mcp_server,
-        "_search_keyword",
+        "_get_api_member",
         return_value=[
-            {"path": "Format.md", "title": "Формат", "text": "Формат(Значение, ФорматнаяСтрока)"},
+            {
+                "name": "Формат",
+                "full_name": "ВстроенныеФункцииЯзыка.Формат",
+                "summary": "Описание функции.",
+                "syntax": "Формат(<Значение>, <ФорматнаяСтрока>)",
+            },
         ],
     ):
-        with patch.object(mcp_server, "_get_topic", return_value="# Формат\n\nОписание функции."):
-            result = asyncio.run(
-                app.call_tool(
-                    "get_1c_function_info",
-                    {"name": "Формат", "choose_index": 0},
-                )
+        result = asyncio.run(
+            app.call_tool(
+                "get_1c_function_info",
+                {"name": "Формат"},
             )
+        )
     text = result.content[0].text if result.content else ""
-    assert "Формат" in text or "Описание" in text
+    assert "Формат" in text
+    assert "Описание" in text
 
 
 def test_mcp_tool_get_form_metadata_via_app(help_sample_dir: Path) -> None:

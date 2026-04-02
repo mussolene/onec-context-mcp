@@ -52,7 +52,7 @@ MCP работает **в контейнере** по протоколу **strea
 - Сервер: `1c-help`, URL: `http://localhost:8050/mcp`.
 - После `make up` (или `docker compose -f docker-compose.base.yml -f docker-compose.yml up -d`) Cursor подключается к контейнеру по этому URL. Перезапустите Cursor после правок конфига.
 
-Инструменты: `search_1c_help`, `get_1c_help_topic`, `get_1c_function_info`.
+Инструменты: `get_1c_api_answer`, `search_1c_api`, `get_1c_function_info`.
 
 ## Устранение неполадок
 

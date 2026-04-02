@@ -11,8 +11,8 @@ alwaysApply: false
 ## Пустые или нерелевантные ответы 1c-help
 
 1. `get_1c_help_index_status` — проверить индекс и версии.
-2. `search_1c_help_keyword` с **точным** именем API (`Тип.Метод`).
-3. По `path` из выдачи — `get_1c_help_topic(topic_path)` (параметр **topic_path**, не `path`).
+2. `get_1c_api_answer` с **точным** именем API (`Тип.Метод`).
+3. Если exact route не хватило — `search_1c_api(query)` или `answer_1c_help_question(question)`.
 
 ## URI для lsp-bsl-bridge (единый формат)
 

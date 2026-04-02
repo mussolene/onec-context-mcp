@@ -13,7 +13,7 @@ alwaysApply: false
 3. **[lsp-bridge]** `project_analysis("workspace_symbols", "ИмяРеквизита")` — найти символ в кодовой базе
 4. **[lsp-bridge]** `project_analysis("references", "ИмяРеквизита")` — все места чтения/записи в коде
 5. **[lsp-bridge]** `call_graph(uri, line, char)` — граф вызовов из обработчика (координаты из п. 3)
-6. **[1c-help]** `get_1c_api_answer` / `search_1c_help` → `get_1c_help_topic` / `search_1c_standards` / `search_1c_snippets` — платформенный контекст, правила и примеры
+6. **[1c-help]** `get_1c_api_answer` / `answer_1c_help_question` / `search_1c_api` / `search_1c_standards` / `search_1c_snippets` — платформенный контекст, правила и примеры
 
 **Структура ответа:** Что это → Где заполняется → Как изменяется → Где проверяется → Где исправить
 

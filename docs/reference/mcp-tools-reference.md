@@ -10,7 +10,7 @@
 2. **Точное API `Тип.Метод`** — `get_1c_api_answer(name)`.
 3. **Structured API truth-source** — `get_1c_api_object(name)`.
 4. **Официальные примеры из справки** — `search_1c_official_examples(query)`.
-5. **Общий платформенный topic** — `search_1c_help(query)` или `search_1c_help_keyword(query)` → `get_1c_help_topic(topic_path)`.
+5. **Широкий structured lookup по платформе** — `search_1c_api(query)` или `answer_1c_help_question(question)`.
 6. **Локальный anti-hallucination context** — `get_1c_task_context(query, file_uri, symbol_name)`.
 7. **Стандарты и сниппеты** — `search_1c_standards(query)` / `search_1c_snippets(query)`; legacy umbrella — `search_1c_memory(query, domains="standards,snippets")`.
 8. **Метаданные** — `search_1c_metadata_exact` / `search_1c_metadata_semantic` / `search_1c_metadata_fields`.
@@ -24,16 +24,14 @@
 
 | Инструмент | Передавать | Не передавать |
 |------------|-------------|----------------|
-| **search_1c_help_keyword** | `query` | `keyword` |
-| **get_1c_help_topic** | `topic_path` **или** `path` (оба допустимы) | — |
-| **get_1c_help_related** | `topic_path` **или** `path` (оба допустимы) | — |
+| **search_1c_api** | `query` | — |
 | **get_1c_help_index_status** | без параметров (пустой объект `{}`) | — |
 | **get_1c_metadata_object** | `object_id`, при нескольких конфигурациях — `config_version` | — |
 | **search_1c_metadata_exact** | `query`, при нескольких конфигурациях — `config_version` | — |
 | **search_1c_metadata_semantic** | `query`, при нескольких конфигурациях — `config_version` | — |
 | **search_1c_metadata_fields** | `object_query`, `field_query`, при нескольких конфигурациях — `config_version` | — |
 
-Ошибка вида `query: Missing required argument` / `keyword: Unexpected keyword argument` при вызове `search_1c_help_keyword` означает, что был передан параметр **keyword** в среде, которая ожидает только **query**. В текущей версии публичный контракт — только `{"query": "..."}`.
+Основной публичный broad-search параметр теперь только `query` у `search_1c_api`.
 
 ---
 
@@ -41,19 +39,16 @@
 
 | Инструмент | Параметры | Описание | Лимиты / примечания |
 |------------|-----------|----------|---------------------|
-| **search_1c_help** | `query`, `limit=8`, `version`, `language`, `include_user_memory=False` | Семантический поиск по справке. Для точных имён API — `get_1c_api_answer` или `search_1c_help_keyword`. | query до 64 KB (MAX_QUERY_CHARS). При нерелевантности — попробовать `search_1c_help_keyword` с точным именем. |
-| **search_1c_help_keyword** | `query`, `limit=10`, `version`, `language` | Поиск по подстроке/BM25 в заголовке и тексте с локальным exact-first rerank. Идеален для точных имён: `РегистрНакопления.ОстаткиИОбороты`, `Тип.Метод`. | Передавать только `query`. До 64 KB. |
-| **search_1c_help_with_content** | `query`, `limit=3`, `version`, `language` | Legacy/deprecated: гибридный поиск + полный контент топ-результатов. | Для AI по умолчанию не использовать; предпочитать `get_1c_api_answer` или `search_1c_help_keyword` + `get_1c_help_topic`. |
-| **get_1c_api_answer** | `name`, `version=None`, `language=None`, `detail="compact"` | Compact exact-first ответ по точному API/функции/методу. | Первый выбор для `Тип.Метод`; `detail="full"` возвращает полный топик. |
-| **get_1c_api_object** | `name`, `version=None`, `language=None` | Structured API object из `onec_help_api`. | Low-token truth-source для агента и отладки exact API route. |
+| **search_1c_api** | `query`, `limit=10`, `version`, `language`, `include_examples=True` | Широкий structured lookup по `api_members`, `api_objects` и официальным примерам. | query до 64 KB. Основной broad-search route вместо topic-layer search. |
+| **get_1c_api_answer** | `name`, `version=None`, `language=None`, `detail="compact"` | Compact exact-first ответ по точному API/функции/методу. | Первый выбор для `Тип.Метод`; `detail="full"` возвращает enriched structured payload. |
+| **get_1c_api_object** | `name`, `version=None`, `language=None` | Structured API object/type из `onec_help_api_objects`. | Low-token truth-source для агента и отладки exact API route. |
+| **answer_1c_help_question** | `question`, `version=None`, `language=None`, `detail="compact"` | Естественный вопрос по справке через structured DB-first route. | Первый выбор для вопросов вида «с какой версии», «доступно ли», «как использовать». |
 | **search_1c_official_examples** | `query`, `limit=5`, `version=None`, `language=None` | Только официальные примеры из платформенной справки. | Не смешивает snippets, standards и community_help. |
 | **search_1c_standards** | `query`, `limit=5` | Поиск только по стандартам в памяти (v8std, v8-code-style, ITS). | Первый выбор для style/rule вопросов. |
 | **search_1c_snippets** | `query`, `limit=5` | Поиск только по примерам кода и snippets/community_help. | Первый выбор для code examples. |
 | **search_1c_memory** | `query`, `limit=5`, `domains=None` | Legacy umbrella-поиск по памяти (сниппеты, стандарты, community_help). | `domains`: `"standards"`, `"snippets"`, `"community_help"` или `"standards,snippets"`. Использовать только как fallback, когда нужны смешанные блоки. |
-| **get_1c_help_topic** | `topic_path` **или** `path`, `version`, `language`, `prefer_index=False` | Полный контент топика по пути (Markdown). Путь брать из результатов поиска (напр. `zif3_CryptoManager.md`). | Оба параметра допустимы: **topic_path** или **path**. `prefer_index=True` — читать только из индекса. |
-| **get_1c_function_info** | `name`, `path=None`, `choose_index=None` | Описание, синтаксис, параметры функции/метода 1С. | `path` — точный путь топика (если известен). При нескольких совпадениях — `choose_index=1,2,...` (1-based). Имена методов — полные `Тип.Метод`. |
-| **get_1c_help_related** | `topic_path`, `version`, `language` | Список связанных топиков (исходящие ссылки). | Для части тем может быть пусто (outgoing_links не всегда заполняются при парсинге). |
-| **list_1c_help_titles** | `limit=100`, `path_prefix=""` | Список заголовков и путей для обзора. | path_prefix — фильтр по началу пути (напр. `zif`). |
+| **get_1c_function_info** | `name`, `choose_index=None` | Структурированное описание, синтаксис, параметры функции/метода 1С. | При нескольких structured совпадениях — `choose_index=1,2,...` (1-based). Имена методов — полные `Тип.Метод`. |
+| **get_1c_api_related** | `name`, `version=None`, `language=None` | Связанные API-элементы (`see_also` и другие structured links). | Structured replacement для topic-related lookup. |
 
 ---
 
@@ -92,7 +87,7 @@
 
 | Инструмент | Параметры | Описание | Лимиты / примечания |
 |------------|-----------|----------|---------------------|
-| **compare_1c_help** | `topic_path_or_query`, `version_left`, `version_right`, `language`, `include_diff=False` | Сравнение топика между двумя версиями платформы. | Путь из поиска можно передать «как есть» (8.3.13.1513/shcntx_ru/...) или без префикса версии (shcntx_ru/...); сервер сам подставляет version_left/version_right. По query семантика может вернуть другой топик. |
+| **compare_1c_help** | `topic_path_or_query`, `version_left`, `version_right`, `language`, `include_diff=False` | Низкоуровневое сравнение статьи внутреннего topic index между двумя версиями платформы. | Сервисный tool для version diff; не является основным runtime route для агента. |
 | **get_1c_help_index_status** | — | Статус индекса (число топиков, коллекция, версии, языки) и прогресс ingest. | При запущенном ingest: текущий файл, ETA, скорость, ошибки. |
 
 ---
@@ -101,7 +96,6 @@
 
 | Переменная | Описание | По умолчанию |
 |------------|----------|--------------|
-| MCP_MAX_TOPIC_CHARS | Макс. символов контента топика в compact/full topic helpers и search_1c_help_with_content | 4000 |
 | MCP_SNIPPET_MAX_CHARS | Макс. символов сниппета в результатах поиска (списки) | 1200 |
 | SAVE_SNIPPET_TO_FILES | При save_1c_snippet: писать также в SNIPPETS_DIR (1/true/yes) | выкл |
 

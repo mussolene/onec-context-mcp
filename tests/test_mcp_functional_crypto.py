@@ -43,7 +43,7 @@ def test_mcp_crypto_query_returns_relevant_content(
     mcp_client: StreamableHttpMcpClient, entry: dict
 ) -> None:
     """Each crypto/scenario query returns non-empty response with at least one expected marker."""
-    tool = entry.get("tool", "search_1c_help_keyword")
+    tool = entry.get("tool", "search_1c_api")
     args = entry.get("args", {})
     markers = entry.get("expected_markers", [])
     out = mcp_client.call_tool(tool, args)
@@ -55,28 +55,19 @@ def test_mcp_crypto_query_returns_relevant_content(
     )
 
 
-def test_search_1c_help_keyword_crypto_manager(mcp_client: StreamableHttpMcpClient) -> None:
-    """search_1c_help_keyword finds МенеджерКриптографии or related crypto topic."""
+def test_search_1c_api_crypto_manager(mcp_client: StreamableHttpMcpClient) -> None:
+    """search_1c_api finds МенеджерКриптографии or related crypto API."""
     out = mcp_client.call_tool(
-        "search_1c_help_keyword",
+        "search_1c_api",
         {"query": "МенеджерКриптографии", "limit": 5},
     )
-    assert "МенеджерКриптографии" in out or "Криптограф" in out or "No keyword matches" in out
+    assert "МенеджерКриптографии" in out or "Криптограф" in out or "No structured API results" in out
 
 
-def test_get_1c_help_topic_by_path_from_search(mcp_client: StreamableHttpMcpClient) -> None:
-    """get_1c_help_topic returns content for a path; path can come from search result."""
-    # First get a path from keyword search
-    search_out = mcp_client.call_tool(
-        "search_1c_help_keyword",
-        {"query": "Формат", "limit": 3},
+def test_answer_1c_help_question_crypto_version(mcp_client: StreamableHttpMcpClient) -> None:
+    """answer_1c_help_question should work for crypto factual questions."""
+    out = mcp_client.call_tool(
+        "answer_1c_help_question",
+        {"question": "с какой версии доступен интерактивный ввод менеджера криптографии"},
     )
-    if "No keyword matches" in search_out or not search_out.strip():
-        pytest.skip("No index or no results for Формат")
-    # Response usually contains path like "path" or ".md"; we only check get_1c_help_topic accepts topic_path
-    topic_out = mcp_client.call_tool(
-        "get_1c_help_topic",
-        {"topic_path": "zif3_Format.md"},
-    )
-    # Either we get content or "not found" — both are valid
-    assert isinstance(topic_out, str)
+    assert isinstance(out, str)

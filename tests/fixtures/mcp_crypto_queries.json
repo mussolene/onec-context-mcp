@@ -1,7 +1,7 @@
 [
   {
     "id": "crypto_manager",
-    "tool": "search_1c_help_keyword",
+    "tool": "search_1c_api",
     "args": {"query": "МенеджерКриптографии", "limit": 5},
     "expected_markers": ["МенеджерКриптографии", "Криптограф", "path", ".md"]
   },
@@ -13,13 +13,13 @@
   },
   {
     "id": "hash",
-    "tool": "search_1c_help_keyword",
+    "tool": "search_1c_api",
     "args": {"query": "ХешированиеДанных", "limit": 3},
     "expected_markers": ["ХешированиеДанных", "DataHashing", "ХешФункция", "ХешСумма"]
   },
   {
     "id": "certificates",
-    "tool": "search_1c_help_keyword",
+    "tool": "search_1c_api",
     "args": {"query": "Сертификат", "limit": 5},
     "expected_markers": ["Сертификат", "сертификат", "path", ".md"]
   },

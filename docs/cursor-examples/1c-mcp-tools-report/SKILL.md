@@ -12,7 +12,7 @@ description: Выжимка по роли MCP 1c-help и внешнего lsp-bs
 | Задача | 1c-help | внешний lsp-bsl-bridge | Комментарий |
 |--------|---------|----------------|-------------|
 | Понять проект (тип модуля, форма) | Да | — | `get_module_info`, `get_form_metadata` |
-| Разработка / дописывание (API, примеры) | Да | — | `get_1c_api_answer`, `search_1c_help_keyword`, `get_1c_help_topic`, `get_1c_function_info`, `search_1c_snippets` |
+| Разработка / дописывание (API, примеры) | Да | — | `get_1c_api_answer`, `answer_1c_help_question`, `search_1c_api`, `get_1c_function_info`, `search_1c_snippets` |
 | Поддержка (рефакторинг, стандарты) | Частично | Да | 1c-help — справка; BSL LS и навигация — lsp-bsl-bridge |
 | Тестирование (проверка кода) | Нет | Да | `document_diagnostics`; запуск YaxUnit/Vanessa — вручную |
 | Сравнение версий платформы | Да | — | `compare_1c_help` |
@@ -25,8 +25,8 @@ description: Выжимка по роли MCP 1c-help и внешнего lsp-bs
 | Задача | Инструмент |
 |--------|-----------|
 | Старт AI-сессии | **`get_1c_quick_guide`** |
-| Точный API / идентификатор | `get_1c_api_answer("Тип.Метод")` или `search_1c_help_keyword("Тип.Метод")` |
-| Общий платформенный topic | `search_1c_help` → `get_1c_help_topic` |
+| Точный API / идентификатор | `get_1c_api_answer("Тип.Метод")` |
+| Общий API-вопрос / широкий structured lookup | `answer_1c_help_question(...)` или `search_1c_api(...)` |
 | Нужны объекты конфигурации тоже | `search_1c_metadata_exact` / `search_1c_metadata_semantic` → `get_1c_metadata_object` |
 | Только имя функции/метода | `get_1c_function_info("Тип.Метод")` |
 | Только стандарты/сниппеты | `search_1c_standards` / `search_1c_snippets` |
@@ -36,8 +36,8 @@ description: Выжимка по роли MCP 1c-help и внешнего lsp-bs
 ## Порядок вызовов (кратко)
 
 1. **Старт задачи (AI):** `get_1c_quick_guide(task="develop"|"refactor"|"test")`.
-2. **Точный API:** `get_1c_api_answer("Тип.Метод")` или `search_1c_help_keyword("Тип.Метод")` → `get_1c_help_topic(topic_path=<path>)`.
-3. **Общий платформенный topic:** `search_1c_help(query)`.
+2. **Точный API:** `get_1c_api_answer("Тип.Метод")`.
+3. **Общий API-вопрос:** `answer_1c_help_question(query)` или `search_1c_api(query)`.
 4. **Стандарты/сниппеты:** `search_1c_standards(query)` / `search_1c_snippets(query)`.
 5. **Метаданные:** `search_1c_metadata_exact` / `search_1c_metadata_semantic` / `search_1c_metadata_fields` → `get_1c_metadata_object`.
 6. **Проверка кода во внешнем MCP:** `document_diagnostics(uri)` → цикл до отсутствия ERROR/WARNING.
@@ -46,9 +46,8 @@ description: Выжимка по роли MCP 1c-help и внешнего lsp-bs
 
 ## Подводные камни (из отчёта)
 
-- **Пустые/нерелевантные ответы 1c-help:** проверить `get_1c_help_index_status`; перейти на `search_1c_help_keyword` с точным именем API (`Тип.Метод`).
-- **get_1c_help_topic:** параметр только **topic_path**, не `path`. Путь в формате индекса (с версией и .html).
-- **compare_1c_help:** путь можно передать из поиска «как есть» или без версии; сервер подставляет version_left/version_right. Короткий запрос (напр. "CryptoManager") разрешается через keyword-поиск (приоритет) и семантику; результаты с заголовком «Untitled» по возможности отбираются в пользу топиков с осмысленным заголовком. Для максимальной предсказуемости по-прежнему лучше передавать точный path из search_1c_help_keyword.
+- **Пустые/нерелевантные ответы 1c-help:** проверить `get_1c_help_index_status`; перейти на `get_1c_api_answer` с точным именем API (`Тип.Метод`) или `search_1c_api`.
+- **compare_1c_help:** специализированный low-level tool поверх внутреннего topic index; не использовать как основной runtime route.
 - **get_form_metadata:** передавать полный XML формы с xmlns; усечённый без namespace даёт ошибку разбора.
 - **symbol_explore:** без `file_context` надёжнее; с `file_context="ObjectModule"` может быть «file not found».
 - **call_graph / call_hierarchy / definition / hover:** зависят от точной позиции на символе (0-based line, character); подставлять координаты из `project_analysis`.
@@ -60,8 +59,6 @@ description: Выжимка по роли MCP 1c-help и внешнего lsp-bs
 ## Лимиты 1c-help
 
 - query / xml_content: до 64 KB (MAX_QUERY_CHARS).
-- Контент топика в compact/full helpers ограничен `MCP_MAX_TOPIC_CHARS` (по умолчанию 4000). Полный топик — через `get_1c_help_topic(topic_path)`.
-- get_1c_help_topics_bulk: до 10 путей за вызов; max_chars_per_topic настраивается.
 - Сниппет в результатах поиска: MCP_SNIPPET_MAX_CHARS (1200).
 - Результаты поиска включают entity_type (method/property/type) и breadcrumb (последние 2 уровня иерархии справки) для лучшего понимания контекста.
 

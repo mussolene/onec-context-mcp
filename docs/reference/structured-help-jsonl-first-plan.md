@@ -18,7 +18,7 @@
 Cold fallback:
 
 - `onec_help` с полными topic texts
-- `get_1c_help_topic` и редкие general-topic сценарии
+- `compare_1c_help` и редкие внутренние version-diff сценарии
 
 ## Why HTML-First
 
@@ -78,7 +78,7 @@ Markdown остаётся полезным:
 
 - перестать использовать `onec_help` как first-line exact route
 - оставить `onec_help` только для:
-  - `get_1c_help_topic`
+  - topic-layer runtime routes удалены из публичного surface
   - редких general-topic запросов
   - повторного extraction / forensic reading
 
