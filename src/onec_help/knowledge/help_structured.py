@@ -32,6 +32,7 @@ _GENERIC_BREADCRUMB = {
     "types",
 }
 _CODE_BLOCK_RE = re.compile(r"```(?:\w+)?\s*\n(.*?)```", re.DOTALL)
+_STRUCTURED_API_KINDS = {"method", "property", "event", "constructor", "function", "type"}
 
 
 def get_help_structured_dir() -> Path:
@@ -85,6 +86,47 @@ def _normalize_api_name(title: str, entity_type: str, breadcrumb: list[str] | No
     if not parent or "." in parent:
         return base
     return f"{parent}.{base}"
+
+
+def _infer_api_kind(topic_path: str, title: str, entity_type: str) -> str:
+    entity = (entity_type or "").strip().lower()
+    if entity in _STRUCTURED_API_KINDS:
+        return entity
+    path = (topic_path or "").replace("\\", "/").lower()
+    title_clean = (title or "").strip()
+    if "/methods/" in path:
+        if "/script functions/" in path or title_clean.startswith("Встроенные функции языка."):
+            return "function"
+        return "method"
+    if "/properties/" in path:
+        return "property"
+    if "/events/" in path:
+        return "event"
+    if "/construct" in path or ".По умолчанию" in title_clean:
+        return "constructor"
+    if "/types/" in path:
+        return "type"
+    return "topic"
+
+
+def _has_structured_api_sections(sections: dict[str, str]) -> bool:
+    return any(sections.get(key) for key in ("syntax", "params", "returns", "availability"))
+
+
+def _should_index_api_topic(topic_path: str, title: str, sections: dict[str, str], kind: str) -> bool:
+    if kind in _STRUCTURED_API_KINDS:
+        return True
+    if not _has_structured_api_sections(sections):
+        return False
+    title_base = _strip_title_suffix(title)
+    if "." in title_base:
+        return True
+    if title_base.startswith("ОбъектМетаданных:"):
+        return True
+    if title_base.startswith("Встроенные функции языка."):
+        return True
+    path = (topic_path or "").replace("\\", "/").lower()
+    return "/objects/" in path
 
 
 def _split_markdown_sections(text: str) -> tuple[str, str, dict[str, str]]:
@@ -143,8 +185,9 @@ def extract_api_records_from_topic(topic: dict[str, Any]) -> tuple[dict[str, Any
     title, intro, sections = _split_markdown_sections(text)
     title = title or payload_title or str(topic.get("path") or "").strip()
     entity_type = str(topic.get("entity_type") or "topic").strip() or "topic"
+    kind = _infer_api_kind(str(topic.get("path") or ""), title, entity_type)
     breadcrumb = list(topic.get("breadcrumb") or [])
-    name = _normalize_api_name(title, entity_type, breadcrumb)
+    name = _normalize_api_name(title, kind, breadcrumb)
     summary_source = intro or sections.get("returns") or sections.get("syntax") or text
     summary = _compact_summary(summary_source, 500)
     api_object = {
@@ -154,7 +197,7 @@ def extract_api_records_from_topic(topic: dict[str, Any]) -> tuple[dict[str, Any
             str(topic.get("language") or ""),
         ),
         "name": name,
-        "kind": entity_type if entity_type else "topic",
+        "kind": kind,
         "title": title,
         "summary": summary,
         "syntax": sections.get("syntax", ""),
@@ -165,7 +208,7 @@ def extract_api_records_from_topic(topic: dict[str, Any]) -> tuple[dict[str, Any
         "language": topic.get("language") or "",
         "topic_path": topic.get("path") or "",
         "breadcrumb": breadcrumb,
-        "entity_type": entity_type,
+        "entity_type": kind,
     }
     examples: list[dict[str, Any]] = []
     example_section = sections.get("example", "")
@@ -187,7 +230,7 @@ def extract_api_records_from_topic(topic: dict[str, Any]) -> tuple[dict[str, Any
                     "topic_path": topic.get("path") or "",
                     "version": topic.get("version") or "",
                     "language": topic.get("language") or "",
-                    "entity_type": entity_type,
+                    "entity_type": kind,
                 }
             )
     return api_object, examples
@@ -267,6 +310,18 @@ def build_structured_api_snapshot(
     api_examples: list[dict[str, Any]] = []
     for topic in topics:
         api_object, examples = extract_api_records_from_topic(topic)
+        if not _should_index_api_topic(
+            str(topic.get("path") or ""),
+            str(api_object.get("title") or ""),
+            {
+                "syntax": str(api_object.get("syntax") or ""),
+                "params": "1" if api_object.get("params") else "",
+                "returns": str(api_object.get("returns") or ""),
+                "availability": str(api_object.get("availability") or ""),
+            },
+            str(api_object.get("kind") or "topic"),
+        ):
+            continue
         api_objects.append(api_object)
         api_examples.extend(examples)
     with objects_path.open("w", encoding="utf-8") as fh:
@@ -343,8 +398,6 @@ def index_structured_api_objects(
     from qdrant_client import QdrantClient
     from qdrant_client.models import Distance, PointStruct, VectorParams
 
-    from ..search_store import embedding
-
     items = load_api_objects(snapshot_dir)
     if not items:
         return 0
@@ -356,7 +409,7 @@ def index_structured_api_objects(
         timeout=env_config.get_qdrant_timeout(),
         check_compatibility=False,
     )
-    dim = embedding.get_embedding_dimension()
+    dim = 1
     if recreate:
         client.recreate_collection(
             collection_name=collection,
@@ -371,10 +424,8 @@ def index_structured_api_objects(
     inserted = 0
     for start in range(0, len(items), batch_size):
         batch = items[start : start + batch_size]
-        texts = [_api_object_embedding_text(item) for item in batch]
-        vectors = embedding.get_embedding_batch(texts)
         points = []
-        for item, vector in zip(batch, vectors, strict=True):
+        for item in batch:
             payload = {
                 "name": item.get("name") or "",
                 "kind": item.get("kind") or "topic",
@@ -395,7 +446,7 @@ def index_structured_api_objects(
             points.append(
                 PointStruct(
                     id=int(item.get("id") or _topic_point_id(payload["path"], payload["version"], payload["language"])),
-                    vector=vector,
+                    vector=[0.0],
                     payload=payload,
                 )
             )
