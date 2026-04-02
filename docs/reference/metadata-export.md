@@ -13,7 +13,8 @@
 1. Открыть в 1С обработку `tools/1c/MetadataExport.epf`.
 2. Выгрузить XML метаданных конфигурации в `data/kd2/<Имя>.xml`.
 3. Основной рабочий каталог теперь один: `data/kd2`.
-   `watchdog` и `metadata-graph-build` умеют автоматически обновлять snapshot в этой же папке.
+   `watchdog` и `metadata-graph-build` умеют автоматически обновлять snapshot в этой же папке,
+   но snapshot хранится **по конфигурациям отдельно**.
 4. При необходимости можно явно построить snapshot:
 
 ```bash
@@ -45,13 +46,13 @@ Deprecated fallback:
 ## Что лежит в `data/kd2`
 
 - входной артефакт: `*.xml` из `MetadataExport.epf`
-- производные snapshot-файлы:
-  - `manifest.json`
-  - `objects.jsonl`
-  - `fields.jsonl`
+- производные snapshot-файлы по конфигурациям:
+  - `snapshots/<config-key>/manifest.json`
+  - `snapshots/<config-key>/objects.jsonl`
+  - `snapshots/<config-key>/fields.jsonl`
 
-Именно `objects.jsonl` и `fields.jsonl` используются для стабильной downstream-индексации,
-но их больше не нужно складывать в отдельную папку вручную.
+Именно эти per-config snapshot'ы используются для стабильной downstream-индексации,
+но их больше не нужно складывать или обновлять вручную.
 
 ## Что должно быть в XML
 

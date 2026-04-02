@@ -2,8 +2,11 @@ from pathlib import Path
 
 from onec_help.knowledge.kd2_metadata import (
     crawl_kd2_xml,
-    crawl_kd2_xml_exports,
+    is_kd2_snapshot_root,
     load_kd2_snapshot,
+    load_kd2_snapshot_set,
+    merge_kd2_crawls,
+    snapshot_dir_for_xml,
     write_kd2_snapshot,
 )
 
@@ -121,7 +124,7 @@ def test_kd2_snapshot_roundtrip(tmp_path: Path) -> None:
     assert (snapshot_dir / "manifest.json").is_file()
 
 
-def test_crawl_kd2_xml_exports_merges_multiple_files(tmp_path: Path) -> None:
+def test_merge_kd2_crawls_merges_multiple_files(tmp_path: Path) -> None:
     xml_one = tmp_path / "one.xml"
     xml_two = tmp_path / "two.xml"
     xml_one.write_text(KD2_XML.replace("3.0.1.1", "3.0.1.1"), encoding="utf-8")
@@ -132,10 +135,31 @@ def test_crawl_kd2_xml_exports_merges_multiple_files(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    crawl = crawl_kd2_xml_exports([xml_one, xml_two])
+    crawl = merge_kd2_crawls([crawl_kd2_xml(xml_one), crawl_kd2_xml(xml_two)])
 
     assert crawl.config_version == "multiple"
     assert len(crawl.objects) == 4
     names = {obj.name for obj in crawl.objects}
     assert "РеализацияТоваровУслуг" in names
     assert "ЗаказПокупателя" in names
+
+
+def test_snapshot_set_roundtrip_per_config_dirs(tmp_path: Path) -> None:
+    base = tmp_path / "kd2"
+    base.mkdir()
+    xml_one = base / "one.xml"
+    xml_two = base / "two.xml"
+    xml_one.write_text(KD2_XML, encoding="utf-8")
+    xml_two.write_text(
+        KD2_XML.replace("ТестоваяКонфигурация", "ВтораяКонфигурация").replace("3.0.1.1", "5.0.0.2"),
+        encoding="utf-8",
+    )
+    crawl_one = crawl_kd2_xml(xml_one)
+    crawl_two = crawl_kd2_xml(xml_two)
+    write_kd2_snapshot(crawl_one, snapshot_dir_for_xml(base, xml_one))
+    write_kd2_snapshot(crawl_two, snapshot_dir_for_xml(base, xml_two))
+
+    assert is_kd2_snapshot_root(base)
+    merged = load_kd2_snapshot_set(base)
+    assert merged.config_version == "multiple"
+    assert len(merged.objects) == len(crawl_one.objects) + len(crawl_two.objects)

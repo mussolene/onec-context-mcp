@@ -37,6 +37,7 @@ from onec_help.interfaces.cli import (
     cmd_watchdog,
     main,
 )
+from onec_help.knowledge.kd2_metadata import snapshot_dir_for_xml
 
 
 def make_args(**kwargs) -> SimpleNamespace:
@@ -222,10 +223,11 @@ def test_cmd_build_metadata_graph_kd2_xml(
     args = make_args(source_dir=str(xml_path), source_format="kd2-xml", recreate=False)
     assert cmd_build_metadata_graph(args) == 0
     mock_crawl_kd2.assert_called_once()
-    mock_write_snapshot.assert_called_once_with(mock_crawl_kd2.return_value, xml_path.parent)
+    mock_write_snapshot.assert_called_once_with(
+        mock_crawl_kd2.return_value, snapshot_dir_for_xml(xml_path.parent, xml_path)
+    )
 
 
-@patch("onec_help.knowledge.kd2_metadata.crawl_kd2_xml_exports")
 @patch("onec_help.knowledge.kd2_metadata.write_kd2_snapshot")
 @patch("onec_help.knowledge.metadata_graph.build_metadata_graph_from_crawl")
 @patch("onec_help.search_store.embedding.is_embedding_available", return_value=True)
@@ -237,7 +239,6 @@ def test_cmd_build_metadata_graph_auto_merges_multiple_kd2_exports(
     _mock_embed_available,
     mock_build_graph,
     mock_write_snapshot,
-    mock_crawl_many,
     tmp_path: Path,
 ) -> None:
     from onec_help.knowledge.config_crawler import ConfigObject, CrawlResult
@@ -248,28 +249,38 @@ def test_cmd_build_metadata_graph_auto_merges_multiple_kd2_exports(
     second = work_dir / "Cfg2.xml"
     first.write_text("<Конфигурация Имя='Cfg1'/>", encoding="utf-8")
     second.write_text("<Конфигурация Имя='Cfg2'/>", encoding="utf-8")
-    mock_crawl_many.return_value = CrawlResult(
-        root_dir=work_dir,
-        config_name="Cfg1 (1.0), Cfg2 (2.0)",
-        config_version="multiple",
-        platform_version=None,
-        objects=[
-            ConfigObject(id="Document/A", object_type="Document", name="A", attributes={"config_version": "1.0"}),
-            ConfigObject(id="Document/B", object_type="Document", name="B", attributes={"config_version": "2.0"}),
+    with patch(
+        "onec_help.knowledge.kd2_metadata.crawl_kd2_xml",
+        side_effect=[
+            CrawlResult(
+                root_dir=first,
+                config_name="Cfg1",
+                config_version="1.0",
+                platform_version=None,
+                objects=[ConfigObject(id="Document/A", object_type="Document", name="A", attributes={"config_version": "1.0"})],
+                relations=[],
+            ),
+            CrawlResult(
+                root_dir=second,
+                config_name="Cfg2",
+                config_version="2.0",
+                platform_version=None,
+                objects=[ConfigObject(id="Document/B", object_type="Document", name="B", attributes={"config_version": "2.0"})],
+                relations=[],
+            ),
         ],
-        relations=[],
-    )
-    mock_build_graph.return_value = 2
-    mock_write_snapshot.return_value = {
-        "format": "onec_kd2_snapshot_v1",
-        "objects": 2,
-        "fields": 0,
-    }
-    args = make_args(source_dir=str(work_dir), source_format="auto", recreate=False)
-    assert cmd_build_metadata_graph(args) == 0
-    called_paths = mock_crawl_many.call_args.args[0]
+    ) as mock_crawl_xml:
+        mock_build_graph.return_value = 2
+        mock_write_snapshot.return_value = {
+            "format": "onec_kd2_snapshot_v1",
+            "objects": 2,
+            "fields": 0,
+        }
+        args = make_args(source_dir=str(work_dir), source_format="auto", recreate=False)
+        assert cmd_build_metadata_graph(args) == 0
+    called_paths = [call.args[0] for call in mock_crawl_xml.call_args_list]
     assert called_paths == [first.resolve(), second.resolve()]
-    mock_write_snapshot.assert_called_once_with(mock_crawl_many.return_value, work_dir)
+    assert mock_write_snapshot.call_count == 2
 
 
 @patch("onec_help.knowledge.kd2_metadata.crawl_kd2_xml")
@@ -310,7 +321,9 @@ def test_cmd_build_metadata_graph_auto_refreshes_snapshot_from_workdir(
     args = make_args(source_dir=str(work_dir), source_format="auto", recreate=False)
     assert cmd_build_metadata_graph(args) == 0
     mock_crawl_kd2.assert_called_once_with(xml_path)
-    mock_write_snapshot.assert_called_once_with(mock_crawl_kd2.return_value, work_dir)
+    mock_write_snapshot.assert_called_once_with(
+        mock_crawl_kd2.return_value, snapshot_dir_for_xml(work_dir, xml_path)
+    )
 
 
 def test_main_help() -> None:

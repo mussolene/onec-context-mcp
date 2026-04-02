@@ -86,10 +86,13 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
     from ..knowledge.kd2_metadata import (
         _is_kd2_xml,
         crawl_kd2_xml,
-        crawl_kd2_xml_exports,
         find_kd2_xml_exports,
         is_kd2_snapshot_dir,
+        is_kd2_snapshot_root,
         load_kd2_snapshot,
+        load_kd2_snapshot_set,
+        merge_kd2_crawls,
+        snapshot_dir_for_xml,
         write_kd2_snapshot,
     )
     from ..runtime import redis_cache
@@ -105,27 +108,7 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
         return 1
 
     base = Path(source_dir).resolve()
-    snapshot_output_dir: Path | None = None
     selected_kd2_xmls = find_kd2_xml_exports(base) if base.is_dir() else []
-
-    def _snapshot_is_fresh(snapshot_dir: Path, xml_paths: list[Path]) -> bool:
-        if not xml_paths:
-            return False
-        if not is_kd2_snapshot_dir(snapshot_dir):
-            return False
-        try:
-            snapshot_parts = (
-                snapshot_dir / "manifest.json",
-                snapshot_dir / "objects.jsonl",
-                snapshot_dir / "fields.jsonl",
-            )
-            if any(not part.exists() for part in snapshot_parts):
-                return False
-            newest_xml = max(path.stat().st_mtime for path in xml_paths)
-            oldest_snapshot = min(part.stat().st_mtime for part in snapshot_parts)
-            return oldest_snapshot >= newest_xml
-        except OSError:
-            return False
 
     if not base.exists():
         print(f"Error: metadata source not found: {base}", file=sys.stderr)
@@ -133,13 +116,9 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
     if source_format == "auto":
         if base.is_file() and _is_kd2_xml(base):
             source_format = "kd2-xml"
-            snapshot_output_dir = base.parent
         elif base.is_dir() and selected_kd2_xmls:
-            # One-folder primary route: when KD2 XML files are present in the directory,
-            # always treat them as the source of truth and refresh snapshot from XML.
             source_format = "kd2-xml"
-            snapshot_output_dir = base
-        elif is_kd2_snapshot_dir(base):
+        elif is_kd2_snapshot_root(base) or is_kd2_snapshot_dir(base):
             source_format = "kd2-snapshot"
         else:
             source_format = "files"
@@ -177,19 +156,16 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
             if not selected_kd2_xmls:
                 print(f"Error: KD2 XML export not found or invalid: {base}", file=sys.stderr)
                 return 1
-            snapshot_output_dir = base
         elif not base.is_file() or not _is_kd2_xml(base):
             print(f"Error: KD2 XML export not found or invalid: {base}", file=sys.stderr)
             return 1
-        else:
-            snapshot_output_dir = base.parent
         print(
             f"metadata-graph-build │ Using KD2 XML export: {base}",
             file=sys.stderr,
             flush=True,
         )
     elif source_format == "kd2-snapshot":
-        if not is_kd2_snapshot_dir(base):
+        if not (is_kd2_snapshot_dir(base) or is_kd2_snapshot_root(base)):
             print(f"Error: KD2 snapshot dir not found or invalid: {base}", file=sys.stderr)
             return 1
         print(
@@ -254,7 +230,19 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
         try:
             if source_format == "kd2-xml":
                 if base.is_dir():
-                    crawl = crawl_kd2_xml_exports(selected_kd2_xmls)
+                    crawls = []
+                    for xml_path in selected_kd2_xmls:
+                        single_crawl = crawl_kd2_xml(xml_path)
+                        crawls.append(single_crawl)
+                        snapshot_dir = snapshot_dir_for_xml(base, xml_path)
+                        manifest = write_kd2_snapshot(single_crawl, snapshot_dir)
+                        print(
+                            "metadata-graph-build │ Refreshed snapshot: "
+                            f"{snapshot_dir} ({manifest['objects']} objects, {manifest['fields']} fields)",
+                            file=sys.stderr,
+                            flush=True,
+                        )
+                    crawl = merge_kd2_crawls(crawls)
                     print(
                         f"metadata-graph-build │ KD2 dir: {base} — {len(selected_kd2_xmls)} export(s), {len(crawl.objects)} objects",
                         file=sys.stderr,
@@ -262,21 +250,21 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
                     )
                 else:
                     crawl = crawl_kd2_xml(base)
+                    snapshot_dir = snapshot_dir_for_xml(base.parent, base)
+                    manifest = write_kd2_snapshot(crawl, snapshot_dir)
+                    print(
+                        "metadata-graph-build │ Refreshed snapshot: "
+                        f"{snapshot_dir} ({manifest['objects']} objects, {manifest['fields']} fields)",
+                        file=sys.stderr,
+                        flush=True,
+                    )
                 print(
                     f"metadata-graph-build │ KD2: {crawl.config_name} ({crawl.config_version}) — {len(crawl.objects)} objects",
                     file=sys.stderr,
                     flush=True,
                 )
-                if snapshot_output_dir is not None:
-                    manifest = write_kd2_snapshot(crawl, snapshot_output_dir)
-                    print(
-                        "metadata-graph-build │ Refreshed in-place KD2 snapshot: "
-                        f"{snapshot_output_dir} ({manifest['objects']} objects, {manifest['fields']} fields)",
-                        file=sys.stderr,
-                        flush=True,
-                    )
             elif source_format == "kd2-snapshot":
-                crawl = load_kd2_snapshot(base)
+                crawl = load_kd2_snapshot_set(base) if base.is_dir() else load_kd2_snapshot(base)
                 print(
                     f"metadata-graph-build │ Snapshot: {crawl.config_name} ({crawl.config_version}) — {len(crawl.objects)} objects",
                     file=sys.stderr,

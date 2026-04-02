@@ -12,6 +12,7 @@ Design:
 from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -81,6 +82,39 @@ def is_kd2_snapshot_dir(path: Path) -> bool:
     )
 
 
+def is_kd2_snapshot_root(path: Path) -> bool:
+    snapshots_dir = path / "snapshots"
+    return path.is_dir() and snapshots_dir.is_dir() and any(
+        is_kd2_snapshot_dir(child) for child in snapshots_dir.iterdir() if child.is_dir()
+    )
+
+
+def list_kd2_snapshot_dirs(path: Path) -> list[Path]:
+    if is_kd2_snapshot_dir(path):
+        return [path.resolve()]
+    snapshots_dir = path / "snapshots"
+    if not snapshots_dir.is_dir():
+        return []
+    return [
+        child.resolve()
+        for child in sorted(snapshots_dir.iterdir())
+        if child.is_dir() and is_kd2_snapshot_dir(child)
+    ]
+
+
+def _snapshot_key_from_xml(xml_path: Path) -> str:
+    stem = xml_path.stem.strip().lower()
+    stem = re.sub(r"[^0-9a-zа-яё_-]+", "-", stem, flags=re.IGNORECASE)
+    stem = re.sub(r"-{2,}", "-", stem).strip("-_")
+    return stem or "config"
+
+
+def snapshot_dir_for_xml(base_dir: str | Path, xml_path: str | Path) -> Path:
+    base = Path(base_dir).expanduser().resolve()
+    xml = Path(xml_path).expanduser().resolve()
+    return base / "snapshots" / _snapshot_key_from_xml(xml)
+
+
 def find_kd2_xml_exports(path: Path) -> list[Path]:
     """Return KD2 XML exports found directly in a directory, sorted by name."""
     if not path.is_dir():
@@ -105,6 +139,31 @@ def crawl_kd2_xml_exports(paths: list[str | Path]) -> CrawlResult:
     crawls = [crawl_kd2_xml(path) for path in paths]
     if not crawls:
         raise FileNotFoundError("No KD2 XML exports provided")
+    if len(crawls) == 1:
+        return crawls[0]
+    all_objects: list[ConfigObject] = []
+    all_relations = []
+    config_labels: list[str] = []
+    for crawl in crawls:
+        all_objects.extend(crawl.objects)
+        all_relations.extend(crawl.relations)
+        label = f"{crawl.config_name} ({crawl.config_version})".strip()
+        if label and label not in config_labels:
+            config_labels.append(label)
+    root_dir = crawls[0].root_dir.parent if crawls[0].root_dir.is_file() else crawls[0].root_dir
+    return CrawlResult(
+        root_dir=root_dir,
+        config_name=", ".join(config_labels[:3]) + ("…" if len(config_labels) > 3 else ""),
+        config_version="multiple",
+        platform_version=None,
+        objects=all_objects,
+        relations=all_relations,
+    )
+
+
+def merge_kd2_crawls(crawls: list[CrawlResult]) -> CrawlResult:
+    if not crawls:
+        raise FileNotFoundError("No KD2 crawls provided")
     if len(crawls) == 1:
         return crawls[0]
     all_objects: list[ConfigObject] = []
@@ -435,3 +494,12 @@ def load_kd2_snapshot(snapshot_dir: str | Path) -> CrawlResult:
         objects=objects,
         relations=[],
     )
+
+
+def load_kd2_snapshot_set(path: str | Path) -> CrawlResult:
+    base = Path(path).expanduser().resolve()
+    dirs = list_kd2_snapshot_dirs(base)
+    if not dirs:
+        raise FileNotFoundError(f"KD2 snapshot dir not found or invalid: {base}")
+    crawls = [load_kd2_snapshot(snapshot_dir) for snapshot_dir in dirs]
+    return merge_kd2_crawls(crawls)
