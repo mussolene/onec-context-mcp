@@ -308,14 +308,15 @@ def test_mcp_tool_search_1c_help_via_app(help_sample_dir: Path) -> None:
 def test_mcp_tool_search_1c_help_keyword_via_app(help_sample_dir: Path) -> None:
     """Call search_1c_help_keyword tool via app (covers tool code)."""
     app = mcp_server._build_mcp_app(help_sample_dir)
-    with patch.object(
-        mcp_server,
-        "_search_keyword",
-        return_value=[{"title": "API", "path": "api.html", "text": "x"}],
-    ):
-        result = asyncio.run(
-            app.call_tool("search_1c_help_keyword", {"query": "Запрос", "limit": 3})
-        )
+    with patch.object(mcp_server, "_get_api_member", return_value=[]):
+        with patch.object(
+            mcp_server,
+            "_search_keyword",
+            return_value=[{"title": "API", "path": "api.html", "text": "x"}],
+        ):
+            result = asyncio.run(
+                app.call_tool("search_1c_help_keyword", {"query": "Запрос", "limit": 3})
+            )
     text = result.content[0].text if result.content else ""
     assert "API" in text or "api.html" in text
 
@@ -323,17 +324,18 @@ def test_mcp_tool_search_1c_help_keyword_via_app(help_sample_dir: Path) -> None:
 def test_mcp_tool_search_1c_help_keyword_reranks_exact_first(help_sample_dir: Path) -> None:
     """Exact API hit should be rendered before similar keyword results."""
     app = mcp_server._build_mcp_app(help_sample_dir)
-    with patch.object(
-        mcp_server,
-        "_search_keyword",
-        return_value=[
-            {"title": "HTTPСоединение.ПолучитьЗаголовки", "path": "Head.md", "text": "head"},
-            {"title": "HTTPСоединение.Получить", "path": "Get.md", "text": "get"},
-        ],
-    ):
-        result = asyncio.run(
-            app.call_tool("search_1c_help_keyword", {"query": "HTTPСоединение.Получить", "limit": 5})
-        )
+    with patch.object(mcp_server, "_get_api_member", return_value=[]):
+        with patch.object(
+            mcp_server,
+            "_search_keyword",
+            return_value=[
+                {"title": "HTTPСоединение.ПолучитьЗаголовки", "path": "Head.md", "text": "head"},
+                {"title": "HTTPСоединение.Получить", "path": "Get.md", "text": "get"},
+            ],
+        ):
+            result = asyncio.run(
+                app.call_tool("search_1c_help_keyword", {"query": "HTTPСоединение.Получить", "limit": 5})
+            )
     text = result.content[0].text if result.content else ""
     assert text.splitlines()[0].startswith("1. **HTTPСоединение.Получить**")
 
