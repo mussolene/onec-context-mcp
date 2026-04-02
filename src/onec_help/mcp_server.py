@@ -69,7 +69,7 @@ def _snippet_max_chars() -> int:
 
 
 def _max_topic_content_chars() -> int:
-    """Max chars per topic in get_1c_code_answer/search_with_content. From env_config."""
+    """Max chars per topic preview in search_with_content/compact answer helpers. From env_config."""
     from . import env_config
 
     return env_config.get_mcp_max_topic_chars()
@@ -687,7 +687,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         include_user_memory: bool = False,
     ) -> str:
         """Search 1C help by natural language (semantic). Returns list of relevant topics with title, path, and snippet.
-        For code answers prefer get_1c_code_answer. For exact API names use search_1c_help_keyword.
+        For exact API names use get_1c_api_answer or search_1c_help_keyword.
         query: search text (e.g. 'Формат', 'Запрос.ПакетПолучения', 'синтаксис ОбъединитьПериоды').
         limit: max results (default 8). version, language: optional filters.
         include_user_memory: if True, also search saved snippets and mark source.
@@ -734,7 +734,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         """Search 1C help by exact substring/BM25 in title and text (e.g. 'Формат', 'РегистрНакопления.ОстаткиИОбороты').
         Use when semantic search misses specific API names or returns irrelevant results.
         query: the search string — pass exact API name or Type.Method (e.g. 'HTTPСоединение.Получить').
-        For code answers prefer get_1c_code_answer. limit: max results (default 10). version, language: optional filters.
+        For exact API answers prefer get_1c_api_answer. limit: max results (default 10). version, language: optional filters.
         Tip: if no matches, try search_1c_help for semantic search or synonym (e.g. ПакетПолучения → ВыполнитьПакет)."""
         err = _check_rate_limit()
         if err:
@@ -770,7 +770,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         version: str | None = None,
         language: str | None = None,
     ) -> str:
-        """[DEPRECATED] Use get_1c_code_answer instead — same search + full topic content, plus memory context (snippets, standards).
+        """[DEPRECATED] Broad manual reading helper.
         Kept for backward compatibility only. Will be removed in a future version.
         query: search text. limit: max topics (default 3). version, language: optional filters."""
         err = _check_rate_limit()
@@ -784,7 +784,8 @@ def _build_mcp_app(help_path: Path) -> Any:
             return "No results found. Ensure build-index was run and Qdrant is available."
         parts = []
         parts.append(
-            "[DEPRECATED] Prefer get_1c_code_answer for AI work. Use this legacy tool only for broad manual reading."
+            "[DEPRECATED] Prefer get_1c_api_answer or search_1c_help_keyword + get_1c_help_topic. "
+            "Use this legacy tool only for broad manual reading."
         )
         for _i, r in enumerate(results, 1):
             path = r.get("path", "")
@@ -797,84 +798,6 @@ def _build_mcp_app(help_path: Path) -> Any:
                     content = content[:max_chars] + "\n\n..."
                 parts.append(f"---\n## {path}\n\n{content}")
         return "\n\n".join(parts) if parts else "No content could be retrieved."
-
-    @mcp.tool()
-    @_record_mcp_tool
-    def get_1c_code_answer(
-        query: str,
-        limit: int = 1,
-        include_memory: bool = True,
-        code_only: bool = False,
-        max_chars_per_topic: int = 0,
-        version: str | None = None,
-        language: str | None = None,
-    ) -> str:
-        """PRIMARY tool for any 1C/BSL coding question. Call this FIRST before any other search tool.
-        Combines semantic + keyword search, full topic content, and memory (snippets, standards).
-        Prefer over search_1c_help + get_1c_help_topic chain — one call instead of many.
-        Use get_1c_context_bundle instead when you also need config metadata objects (Documents, Catalogs, etc.).
-        Use search_1c_help for lightweight topic discovery without full content.
-        Common 1C pitfalls: (1) ПрочитатьJSON returns Структура by default — use ПрочитатьВСоответствие=Истина for Соответствие. (2) HTTPСоединение.Получить — server-side only, not on client. (3) НачатьТранзакцию must always be wrapped in Попытка/Исключение with ОтменитьТранзакцию in exception. (4) Запрос.Выполнить() inside a loop causes N queries — use batch or query outside loop. (5) ФоновоеЗадание.ПолучитьПоследнее() returns Неопределено if no previous job — check for Неопределено before accessing result.
-        query: natural language or API name. limit: max topics (default 1). include_memory: also search saved snippets/standards (default True). code_only: if True, return primarily code blocks from help.
-        max_chars_per_topic: truncation per topic in chars (default 0 = use MCP_MAX_TOPIC_CHARS env, typically 4000). Set higher (e.g. 8000) for more detail, lower (e.g. 1500) to save tokens.
-        Tip: if results are irrelevant, call search_1c_help_keyword with exact API name (Тип.Метод), then get_1c_help_topic for full content."""
-        err = _check_rate_limit()
-        if err:
-            return err
-        q, err = _truncate_if_needed(query or "", MAX_QUERY_CHARS, "query")
-        if err:
-            return err
-        results, meta = _hybrid_search(q, limit=limit, version=version, language=language)
-        memory_parts: list[str] = []
-        if include_memory:
-            try:
-                from .memory import get_memory_store
-
-                raw = get_memory_store().search_long(q, limit=10)
-                selected = _select_memory_for_code_answer(raw, q, has_help_results=bool(results))
-                for m in selected:
-                    payload = m.get("payload", {}) or {}
-                    include_code_block = code_only or (payload.get("domain") == "snippets" and not results)
-                    memory_parts.append(
-                        _format_memory_block(payload, compact=True, include_code=include_code_block)
-                    )
-            except Exception as e:
-                logging.getLogger(__name__).debug("get_1c_code_answer memory block failed: %s", e)
-        if not results and not memory_parts:
-            return (
-                "No results. Ensure index exists (get_1c_help_index_status). "
-                "Try search_1c_help_keyword with exact API name (e.g. ПроцессорВыводаРезультатаКомпоновкиДанныхВКоллекциюЗначений)."
-            )
-        parts: list[str] = [f"## Запрос: {q}"]
-        if _should_show_low_score_hint(results, memory_parts, meta):
-            parts.append(
-                "*При нерелевантных результатах попробуйте search_1c_help_keyword с точным именем API (напр. Тип.Метод).*"
-            )
-        if memory_parts:
-            parts.append("\n### Из памяти\n\n" + "\n\n".join(memory_parts))
-        elif include_memory and (results or meta):
-            # Память запрашивали, но сниппеты/стандарты не попали в ответ — подсказать причину
-            parts.append(
-                "\n*Чтобы в ответах появлялись примеры и стандарты (сниппеты, v8std): "
-                "выполните `load-snippets` и `load-standards`; в `get_1c_help_index_status` проверьте, "
-                "что коллекция **onec_help_memory** содержит точки.*"
-            )
-        if results:
-            help_blocks = []
-            compact_default_max = min(_max_topic_content_chars(), 1600)
-            _max_chars = max_chars_per_topic if max_chars_per_topic > 0 else compact_default_max
-            for r in results:
-                path = r.get("path", "")
-                if not path:
-                    continue
-                content = _get_topic(path, version=version, language=language, prefer_index=False)
-                if content:
-                    help_blocks.append(
-                        _compact_help_block(r, content, code_only=code_only, max_chars=_max_chars)
-                    )
-            if help_blocks:
-                parts.append("\n### Из справки\n\n" + "\n\n".join(help_blocks))
-        return "\n".join(parts)
 
     @mcp.tool()
     @_record_mcp_tool
@@ -902,7 +825,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         if not results:
             return (
                 f"No exact keyword matches for «{name_clean}». "
-                f'Try search_1c_help_keyword(query="{name_clean}") or get_1c_code_answer(query="{name_clean}").'
+                f'Try search_1c_help_keyword(query="{name_clean}") or get_1c_help_topic(topic_path=<path>).'
             )
         best_priority = _match_priority(
             name_clean.lower(),
@@ -936,6 +859,72 @@ def _build_mcp_app(help_path: Path) -> Any:
             return content
         return _compact_api_answer(topic, content, max_chars=1200)
 
+    def _search_memory_blocks(
+        query: str,
+        *,
+        limit: int,
+        domains: str | None = None,
+        title: str = "## Память",
+        include_code: bool = False,
+    ) -> str:
+        q, err = _truncate_if_needed(query or "", MAX_QUERY_CHARS, "query")
+        if err:
+            return err
+        try:
+            from .memory import get_memory_store
+
+            store = get_memory_store()
+            fetch = max(limit * 2, 10)
+            all_items: list[dict[str, Any]] = []
+            if domains:
+                domain_list = [s.strip() for s in domains.split(",") if s.strip()]
+                if domain_list:
+                    per_domain = max(2, (fetch + len(domain_list) - 1) // len(domain_list))
+                    for domain in domain_list:
+                        all_items.extend(store.search_long(q, limit=per_domain, domain=domain))
+                else:
+                    all_items = store.search_long(q, limit=fetch)
+            else:
+                all_items = store.search_long(q, limit=fetch)
+
+            seen: set[tuple[str, str]] = set()
+            unique: list[dict[str, Any]] = []
+            for item in all_items:
+                payload = item.get("payload") or {}
+                key = (
+                    str(payload.get("title") or (payload.get("description") or "")[:80]),
+                    str(payload.get("domain") or ""),
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                unique.append(item)
+
+            ordered = _order_memory_for_display(
+                unique,
+                max_standards=max(2, limit // 2),
+                max_snippets=max(2, limit // 2),
+                max_community=max(1, limit // 3),
+                max_total=limit,
+            )
+            blocks = [
+                _format_memory_block(
+                    item.get("payload") or {},
+                    compact=True,
+                    include_code=include_code,
+                )
+                for item in ordered
+            ]
+            if not blocks:
+                return (
+                    "Ничего не найдено в памяти. Выполните load-snippets и load-standards; "
+                    "проверьте get_1c_help_index_status (коллекция onec_help_memory)."
+                )
+            return title + "\n\n" + "\n\n".join(blocks)
+        except Exception as e:
+            logging.getLogger(__name__).debug("search memory helper failed: %s", e)
+            return "Ошибка поиска по памяти."
+
     @mcp.tool()
     @_record_mcp_tool
     def search_1c_memory(
@@ -947,68 +936,47 @@ def _build_mcp_app(help_path: Path) -> Any:
         query: search text. limit: max items (default 5). domains: optional filter — "standards", "snippets",
         "community_help", or comma-separated e.g. "standards,snippets" to get both; if omitted, searches all.
         Memory contains: BSP patterns, platform snippets, v8std coding standards.
-        Use when you need dedicated context from standards/snippets beyond get_1c_code_answer."""
+        Use when you need dedicated context from standards/snippets."""
         err = _check_rate_limit()
         if err:
             return err
-        q, err = _truncate_if_needed(query or "", MAX_QUERY_CHARS, "query")
+        return _search_memory_blocks(
+            query,
+            limit=limit,
+            domains=domains,
+            title="## Память (сниппеты и стандарты)",
+            include_code=False,
+        )
+
+    @mcp.tool()
+    @_record_mcp_tool
+    def search_1c_standards(query: str, limit: int = 5) -> str:
+        """Search only standards in memory (v8std, v8-code-style, ITS articles loaded into memory)."""
+        err = _check_rate_limit()
         if err:
             return err
-        try:
-            from .memory import get_memory_store
+        return _search_memory_blocks(
+            query,
+            limit=limit,
+            domains="standards",
+            title="## Стандарты",
+            include_code=False,
+        )
 
-            store = get_memory_store()
-            fetch = max(limit * 2, 10)  # fetch extra for reordering
-            all_items: list[dict[str, Any]] = []
-            if domains:
-                domain_list = [s.strip() for s in domains.split(",") if s.strip()]
-                if domain_list:
-                    per_domain = max(2, (fetch + len(domain_list) - 1) // len(domain_list))
-                    for d in domain_list:
-                        all_items.extend(store.search_long(q, limit=per_domain, domain=d))
-                    # Dedupe by (title, domain)
-                    seen: set[tuple[str, str]] = set()
-                    unique: list[dict[str, Any]] = []
-                    for m in all_items:
-                        p = m.get("payload") or {}
-                        key = (
-                            (p.get("title") or (p.get("description") or "")[:80]),
-                            p.get("domain", ""),
-                        )
-                        if key not in seen:
-                            seen.add(key)
-                            unique.append(m)
-                    all_items = unique
-                else:
-                    all_items = store.search_long(q, limit=fetch)
-            else:
-                all_items = store.search_long(q, limit=fetch)
-
-            # Reorder: standards and snippets first (same logic as get_1c_code_answer)
-            all_items = _order_memory_for_display(
-                all_items,
-                max_standards=max(2, limit // 2),
-                max_snippets=max(2, limit // 2),
-                max_community=max(1, limit // 3),
-                max_total=limit,
-            )
-            blocks = [
-                _format_memory_block(
-                    m.get("payload") or {},
-                    compact=True,
-                    include_code=False,
-                )
-                for m in all_items
-            ]
-            if not blocks:
-                return (
-                    "Ничего не найдено в памяти. Выполните load-snippets и load-standards; "
-                    "проверьте get_1c_help_index_status (коллекция onec_help_memory)."
-                )
-            return "## Память (сниппеты и стандарты)\n\n" + "\n\n".join(blocks)
-        except Exception as e:
-            logging.getLogger(__name__).debug("search_1c_memory failed: %s", e)
-            return "Ошибка поиска по памяти."
+    @mcp.tool()
+    @_record_mcp_tool
+    def search_1c_snippets(query: str, limit: int = 5) -> str:
+        """Search only code snippets/examples in memory."""
+        err = _check_rate_limit()
+        if err:
+            return err
+        return _search_memory_blocks(
+            query,
+            limit=limit,
+            domains="snippets,community_help",
+            title="## Сниппеты",
+            include_code=True,
+        )
 
     @mcp.tool()
     @_record_mcp_tool
@@ -1189,98 +1157,75 @@ def _build_mcp_app(help_path: Path) -> Any:
             lines.append(f"**Object:** {object_name}")
         return "\n".join(lines)
 
-    @mcp.tool()
-    @_record_mcp_tool
-    def search_1c_metadata(
+    def _search_metadata_across_versions(
         query: str,
-        config_version: str | None = None,
-        object_type: str | None = None,
-        limit: int = 20,
-    ) -> str:
-        """Search 1C configuration metadata graph (Documents, Catalogs, Registers, etc.) by name.
-        Requires prior run of metadata-graph-build CLI command for your config export.
-        query: natural language or partial object name (e.g. 'Реализация', 'Document').
-        config_version: config version from the export (e.g. '3.0.184.16'); auto-detected if only one config loaded.
-        object_type: optional filter — 'Document', 'Catalog', 'InformationRegister', etc."""
-        err = _check_rate_limit()
-        if err:
-            return err
-        q, err = _truncate_if_needed(query or "", MAX_QUERY_CHARS, "query")
-        if err:
-            return err
-        try:
-            from .metadata_graph import get_metadata_config_versions, search_metadata_by_name
-        except Exception as e:  # pragma: no cover - import/runtime guard
-            return f"Metadata graph module is not available: {safe_error_message(e)}"
+        *,
+        config_version: str | None,
+        object_type: str | None,
+        limit: int,
+        search_fn: Any,
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        from .metadata_graph import get_metadata_config_versions
 
         cfg_ver = (config_version or "").strip()
-        items: list[dict[str, Any]] = []
-
         if cfg_ver:
-            # Явно указана версия конфигурации — ищем только в ней.
-            items = search_metadata_by_name(
-                q,
+            return search_fn(
+                query,
                 type_filter=object_type,
                 config_version=cfg_ver,
-            )
-            if not items:
-                return (
-                    "No metadata objects found for this query/config_version. "
-                    "Ensure metadata-graph-build was run for your config export and config_version is correct."
+                limit=limit,
+            ), cfg_ver
+        versions = get_metadata_config_versions()
+        if not versions:
+            return [], None
+        if len(versions) == 1:
+            only_version = versions[0]
+            return search_fn(
+                query,
+                type_filter=object_type,
+                config_version=only_version,
+                limit=limit,
+            ), only_version
+        per_ver = max(1, (limit + len(versions) - 1) // len(versions))
+        items: list[dict[str, Any]] = []
+        query_vector: list[float] | None = None
+        if getattr(search_fn, "__name__", "") == "search_metadata_semantic" and (query or "").strip():
+            try:
+                from . import embedding, env_config
+                from .indexer import get_collection_vector_size
+
+                coll_dim = get_collection_vector_size(
+                    collection="onec_config_metadata",
+                    qdrant_host=env_config.get_qdrant_host(),
+                    qdrant_port=env_config.get_qdrant_port(),
                 )
-        else:
-            # Версия не указана: пытаемся искать по всем версиям в графе.
-            versions = get_metadata_config_versions()
-            if not versions:
-                return "Metadata graph is empty. Run metadata-graph-build for your config export first."
-            if len(versions) == 1:
-                items = search_metadata_by_name(
-                    q,
-                    type_filter=object_type,
-                    config_version=versions[0],
-                )
-            else:
-                # Один раз получаем эмбеддинг запроса и переиспользуем по всем версиям (ускоряет поиск).
-                query_vector: list[float] | None = None
-                if (q or "").strip():
-                    try:
-                        from . import embedding, env_config
-                        from .indexer import get_collection_vector_size
-                        coll_dim = get_collection_vector_size(
-                            collection="onec_config_metadata",
-                            qdrant_host=env_config.get_qdrant_host(),
-                            qdrant_port=env_config.get_qdrant_port(),
-                        )
-                        if coll_dim is not None:
-                            query_vector = embedding.get_embedding(
-                                (q or "").strip(),
-                                target_dimension=coll_dim,
-                            )
-                    except Exception:
-                        pass
-                per_ver = max(1, (limit + len(versions) - 1) // len(versions))
-                for ver in versions:
-                    part = search_metadata_by_name(
-                        q,
-                        type_filter=object_type,
-                        config_version=ver,
-                        limit=per_ver,
-                        query_vector=query_vector,
+                if coll_dim is not None:
+                    query_vector = embedding.get_embedding(
+                        (query or "").strip(),
+                        target_dimension=coll_dim,
                     )
-                    items.extend(part)
-            if not items:
-                return (
-                    "No metadata objects found for this query across available config versions. "
-                    "Ensure metadata-graph-build was run for your config exports."
-                )
+            except Exception:
+                query_vector = None
+        for ver in versions:
+            kwargs: dict[str, Any] = {
+                "type_filter": object_type,
+                "config_version": ver,
+                "limit": per_ver,
+            }
+            if query_vector is not None:
+                kwargs["query_vector"] = query_vector
+            items.extend(search_fn(query, **kwargs))
+        return items[:limit], None
+
+    def _format_metadata_results(items: list[dict[str, Any]], *, default_version: str | None = None) -> str:
         lines: list[str] = []
-        for i, obj in enumerate(items[:limit], 1):
+        for i, obj in enumerate(items, 1):
             ot = obj.get("object_type", "")
             name = obj.get("name", "")
             full = obj.get("full_name") or ""
             oid = obj.get("id", "")
             path = obj.get("path", "")
-            ver = obj.get("config_version") or cfg_ver or ""
+            ver = obj.get("config_version") or default_version or ""
             line = f"{i}. **{ot} {name}**"
             if full:
                 line += f" — {full}"
@@ -1295,13 +1240,152 @@ def _build_mcp_app(help_path: Path) -> Any:
 
     @mcp.tool()
     @_record_mcp_tool
+    def search_1c_metadata_exact(
+        query: str,
+        config_version: str | None = None,
+        object_type: str | None = None,
+        limit: int = 20,
+    ) -> str:
+        """Exact-first metadata lookup by id/name/full_name/path."""
+        err = _check_rate_limit()
+        if err:
+            return err
+        q, err = _truncate_if_needed(query or "", MAX_QUERY_CHARS, "query")
+        if err:
+            return err
+        try:
+            from .metadata_graph import search_metadata_exact
+        except Exception as e:  # pragma: no cover - import/runtime guard
+            return f"Metadata graph module is not available: {safe_error_message(e)}"
+        items, resolved_version = _search_metadata_across_versions(
+            q,
+            config_version=config_version,
+            object_type=object_type,
+            limit=limit,
+            search_fn=search_metadata_exact,
+        )
+        if not items:
+            return (
+                "No exact metadata objects found. "
+                "Use search_1c_metadata_semantic for natural-language search or verify config_version."
+            )
+        return _format_metadata_results(items[:limit], default_version=resolved_version)
+
+    @mcp.tool()
+    @_record_mcp_tool
+    def search_1c_metadata_semantic(
+        query: str,
+        config_version: str | None = None,
+        object_type: str | None = None,
+        limit: int = 20,
+    ) -> str:
+        """Semantic metadata lookup for natural-language queries."""
+        err = _check_rate_limit()
+        if err:
+            return err
+        q, err = _truncate_if_needed(query or "", MAX_QUERY_CHARS, "query")
+        if err:
+            return err
+        try:
+            from .metadata_graph import search_metadata_semantic
+        except Exception as e:  # pragma: no cover - import/runtime guard
+            return f"Metadata graph module is not available: {safe_error_message(e)}"
+        items, resolved_version = _search_metadata_across_versions(
+            q,
+            config_version=config_version,
+            object_type=object_type,
+            limit=limit,
+            search_fn=search_metadata_semantic,
+        )
+        if not items:
+            return (
+                "No semantic metadata objects found. "
+                "Ensure metadata-graph-build was run or try search_1c_metadata_exact."
+            )
+        return _format_metadata_results(items[:limit], default_version=resolved_version)
+
+    @mcp.tool()
+    @_record_mcp_tool
+    def search_1c_metadata_fields(
+        object_query: str,
+        field_query: str,
+        config_version: str | None = None,
+        object_type: str | None = None,
+        limit: int = 10,
+        exact_object_first: bool = True,
+    ) -> str:
+        """Search requisites/tabular sections/commands inside matched metadata objects."""
+        err = _check_rate_limit()
+        if err:
+            return err
+        object_query, err = _truncate_if_needed(object_query or "", MAX_QUERY_CHARS, "object_query")
+        if err:
+            return err
+        field_query, err = _truncate_if_needed(field_query or "", MAX_QUERY_CHARS, "field_query")
+        if err:
+            return err
+        try:
+            from .metadata_graph import get_metadata_config_versions, search_metadata_fields
+        except Exception as e:  # pragma: no cover - import/runtime guard
+            return f"Metadata graph module is not available: {safe_error_message(e)}"
+
+        versions: list[str] = []
+        cfg_ver = (config_version or "").strip()
+        if cfg_ver:
+            versions = [cfg_ver]
+        else:
+            versions = get_metadata_config_versions()
+            if not versions:
+                return "Metadata graph is empty. Run metadata-graph-build for your config export first."
+        items: list[dict[str, Any]] = []
+        per_ver = max(1, (limit + len(versions) - 1) // len(versions))
+        for version_item in versions:
+            items.extend(
+                search_metadata_fields(
+                    object_query,
+                    field_query,
+                    config_version=version_item,
+                    type_filter=object_type,
+                    limit=per_ver,
+                    exact_object_first=exact_object_first,
+                )
+            )
+        if not items:
+            return (
+                "No metadata fields found. Verify object name/config_version or try search_1c_metadata_semantic "
+                "to find the object first."
+            )
+        lines = []
+        for idx, item in enumerate(items[:limit], 1):
+            line = (
+                f"{idx}. **{item.get('field_name', '')}**"
+                f" — {item.get('field_group', '')}"
+                f" in **{item.get('object_type', '')} {item.get('object_name', '')}**"
+            )
+            field_synonym = item.get("field_synonym") or ""
+            field_type = item.get("field_type") or ""
+            if field_synonym:
+                line += f" — {field_synonym}"
+            if field_type:
+                line += f" — {field_type}"
+            object_id = item.get("object_id") or ""
+            if object_id:
+                line += f" (object_id: `{object_id}`)"
+            cfg = item.get("config_version") or ""
+            if cfg:
+                line += f" (config_version: `{cfg}`)"
+            lines.append(line)
+        return "\n".join(lines)
+
+    @mcp.tool()
+    @_record_mcp_tool
     def get_1c_metadata_object(
         object_id: str,
         config_version: str | None = None,
     ) -> str:
         """Get detailed info about a single configuration object from metadata graph.
 
-        object_id: identifier from search_1c_metadata (payload.id, e.g. 'Document/РеализацияТоваровУслуг').
+        object_id: identifier from search_1c_metadata_exact/search_1c_metadata_semantic (payload.id, e.g. 'Document/РеализацияТоваровУслуг').
         config_version: optional filter (e.g. '3.0.184.16'). If omitted, returns first match across all loaded configs.
         """
         err = _check_rate_limit()
@@ -1677,7 +1761,7 @@ def _build_mcp_app(help_path: Path) -> Any:
     ) -> str:
         """Legacy broad context: combine help topics, memory and configuration metadata objects.
         Use when you need all three sources: help docs, memory (snippets/standards), AND config objects (Documents, Catalogs, Registers).
-        For AI work prefer get_1c_task_context or get_1c_code_answer; this tool is intentionally broader and more verbose.
+        For AI work prefer get_1c_task_context and explicit narrow tools; this tool is intentionally broader and more verbose.
         Returns topic snippets (not full content) — call get_1c_help_topic or get_1c_help_topics_bulk for full text.
         query: main search text or API name. config_version: e.g. '3.0.184.16'; optional if one config loaded.
         file_uri, symbol_name: accepted for context narrowing.
@@ -1942,7 +2026,7 @@ def _build_mcp_app(help_path: Path) -> Any:
     ) -> str:
         """Get full content of multiple help topics in one call. More efficient than N separate get_1c_help_topic calls.
         paths: list of topic paths from search results (up to 10). Silently skips paths not found.
-        max_chars_per_topic: truncation limit per topic (default 4000, same as get_1c_code_answer). 0 = no limit.
+        max_chars_per_topic: truncation limit per topic (default 4000 from MCP_MAX_TOPIC_CHARS). 0 = no limit.
         version, language: optional filters when reading from index.
         Tip: get paths from search_1c_help_keyword or search_1c_help first."""
         err = _check_rate_limit()
@@ -1980,13 +2064,14 @@ def _build_mcp_app(help_path: Path) -> Any:
         _guide_develop = (
             "1C-HELP DEVELOP WORKFLOW:\n"
             "1. Exact API (Тип.Метод) → get_1c_api_answer(name).\n"
-            "2. General code question → get_1c_code_answer(query, include_memory=True).\n"
+            "2. General platform topic → search_1c_help_keyword('Тип.Метод') or search_1c_help(query) → get_1c_help_topic(topic_path=<path>).\n"
             "3. Local task context → get_1c_task_context(query, file_uri=..., symbol_name=...).\n"
-            "4. If results are weak: search_1c_help_keyword('Тип.Метод') → get_1c_help_topic(topic_path=<path>).\n"
-            "5. Standards/snippets only: search_1c_memory(query, domains='standards,snippets').\n"
-            "6. Check index health: get_1c_help_index_status.\n"
-            "7. Code validation happens in external lsp-bsl-bridge via document_diagnostics(uri).\n"
-            "8. Save reusable verified code only: save_1c_snippet(code_snippet, description, title).\n"
+            "4. Standards only → search_1c_standards(query). Snippets only → search_1c_snippets(query).\n"
+            "5. Metadata exact → search_1c_metadata_exact(query). Metadata semantic → search_1c_metadata_semantic(query).\n"
+            "6. Field lookup → search_1c_metadata_fields(object_query, field_query).\n"
+            "7. Check index health: get_1c_help_index_status.\n"
+            "8. Code validation happens in external lsp-bsl-bridge via document_diagnostics(uri).\n"
+            "9. Save reusable verified code only: save_1c_snippet(code_snippet, description, title).\n"
             "Key pitfalls: ПрочитатьJSON→Структура (use ПрочитатьВСоответствие=Истина for Соответствие); "
             "HTTPСоединение.Получить server-only; НачатьТранзакцию needs Попытка+ОтменитьТранзакцию."
         )
@@ -2019,10 +2104,12 @@ def _build_mcp_app(help_path: Path) -> Any:
         Not the default AI route; for autonomous workflow use get_1c_quick_guide instead."""
         block_develop = """1c-HELP + external LSP — DEVELOP (human/onboarding prompt)
 - AI-first route: get_1c_quick_guide(task="develop") first.
-- Exact API: get_1c_api_answer(name). General question: get_1c_code_answer(query, include_memory=True).
+- Exact API: get_1c_api_answer(name).
+- General platform lookup: search_1c_help_keyword("Тип.Метод") or search_1c_help(query) → get_1c_help_topic(topic_path=<path>).
 - Local anti-hallucination context: get_1c_task_context(query, file_uri=..., symbol_name=...).
-- Weak results: search_1c_help_keyword("Тип.Метод") → get_1c_help_topic(topic_path=<path>). Correct: get_1c_help_topic(topic_path="Format971.md"). Wrong: get_1c_help_topic(path=...).
-- Need standards/snippets explicitly: search_1c_memory(query, domains="standards,snippets").
+- Correct: get_1c_help_topic(topic_path="Format971.md"). Wrong: get_1c_help_topic(path=...).
+- Need standards/snippets explicitly: search_1c_standards(query), search_1c_snippets(query), or legacy search_1c_memory(query, domains="standards,snippets").
+- Metadata exact: search_1c_metadata_exact(query). Metadata semantic: search_1c_metadata_semantic(query). Fields: search_1c_metadata_fields(object_query, field_query).
 - Empty or poor help results: first call get_1c_help_index_status to verify index.
 - Save reusable verified code only: save_1c_snippet(code_snippet, description, title).
 - get_form_metadata(xml_content): pass full Form.xml with all xmlns declarations. get_module_info(uri_or_path): path to Module.bsl or ObjectModule.bsl.
@@ -2051,14 +2138,14 @@ def _build_mcp_app(help_path: Path) -> Any:
 
 ---
 2) 1c-HELP — ORDER OF CALLS
-- Exact API: get_1c_api_answer(name) first for Тип.Метод. General code examples: get_1c_code_answer(query, include_memory=True). If irrelevant or weak → search_1c_help_keyword with exact API name (e.g. "МенеджерКриптографии.Подписать") → get_1c_help_topic(topic_path=<path>) using path from results. IMPORTANT: parameter is topic_path, not path. Example: get_1c_help_topic(topic_path="8.3.27/shcntx_ru/...CryptoManager.html").
+- Exact API: get_1c_api_answer(name) first for Тип.Метод. General platform topics: search_1c_help(query) or search_1c_help_keyword with exact API name (e.g. "МенеджерКриптографии.Подписать") → get_1c_help_topic(topic_path=<path>) using path from results. IMPORTANT: parameter is topic_path, not path. Example: get_1c_help_topic(topic_path="8.3.27/shcntx_ru/...CryptoManager.html").
 - Task-local context: get_1c_task_context(query, file_uri=..., symbol_name=...) before broad get_1c_context_bundle.
-- Need explicit standards/snippets: search_1c_memory(query, domains="standards,snippets") in addition to get_1c_code_answer.
+- Need explicit standards/snippets: search_1c_standards(query), search_1c_snippets(query), or legacy search_1c_memory(query, domains="standards,snippets").
 - Empty or poor results: call get_1c_help_index_status first to check index health → then search_1c_help_keyword with exact Тип.Метод.
 - After working code: save_1c_snippet(code_snippet, description, title) only for reusable verified code.
 - get_form_metadata(xml_content): pass full Form.xml with all xmlns; truncated XML returns empty attributes. get_module_info(uri_or_path): path to Module.bsl or ObjectModule.bsl.
 - For methods always use full Тип.Метод in search_1c_help_keyword and get_1c_function_info.
-- search_1c_memory(domains=...) is needed when: get_1c_code_answer returns no memory block, or you need standards/snippets specifically (e.g. for code review against standards). Use domains="standards" for style rules, "snippets" for code examples.
+- Use search_1c_memory(domains=...) only as umbrella legacy tool when separate standards/snippets routes are not enough.
 
 ---
 3) LSP-BSL-BRIDGE — ORDER OF CALLS
@@ -2080,14 +2167,16 @@ def _build_mcp_app(help_path: Path) -> Any:
 
 ---
 5) METADATA (1c-help)
-- search_1c_metadata(query, config_version=None, object_type=None, limit=20): if config_version is given — search only that config; if omitted and multiple versions exist, search across all.
-- get_1c_metadata_object(object_id, config_version=None): details for one object (requisites, tabular sections). Pass config_version from search_1c_metadata to avoid ambiguity.
+- search_1c_metadata_exact(query, config_version=None, object_type=None, limit=20): exact-first object lookup.
+- search_1c_metadata_semantic(query, config_version=None, object_type=None, limit=20): natural-language object lookup.
+- search_1c_metadata_fields(object_query, field_query, config_version=None, object_type=None): field/requisite lookup.
+- get_1c_metadata_object(object_id, config_version=None): details for one object (requisites, tabular sections). Pass config_version from metadata search to avoid ambiguity.
 - get_1c_task_context(query, file_uri=None, symbol_name=None, diagnostics_json=None): compact anti-hallucination context for AI.
 - get_1c_context_bundle(query, config_version=None): legacy broad context when you explicitly need a wider bundle.
 
 ---
 6) LIMITS
-- query and xml_content: up to 64 KB. Topic content in get_1c_code_answer: MCP_MAX_TOPIC_CHARS (default 4000). Full topic: get_1c_help_topic(topic_path). Bulk topics: get_1c_help_topics_bulk(paths=[...]). Full report: docs/mcp-1c-help-tools-report.md."""
+- query and xml_content: up to 64 KB. Topic content preview: MCP_MAX_TOPIC_CHARS (default 4000). Full topic: get_1c_help_topic(topic_path). Bulk topics: get_1c_help_topics_bulk(paths=[...]). Full report: docs/mcp-1c-help-tools-report.md."""
 
     @mcp.prompt
     def get_mcp_guides_bundle() -> str:
@@ -2240,11 +2329,12 @@ def _build_mcp_app(help_path: Path) -> Any:
 Если Дата = '00010101' Тогда
 ```
 
-## 11. get_1c_code_answer — подсказка по поиску
-Если ответ нерелевантен:
-1. search_1c_help_keyword("Тип.Метод") с точным именем API
-2. get_1c_help_topic(topic_path=<path>) из результатов
-3. get_1c_help_topics_bulk(paths=[...]) для нескольких топиков сразу
+## 11. Узкий маршрут вместо общего answer-tool
+1. Точный API: get_1c_api_answer("Тип.Метод")
+2. Тема/keyword: search_1c_help_keyword("Тип.Метод") → get_1c_help_topic(topic_path=<path>)
+3. Стандарты: search_1c_standards(query)
+4. Сниппеты: search_1c_snippets(query)
+5. Метаданные: search_1c_metadata_exact / search_1c_metadata_semantic / search_1c_metadata_fields
 """
 
     return mcp

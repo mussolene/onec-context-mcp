@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from mcp.shared.exceptions import McpError
 
 from onec_help import mcp_server
 
@@ -447,53 +448,11 @@ def test_mcp_tool_search_1c_help_with_content_via_app(help_sample_dir: Path) -> 
     assert "A" in text or "content" in text
 
 
-def test_mcp_tool_get_1c_code_answer_via_app(help_sample_dir: Path) -> None:
-    """Call get_1c_code_answer tool via app."""
+def test_mcp_tool_get_1c_code_answer_removed_from_app(help_sample_dir: Path) -> None:
+    """Legacy broad answer tool should not be exposed in MCP app."""
     app = mcp_server._build_mcp_app(help_sample_dir)
-    with patch.object(
-        mcp_server,
-        "_hybrid_search",
-        return_value=(
-            [{"path": "func.html", "title": "Func", "text": "x"}],
-            {"top_semantic_score": 0.5},
-        ),
-    ):
-        with patch.object(mcp_server, "_get_topic", return_value="# Func\n\n```bsl\nCode();\n```"):
-            result = asyncio.run(
-                app.call_tool(
-                    "get_1c_code_answer",
-                    {
-                        "query": "как вызвать",
-                        "limit": 2,
-                        "include_memory": False,
-                        "code_only": False,
-                    },
-                )
-            )
-    text = result.content[0].text if result.content else ""
-    assert "Запрос" in text or "Func" in text or "Code" in text
-
-
-def test_mcp_tool_get_1c_code_answer_code_only(help_sample_dir: Path) -> None:
-    """get_1c_code_answer with code_only=True returns code blocks."""
-    app = mcp_server._build_mcp_app(help_sample_dir)
-    with patch.object(
-        mcp_server,
-        "_hybrid_search",
-        return_value=([{"path": "a.html", "title": "A", "text": "x"}], {}),
-    ):
-        with patch.object(
-            mcp_server,
-            "_get_topic",
-            return_value="# A\n\nText\n\n```bsl\nПроцедура Х()\nКонецПроцедуры\n```",
-        ):
-            result = asyncio.run(
-                app.call_tool(
-                    "get_1c_code_answer", {"query": "test", "limit": 1, "code_only": True}
-                )
-            )
-    text = result.content[0].text if result.content else ""
-    assert "Х()" in text or "bsl" in text or "A" in text
+    with pytest.raises(McpError, match="Unknown tool"):
+        asyncio.run(app.call_tool("get_1c_code_answer", {"query": "test"}))
 
 
 def test_mcp_tool_get_1c_api_answer_via_app(help_sample_dir: Path) -> None:
@@ -669,65 +628,42 @@ def test_mcp_tool_get_module_info_extended_types(help_sample_dir: Path) -> None:
         assert expected_obj in text, f"Expected object {expected_obj} in output for {uri}: {text}"
 
 
-def test_mcp_tool_get_1c_code_answer_include_memory(help_sample_dir: Path) -> None:
-    """get_1c_code_answer with include_memory=True includes memory blocks (snippets/community_help/standards)."""
+def test_mcp_tool_search_1c_standards(help_sample_dir: Path) -> None:
+    """search_1c_standards isolates standards-only output."""
     app = mcp_server._build_mcp_app(help_sample_dir)
     memory_results = [
-        {
-            "payload": {
-                "title": "Пример",
-                "code_snippet": "Сообщить(1);",
-                "description": "Desc",
-                "domain": "snippets",
-                "detail_url": "https://fastcode.im/1",
-                "source_site": "fastcode.im",
-            }
-        },
-        {
-            "payload": {
-                "title": "HelpF",
-                "instruction": "Инструкция",
-                "domain": "community_help",
-                "detail_url": "https://helpf.pro/2",
-                "source_site": "helpf.pro",
-                "source": "faq",
-            }
-        },
         {"payload": {"title": "Стандарт", "domain": "standards"}},
     ]
-    with patch.object(
-        mcp_server,
-        "_hybrid_search",
-        return_value=([], {}),
-    ):
-        with patch("onec_help.memory.get_memory_store") as mock_store:
-            mock_store.return_value.search_long.return_value = memory_results
-            result = asyncio.run(
-                app.call_tool(
-                    "get_1c_code_answer",
-                    {"query": "test", "limit": 5, "include_memory": True},
-                )
+    with patch("onec_help.memory.get_memory_store") as mock_store:
+        mock_store.return_value.search_long.return_value = memory_results
+        result = asyncio.run(
+            app.call_tool(
+                "search_1c_standards",
+                {"query": "тест", "limit": 5},
             )
+        )
     text = result.content[0].text if result.content else ""
-    assert "Из памяти" in text
-    assert "Пример" in text or "Сообщить" in text
-    assert "пример" in text or "стандарт" in text
+    assert "Стандарты" in text
+    assert "Стандарт" in text
 
 
-def test_mcp_tool_get_1c_code_answer_no_results_no_memory(help_sample_dir: Path) -> None:
-    """get_1c_code_answer returns hint when no results and no memory."""
+def test_mcp_tool_search_1c_snippets(help_sample_dir: Path) -> None:
+    """search_1c_snippets isolates snippets/community_help output with code blocks."""
     app = mcp_server._build_mcp_app(help_sample_dir)
-    with patch.object(mcp_server, "_hybrid_search", return_value=([], {})):
-        with patch("onec_help.memory.get_memory_store") as mock_store:
-            mock_store.return_value.search_long.return_value = []
-            result = asyncio.run(
-                app.call_tool(
-                    "get_1c_code_answer",
-                    {"query": "nonexistent", "limit": 2, "include_memory": True},
-                )
+    memory_results = [
+        {"payload": {"title": "Пример", "domain": "snippets", "code_snippet": "Сообщить(1);"}},
+    ]
+    with patch("onec_help.memory.get_memory_store") as mock_store:
+        mock_store.return_value.search_long.return_value = memory_results
+        result = asyncio.run(
+            app.call_tool(
+                "search_1c_snippets",
+                {"query": "тест", "limit": 5},
             )
+        )
     text = result.content[0].text if result.content else ""
-    assert "No results" in text or "index exists" in text or "search_1c_help_keyword" in text
+    assert "Сниппеты" in text
+    assert "Сообщить(1)" in text or "Пример" in text
 
 
 def test_mcp_tool_search_1c_memory(help_sample_dir: Path) -> None:
@@ -808,9 +744,9 @@ def test_mcp_tool_get_1c_function_info_empty_name(help_sample_dir: Path) -> None
     assert "Provide" in text or "name" in text
 
 
-@patch("onec_help.metadata_graph.search_metadata_by_name")
-def test_mcp_tool_search_1c_metadata_via_app(mock_search_meta, help_sample_dir: Path) -> None:
-    """Call search_1c_metadata tool via app."""
+@patch("onec_help.metadata_graph.search_metadata_exact")
+def test_mcp_tool_search_1c_metadata_exact_via_app(mock_search_meta, help_sample_dir: Path) -> None:
+    """Call search_1c_metadata_exact tool via app."""
     app = mcp_server._build_mcp_app(help_sample_dir)
     mock_search_meta.return_value = [
         {
@@ -825,12 +761,71 @@ def test_mcp_tool_search_1c_metadata_via_app(mock_search_meta, help_sample_dir: 
     ]
     result = asyncio.run(
         app.call_tool(
-            "search_1c_metadata",
+            "search_1c_metadata_exact",
             {"query": "Sales", "config_version": "1.0.0.0", "object_type": None, "limit": 5},
         )
     )
     text = result.content[0].text if result.content else ""
     assert "Sales" in text or "Document" in text
+
+
+@patch("onec_help.metadata_graph.search_metadata_semantic")
+def test_mcp_tool_search_1c_metadata_semantic_via_app(mock_search_meta, help_sample_dir: Path) -> None:
+    """Call search_1c_metadata_semantic tool via app."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    mock_search_meta.return_value = [
+        {
+            "id": "Document/Sales",
+            "config_name": "Cfg",
+            "config_version": "1.0.0.0",
+            "object_type": "Document",
+            "name": "Sales",
+            "full_name": "Реализация",
+            "path": "Documents/Sales",
+        }
+    ]
+    result = asyncio.run(
+        app.call_tool(
+            "search_1c_metadata_semantic",
+            {"query": "документ продажи", "config_version": "1.0.0.0", "object_type": None, "limit": 5},
+        )
+    )
+    text = result.content[0].text if result.content else ""
+    assert "Sales" in text or "Document" in text
+
+
+@patch("onec_help.metadata_graph.search_metadata_fields")
+def test_mcp_tool_search_1c_metadata_fields_via_app(mock_search_fields, help_sample_dir: Path) -> None:
+    """Call search_1c_metadata_fields tool via app."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    mock_search_fields.return_value = [
+        {
+            "object_id": "Document/Sales",
+            "object_name": "Sales",
+            "object_type": "Document",
+            "config_version": "1.0.0.0",
+            "field_group": "requisites",
+            "field_name": "Организация",
+            "field_synonym": "Организация",
+            "field_type": "СправочникСсылка.Организации",
+        }
+    ]
+    result = asyncio.run(
+        app.call_tool(
+            "search_1c_metadata_fields",
+            {
+                "object_query": "Sales",
+                "field_query": "Организация",
+                "config_version": "1.0.0.0",
+                "object_type": "Document",
+                "limit": 5,
+                "exact_object_first": True,
+            },
+        )
+    )
+    text = result.content[0].text if result.content else ""
+    assert "Организация" in text
+    assert "Document Sales" in text
 
 
 @patch("onec_help.metadata_graph.get_metadata_object")
@@ -929,4 +924,6 @@ def test_mcp_tool_get_1c_quick_guide_develop_via_app(help_sample_dir: Path) -> N
     text = result.content[0].text if result.content else ""
     assert "get_1c_api_answer" in text
     assert "get_1c_task_context" in text
+    assert "search_1c_standards" in text
+    assert "search_1c_metadata_exact" in text
     assert "external lsp-bsl-bridge" in text
