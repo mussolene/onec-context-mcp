@@ -6,15 +6,24 @@ from onec_help import metadata_graph
 class _DummyClient:
     def __init__(self, pages):
         self._pages = pages
-        self._index = 0
 
     def scroll(self, **kwargs):
-        if self._index >= len(self._pages):
+        if not self._pages:
             return [], None
-        points = self._pages[self._index]
-        self._index += 1
-        offset = self._index if self._index < len(self._pages) else None
-        return points, offset
+        points = list(self._pages[0])
+        filt = kwargs.get("scroll_filter")
+        must = list(getattr(filt, "must", []) or [])
+        for cond in must:
+            key = getattr(cond, "key", None)
+            match = getattr(cond, "match", None)
+            value = getattr(match, "value", None)
+            if not key:
+                continue
+            points = [pt for pt in points if (getattr(pt, "payload", {}) or {}).get(key) == value]
+        return points, None
+
+    def collection_exists(self, collection_name: str) -> bool:
+        return True
 
 
 def _point(point_id: str, **payload):
@@ -47,3 +56,62 @@ def test_search_metadata_substring_prefers_exact_then_startswith() -> None:
         max_points=100,
     )
     assert [item["id"] for item in results] == ["2", "1", "3"]
+
+
+def test_search_metadata_exact_matches_name_without_broad_scan() -> None:
+    client = _DummyClient(
+        [[
+            _point(
+                "Catalog/Items",
+                config_version="3.0.184.16",
+                object_type="Catalog",
+                id="Catalog/Items",
+                name="Items",
+                full_name="Номенклатура",
+                path="Catalogs/Items",
+            )
+        ]]
+    )
+    results = metadata_graph.search_metadata_exact(
+        "Items",
+        "Catalog",
+        "3.0.184.16",
+        client=client,
+    )
+    assert len(results) == 1
+    assert results[0]["id"] == "Catalog/Items"
+
+
+def test_search_metadata_fields_finds_requisite_in_exact_object() -> None:
+    class _FieldsClient(_DummyClient):
+        def __init__(self):
+            super().__init__([[
+                _point(
+                    "Document/РеализацияТоваровУслуг",
+                    config_version="3.0.184.16",
+                    object_type="Document",
+                    id="Document/РеализацияТоваровУслуг",
+                    name="РеализацияТоваровУслуг",
+                    full_name="Документ.РеализацияТоваровУслуг",
+                    path="Documents/РеализацияТоваровУслуг",
+                    attributes={
+                        "requisites": [
+                            {
+                                "name": "Организация",
+                                "synonym": "Организация",
+                                "type": "cfg:CatalogRef.Организации",
+                            }
+                        ]
+                    },
+                )
+            ]])
+
+    results = metadata_graph.search_metadata_fields(
+        "РеализацияТоваровУслуг",
+        "Организация",
+        config_version="3.0.184.16",
+        client=_FieldsClient(),
+    )
+    assert len(results) == 1
+    assert results[0]["object_id"] == "Document/РеализацияТоваровУслуг"
+    assert results[0]["field_name"] == "Организация"

@@ -10,6 +10,7 @@ class FakeQdrantClient:
     def __init__(self) -> None:
         self.recreated: list[dict[str, Any]] = []
         self.upserts: list[dict[str, Any]] = []
+        self.payload_indexes: list[dict[str, Any]] = []
         self._scroll_data: list[Any] = []
 
     def recreate_collection(self, collection_name: str, vectors_config: Any, **kwargs: Any) -> None:
@@ -26,6 +27,18 @@ class FakeQdrantClient:
             {"collection_name": collection_name, "points": points, "kwargs": kwargs}
         )
 
+    def create_payload_index(
+        self, collection_name: str, field_name: str, field_schema: Any, **kwargs: Any
+    ) -> None:
+        self.payload_indexes.append(
+            {
+                "collection_name": collection_name,
+                "field_name": field_name,
+                "field_schema": field_schema,
+                "kwargs": kwargs,
+            }
+        )
+
     def set_scroll_data(self, points: list[Any]) -> None:
         self._scroll_data = points
 
@@ -33,10 +46,18 @@ class FakeQdrantClient:
         return bool(self._scroll_data)
 
     def scroll(self, collection_name: str, scroll_filter=None, limit: int = 64, offset=None):
-        # Ignore collection_name/scroll_filter in tests; return all in one batch.
         if not self._scroll_data:
             return [], None
-        return self._scroll_data, None
+        points = list(self._scroll_data)
+        must = list(getattr(scroll_filter, "must", []) or [])
+        for cond in must:
+            key = getattr(cond, "key", None)
+            match = getattr(cond, "match", None)
+            value = getattr(match, "value", None)
+            if not key:
+                continue
+            points = [pt for pt in points if (getattr(pt, "payload", {}) or {}).get(key) == value]
+        return points[:limit], None
 
 
 def _dummy_crawl_for_build() -> CrawlResult:
@@ -93,6 +114,14 @@ def test_build_metadata_graph_from_crawl_uses_embed_and_upsert() -> None:
     payloads = [p.payload for p in points]
     assert {p["name"] for p in payloads} == {"Sales", "Items"}
     assert all(p["config_version"] == "2.0.1.0" for p in payloads)
+    assert {item["field_name"] for item in client.payload_indexes} == {
+        "config_version",
+        "object_type",
+        "id",
+        "name",
+        "full_name",
+        "path",
+    }
 
 
 def test_build_metadata_graph_from_crawl_no_bm25_single_vector() -> None:
@@ -120,8 +149,8 @@ def test_build_metadata_graph_from_crawl_no_bm25_single_vector() -> None:
     assert "sparse_vectors_config" not in recreated.get("kwargs", {})
 
 
-def test_search_metadata_by_name_uses_scroll_and_filters() -> None:
-    """search_metadata_by_name should filter by config_version, type and substring in name/full_name."""
+def test_search_metadata_by_name_prefers_exact_lookup() -> None:
+    """search_metadata_by_name should return exact metadata matches before degraded substring fallback."""
     crawl = _dummy_crawl_for_build()
     client = FakeQdrantClient()
 
@@ -157,7 +186,7 @@ def test_search_metadata_by_name_uses_scroll_and_filters() -> None:
     client.set_scroll_data(pts)
 
     results = metadata_graph.search_metadata_by_name(
-        "Item", type_filter="Catalog", config_version=crawl.config_version, client=client
+        "Items", type_filter="Catalog", config_version=crawl.config_version, client=client
     )
     assert len(results) == 1
     assert results[0]["id"] == "Catalog/Items"

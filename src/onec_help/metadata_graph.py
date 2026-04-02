@@ -367,6 +367,14 @@ _METADATA_SPARSE_VECTOR_NAME = "text-bm25"
 
 # Батч меньше 500, чтобы один upsert не упирался в QDRANT_TIMEOUT при крупных payload.
 _METADATA_BATCH_SIZE = 500  # объектов за один цикл embed → upsert (как batch_size в build_index)
+_METADATA_INDEXED_FIELDS: tuple[str, ...] = (
+    "config_version",
+    "object_type",
+    "id",
+    "name",
+    "full_name",
+    "path",
+)
 
 
 def _ensure_collection(
@@ -388,6 +396,7 @@ def _ensure_collection(
         pass
 
     if not recreate and collection_exists:
+        _ensure_payload_indexes(client, collection_name, qmodels=qmodels)
         print(
             f"metadata-graph-build: collection {collection_name!r} exists, will upsert",
             file=sys.stderr, flush=True,
@@ -417,6 +426,34 @@ def _ensure_collection(
             f"metadata-graph-build: collection {collection_name!r} recreated",
             file=sys.stderr, flush=True,
         )
+    _ensure_payload_indexes(client, collection_name, qmodels=qmodels)
+
+
+def _ensure_payload_indexes(
+    client: Any,
+    collection_name: str,
+    *,
+    qmodels: Any,
+) -> None:
+    """Create payload indexes for exact metadata lookup.
+
+    Missing payload indexes force Qdrant to scan payloads even for exact filters.
+    Metadata search relies heavily on config_version/object_type/id/name/full_name/path filters,
+    so these indexes are part of the collection contract.
+    """
+    if not hasattr(client, "create_payload_index"):
+        return
+    for field in _METADATA_INDEXED_FIELDS:
+        try:
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name=field,
+                field_schema=qmodels.PayloadSchemaType.KEYWORD,
+                wait=True,
+            )
+        except Exception:
+            # Qdrant may report "already exists" or reject duplicate create; indexing is best-effort.
+            continue
 
 
 def build_metadata_graph_from_crawl(
@@ -650,6 +687,304 @@ def _metadata_match_priority(payload: dict[str, Any], variants: list[str]) -> in
     return 3
 
 
+def _normalized_metadata_exact_values(query: str) -> list[str]:
+    raw = (query or "").strip()
+    variants: list[str] = []
+    if raw:
+        variants.append(raw)
+        lowered = raw.lower()
+        if lowered != raw:
+            variants.append(lowered)
+    for value in _metadata_query_variants(query):
+        if value not in variants:
+            variants.append(value)
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for value in variants:
+        value_clean = str(value or "").strip()
+        if value_clean and value_clean not in seen:
+            seen.add(value_clean)
+            deduped.append(value_clean)
+    return deduped
+
+
+def _match_filter(field: str, value: str, *, qmodels: Any) -> Any:
+    return qmodels.FieldCondition(key=field, match=qmodels.MatchValue(value=value))
+
+
+def _base_metadata_filter(
+    *,
+    config_version: str,
+    type_filter: str | None,
+    qmodels: Any,
+) -> Any:
+    must: list[Any] = [_match_filter("config_version", config_version, qmodels=qmodels)]
+    if type_filter:
+        must.append(_match_filter("object_type", type_filter, qmodels=qmodels))
+    return qmodels.Filter(must=must)
+
+
+def _scroll_points(
+    client: Any,
+    *,
+    collection_name: str,
+    filt: Any,
+    limit: int,
+) -> list[Any]:
+    points, _ = client.scroll(
+        collection_name=collection_name,
+        scroll_filter=filt,
+        limit=limit,
+        offset=None,
+    )
+    return list(points or [])
+
+
+def _payload_from_point(point: Any) -> dict[str, Any]:
+    payload = dict(getattr(point, "payload", None) or {})
+    if "id" not in payload:
+        payload["id"] = getattr(point, "id", None)
+    return payload
+
+
+def _unique_metadata_items(items: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    unique: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in items:
+        oid = str(item.get("id") or "")
+        if not oid or oid in seen:
+            continue
+        seen.add(oid)
+        unique.append(item)
+        if len(unique) >= limit:
+            break
+    return unique
+
+
+def _exact_field_matches(
+    *,
+    client: Any,
+    collection_name: str,
+    base_filter: Any,
+    field_name: str,
+    values: list[str],
+    limit: int,
+    qmodels: Any,
+) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for value in values:
+        filt = qmodels.Filter(
+            must=[
+                *list(getattr(base_filter, "must", []) or []),
+                _match_filter(field_name, value, qmodels=qmodels),
+            ]
+        )
+        points = _scroll_points(
+            client,
+            collection_name=collection_name,
+            filt=filt,
+            limit=max(1, limit),
+        )
+        items.extend(_payload_from_point(point) for point in points)
+    return _unique_metadata_items(items, limit)
+
+
+def _collect_field_values(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    attributes = payload.get("attributes") or {}
+    values: list[dict[str, Any]] = []
+    for group_name in ("requisites", "tabular_sections", "commands"):
+        group = attributes.get(group_name)
+        if not isinstance(group, list):
+            continue
+        for item in group:
+            if isinstance(item, dict):
+                values.append({"group": group_name, **item})
+    return values
+
+
+def _field_match_priority(field_payload: dict[str, Any], variants: list[str]) -> int:
+    field_name = str(field_payload.get("name") or "").lower()
+    field_synonym = str(field_payload.get("synonym") or "").lower()
+    values = [field_name, field_synonym]
+    if any(value == variant for value in values for variant in variants):
+        return 0
+    if any(value.startswith(variant) for value in values for variant in variants):
+        return 1
+    if any(variant in value for value in values for variant in variants):
+        return 2
+    return 3
+
+
+def search_metadata_exact(
+    query: str,
+    type_filter: str | None,
+    config_version: str,
+    *,
+    client: Any | None = None,
+    collection_name: str = "onec_config_metadata",
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """Indexed exact lookup by id/name/full_name/path within a config_version."""
+    if not config_version:
+        return []
+    try:
+        from qdrant_client import models as qmodels  # type: ignore[import-not-found]
+    except Exception:
+        return []
+
+    client = client or _get_default_client()
+    q = (query or "").strip()
+    if not q:
+        return []
+    effective_type_filter = _guess_type_filter(q, type_filter)
+    variants = _normalized_metadata_exact_values(q)
+    base_filter = _base_metadata_filter(
+        config_version=config_version,
+        type_filter=effective_type_filter,
+        qmodels=qmodels,
+    )
+    ranked: list[dict[str, Any]] = []
+    for field_name in ("id", "name", "full_name", "path"):
+        ranked.extend(
+            _exact_field_matches(
+                client=client,
+                collection_name=collection_name,
+                base_filter=base_filter,
+                field_name=field_name,
+                values=variants,
+                limit=limit,
+                qmodels=qmodels,
+            )
+        )
+    return _unique_metadata_items(ranked, limit)
+
+
+def search_metadata_semantic(
+    query: str,
+    type_filter: str | None,
+    config_version: str,
+    *,
+    client: Any | None = None,
+    collection_name: str = "onec_config_metadata",
+    limit: int = 20,
+    query_vector: list[float] | None = None,
+) -> list[dict[str, Any]]:
+    """Semantic lookup over metadata vectors within a config_version."""
+    if not config_version:
+        return []
+    try:
+        from qdrant_client import models as qmodels  # type: ignore[import-not-found]
+    except Exception:
+        return []
+
+    client = client or _get_default_client()
+    q = (query or "").strip()
+    if not q and not query_vector:
+        return []
+    effective_type_filter = _guess_type_filter(q, type_filter)
+    filt = _base_metadata_filter(
+        config_version=config_version,
+        type_filter=effective_type_filter,
+        qmodels=qmodels,
+    )
+    try:
+        from . import embedding
+        from .indexer import get_collection_vector_size
+
+        coll_dim = get_collection_vector_size(
+            collection=collection_name,
+            qdrant_host=env_config.get_qdrant_host(),
+            qdrant_port=env_config.get_qdrant_port(),
+        )
+        if not client.collection_exists(collection_name) or coll_dim is None:
+            return []
+        vector = query_vector
+        if vector is None or len(vector) != coll_dim:
+            vector = embedding.get_embedding(q, target_dimension=coll_dim)
+        kwargs: dict[str, Any] = {
+            "collection_name": collection_name,
+            "limit": limit,
+            "query": vector,
+            "query_filter": filt,
+        }
+        if hasattr(client, "query_points"):
+            response = client.query_points(**kwargs)
+            hits = getattr(response, "points", [])
+        else:
+            kwargs["query_vector"] = vector
+            hits = client.search(**kwargs)
+        return [_payload_from_point(hit) for hit in hits]
+    except Exception:
+        return []
+
+
+def search_metadata_fields(
+    object_query: str,
+    field_query: str,
+    *,
+    config_version: str,
+    type_filter: str | None = None,
+    client: Any | None = None,
+    collection_name: str = "onec_config_metadata",
+    limit: int = 10,
+    exact_object_first: bool = True,
+) -> list[dict[str, Any]]:
+    """Search requisites/tabular sections/commands inside matched metadata objects."""
+    if not config_version or not object_query or not field_query:
+        return []
+    object_matches = (
+        search_metadata_exact(
+            object_query,
+            type_filter,
+            config_version,
+            client=client,
+            collection_name=collection_name,
+            limit=max(limit, 5),
+        )
+        if exact_object_first
+        else []
+    )
+    if not object_matches:
+        object_matches = search_metadata_semantic(
+            object_query,
+            type_filter,
+            config_version,
+            client=client,
+            collection_name=collection_name,
+            limit=max(limit, 5),
+        )
+    variants = _metadata_query_variants(field_query)
+    ranked: list[tuple[int, dict[str, Any]]] = []
+    for obj in object_matches:
+        for field_payload in _collect_field_values(obj):
+            priority = _field_match_priority(field_payload, variants)
+            if priority > 2:
+                continue
+            ranked.append(
+                (
+                    priority,
+                    {
+                        "object_id": obj.get("id", ""),
+                        "object_name": obj.get("name", ""),
+                        "object_type": obj.get("object_type", ""),
+                        "config_version": obj.get("config_version", config_version),
+                        "field_group": field_payload.get("group", ""),
+                        "field_name": field_payload.get("name", ""),
+                        "field_synonym": field_payload.get("synonym", ""),
+                        "field_type": format_requisite_type_display(field_payload),
+                    },
+                )
+            )
+    ranked.sort(
+        key=lambda item: (
+            item[0],
+            str(item[1].get("object_name", "")).lower(),
+            str(item[1].get("field_name", "")).lower(),
+        )
+    )
+    return [item for _, item in ranked[:limit]]
+
+
 def _search_metadata_substring(
     client: Any,
     collection_name: str,
@@ -712,120 +1047,54 @@ def search_metadata_by_name(
     use_hybrid: bool = True,
     query_vector: list[float] | None = None,
 ) -> list[dict[str, Any]]:
-    """Search configuration objects by semantic (vector) and/or substring within a given config_version.
+    """Backward-compatible metadata lookup.
 
-    When use_semantic is True, the query is embedded (or query_vector used if provided) and vector
-    search is performed; when use_hybrid is True, substring results are merged with vector results
-    via RRF. query_vector: optional precomputed embedding to avoid repeated embedding calls when
-    searching multiple config versions.
+    Default path is now indexed exact lookup first, semantic search second.
+    Broad substring scroll is degraded fallback only and disabled by default.
     """
-
-    if not config_version:
+    exact = search_metadata_exact(
+        query,
+        type_filter,
+        config_version,
+        client=client,
+        collection_name=collection_name,
+        limit=limit,
+    )
+    if exact:
+        return exact[:limit]
+    if use_semantic:
+        semantic = search_metadata_semantic(
+            query,
+            type_filter,
+            config_version,
+            client=client,
+            collection_name=collection_name,
+            limit=limit,
+            query_vector=query_vector,
+        )
+        if semantic or not use_hybrid:
+            return semantic[:limit]
+    if not use_hybrid:
         return []
     try:
         from qdrant_client import models as qmodels  # type: ignore[import-not-found]
     except Exception:
         return []
-
     client = client or _get_default_client()
-    q = (query or "").strip().lower()
-    effective_type_filter = _guess_type_filter(q, type_filter)
-    filt = qmodels.Filter(
-        must=[
-            qmodels.FieldCondition(
-                key="config_version", match=qmodels.MatchValue(value=config_version)
-            )
-        ]
+    degraded = _search_metadata_substring(
+        client,
+        collection_name,
+        (query or "").strip().lower(),
+        _guess_type_filter(query, type_filter),
+        _base_metadata_filter(
+            config_version=config_version,
+            type_filter=_guess_type_filter(query, type_filter),
+            qmodels=qmodels,
+        ),
+        limit,
+        max_points=min(limit * 100, 500),
     )
-
-    vector_results: list[dict[str, Any]] = []
-    if use_semantic and ((query or "").strip() or query_vector):
-        try:
-            from . import embedding
-            from .indexer import get_collection_vector_size
-
-            coll_dim = get_collection_vector_size(
-                collection=collection_name,
-                qdrant_host=env_config.get_qdrant_host(),
-                qdrant_port=env_config.get_qdrant_port(),
-            )
-            if client.collection_exists(collection_name) and coll_dim is not None:
-                if query_vector is not None and len(query_vector) == coll_dim:
-                    vector = query_vector
-                else:
-                    vector = embedding.get_embedding(
-                        (query or "").strip(),
-                        target_dimension=coll_dim,
-                    )
-                kwargs: dict[str, Any] = {
-                    "collection_name": collection_name,
-                    "limit": limit * 2 if use_hybrid else limit,
-                    "query": vector,
-                    "query_filter": filt,
-                }
-                if hasattr(client, "query_points"):
-                    response = client.query_points(**kwargs)
-                    hits = getattr(response, "points", [])
-                else:
-                    kwargs["query_vector"] = vector
-                    hits = client.search(**kwargs)
-                for h in hits:
-                    payload = getattr(h, "payload", None) or {}
-                    if effective_type_filter and payload.get("object_type") != effective_type_filter:
-                        continue
-                    out = dict(payload)
-                    if "id" not in out:
-                        out["id"] = getattr(h, "id", None)
-                    out["_score"] = getattr(h, "score", None)
-                    vector_results.append(out)
-        except Exception:
-            vector_results = []
-
-    if not use_hybrid:
-        return (
-            vector_results[:limit]
-            if vector_results
-            else _search_metadata_substring(client, collection_name, q, effective_type_filter, filt, limit)
-        )
-
-    substring_results: list[dict[str, Any]] = []
-    if q or not vector_results:
-        substring_results = _search_metadata_substring(
-            client,
-            collection_name,
-            q,
-            effective_type_filter,
-            filt,
-            limit * 2,
-        )
-
-    if not vector_results and not substring_results:
-        return []
-    if not vector_results:
-        return substring_results[:limit]
-    if not substring_results:
-        return vector_results[:limit]
-
-    rrf_scores: dict[str, float] = {}
-    id_to_doc: dict[str, dict[str, Any]] = {}
-    for rank, r in enumerate(vector_results, 1):
-        oid = str(r.get("id") or "")
-        if oid:
-            rrf_scores[oid] = rrf_scores.get(oid, 0) + 1 / (_RRF_K + rank)
-            id_to_doc[oid] = r
-    for rank, r in enumerate(substring_results, 1):
-        oid = str(r.get("id") or "")
-        if oid:
-            rrf_scores[oid] = rrf_scores.get(oid, 0) + 1 / (_RRF_K + rank)
-            if oid not in id_to_doc:
-                id_to_doc[oid] = r
-    merged = sorted(
-        id_to_doc.values(),
-        key=lambda x: -rrf_scores.get(str(x.get("id") or ""), 0),
-    )
-    for d in merged:
-        d.pop("_score", None)
-    return merged[:limit]
+    return degraded[:limit]
 
 
 def get_metadata_object(
