@@ -17,6 +17,43 @@ def _dim(text: str) -> Text:
     return Text(text, style="dim")
 
 
+def _format_loader_summary(
+    title: str,
+    *,
+    loading: bool,
+    pts: dict[str, Any] | None,
+    last_run: dict[str, Any] | None,
+    count_key: str,
+    count_label: str,
+    no_data: str,
+) -> str:
+    """Render a single status line for a background loader."""
+    if loading:
+        if pts:
+            phase = str(pts.get("phase") or "embedding")
+            loaded = int(pts.get("loaded") or 0)
+            total = int(pts.get("total") or 0)
+            if phase == "parsing":
+                return f"{title}: loading (parsing)"
+            if total > 0:
+                return f"{title}: loading ({phase} → Qdrant, {loaded}/{total})"
+            return f"{title}: loading ({phase})"
+        return f"{title}: loading"
+    if last_run:
+        count = last_run.get(count_key)
+        elapsed = last_run.get("total_elapsed_sec")
+        parts = [f"{title}: last run"]
+        if count is not None:
+            if isinstance(count, int):
+                parts.append(f", {count:,} {count_label}")
+            else:
+                parts.append(f", {count} {count_label}")
+        if elapsed is not None:
+            parts.append(f", {format_duration(elapsed)}")
+        return "".join(parts)
+    return f"{title}: {no_data}"
+
+
 def render_dashboard(data: dict[str, Any]) -> Any:
     """Build Rich renderable from get_dashboard_data() result. Returns Group of Panels."""
     from rich.console import Group
@@ -29,9 +66,19 @@ def render_dashboard(data: dict[str, Any]) -> Any:
 
     # --- Panel 1: Tasks — summary lines + labeled progress bars stacked vertically ---
     tasks_parts: list[Any] = []
+    active_workers: list[dict[str, Any]] = []
     ingest = data.get("ingest")
     ingest_last = data.get("ingest_last_run")
     ingest_last_stale = bool(data.get("ingest_last_run_stale"))
+    standards_loading = bool(data.get("standards_loading"))
+    standards_pts = data.get("standards_loading_pts")
+    snippets_loading = bool(data.get("snippets_loading"))
+    snippets_pts = data.get("snippets_loading_pts")
+    metadata_loading = bool(data.get("metadata_loading"))
+    metadata_pts = data.get("metadata_loading_pts")
+    snippets = data.get("snippets")
+    standards_last = data.get("standards_last_run")
+    metadata_last = data.get("metadata_last_run")
     if ingest and ingest.get("status") == "in_progress":
         total = ingest.get("total_tasks") or 0
         done = ingest.get("done_tasks") or 0
@@ -77,7 +124,6 @@ def render_dashboard(data: dict[str, Any]) -> Any:
             if ew is not None:
                 parts.append(f"Embedding workers: {ew}")
             tasks_parts.append(Text("  " + "  │  ".join(parts) + "\n"))
-        workers: list[dict[str, Any]] = []
         for cur in (current_tasks or [])[:10]:
             version = (cur.get("version") or "—")[:12]
             lang = (cur.get("language") or "—")[:8]
@@ -99,12 +145,12 @@ def render_dashboard(data: dict[str, Any]) -> Any:
             path_str = cur.get("path") or "—"
             stem = path_str.split("/")[-1][:14] if "/" in path_str else path_str[:14]
             short = f"{version[:10]}/{stem} {stage_label}"
-            workers.append({"label": label, "short": short, "pts": pts, "total": est})
-        if not workers:
+            active_workers.append({"label": label, "short": short, "pts": pts, "total": est})
+        if not active_workers:
             pts = ingest.get("current_task_points")
             est = ingest.get("current_task_estimated_total")
             if pts is not None and est is not None and est > 0:
-                workers.append(
+                active_workers.append(
                     {
                         "label": "Ingest (current)",
                         "short": "Ingest (current)",
@@ -112,12 +158,10 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                         "total": est,
                     }
                 )
-        standards_loading = data.get("standards_loading")
-        standards_pts = data.get("standards_loading_pts")
         if standards_loading and standards_pts and standards_pts.get("phase") != "parsing":
             tot_s = standards_pts.get("total") or 0
             if tot_s > 0:
-                workers.append(
+                active_workers.append(
                     {
                         "label": "Standards — embed → Qdrant",
                         "short": "Standards → Qdrant",
@@ -125,12 +169,10 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                         "total": tot_s,
                     }
                 )
-        snippets_loading = data.get("snippets_loading")
-        snippets_pts = data.get("snippets_loading_pts")
         if snippets_loading and snippets_pts and snippets_pts.get("phase") != "parsing":
             tot_sn = snippets_pts.get("total") or 0
             if tot_sn > 0:
-                workers.append(
+                active_workers.append(
                     {
                         "label": "Snippets — embed → Qdrant",
                         "short": "Snippets → Qdrant",
@@ -138,13 +180,13 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                         "total": tot_sn,
                     }
                 )
-        metadata_loading_w = data.get("metadata_loading")
-        metadata_pts_w = data.get("metadata_loading_pts")
+        metadata_loading_w = metadata_loading
+        metadata_pts_w = metadata_pts
         if metadata_loading_w and metadata_pts_w and metadata_pts_w.get("phase") not in ("parsing", None):
             tot_m = metadata_pts_w.get("total") or 0
             if tot_m > 0:
                 phase_m = metadata_pts_w.get("phase") or "embedding"
-                workers.append(
+                active_workers.append(
                     {
                         "label": f"Config metadata — {phase_m} → Qdrant",
                         "short": "Metadata → Qdrant",
@@ -153,7 +195,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                     }
                 )
         elif metadata_loading_w:
-            workers.append(
+            active_workers.append(
                 {
                     "label": "Config metadata — parsing",
                     "short": "Metadata parsing",
@@ -161,61 +203,6 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                     "total": None,
                 }
             )
-        # When ingest in progress but standards/snippets not loading: show loaded state so user sees they feed onec_help_memory
-        memory_coll = next(
-            (
-                c
-                for c in (data.get("collections") or [])
-                if (c.get("name") or "").strip() == "onec_help_memory"
-            ),
-            None,
-        )
-        memory_pts = (memory_coll.get("points_count") or 0) if memory_coll else 0
-        if memory_pts > 0:
-            if not standards_loading:
-                workers.append(
-                    {
-                        "label": "Standards → onec_help_memory (loaded)",
-                        "short": "Standards → onec_help_memory",
-                        "pts": None,
-                        "total": None,
-                    }
-                )
-            if not snippets_loading:
-                workers.append(
-                    {
-                        "label": "Snippets → onec_help_memory (loaded)",
-                        "short": "Snippets → onec_help_memory",
-                        "pts": None,
-                        "total": None,
-                    }
-                )
-        if workers:
-            # One compact table: [#] task (short) | progress bar
-            workers_table = Table(show_header=False, box=None, padding=(0, 1))
-            workers_table.add_column(style="dim", width=4)  # [1]..[10]
-            workers_table.add_column(max_width=38)  # short task label
-            workers_table.add_column(min_width=20, max_width=28)  # bar
-            for idx, w in enumerate(workers):
-                i = idx + 1
-                pts_val = w.get("pts")
-                total_val = w.get("total")
-                short = w.get("short") or w["label"]
-                short = short if len(short) <= 38 else (short[:35] + "…")
-                if total_val is not None and total_val > 0:
-                    workers_table.add_row(
-                        Text(f"[{i}]"),
-                        Text(f"{short} {(pts_val or 0)}/{total_val}"),
-                        ProgressBar(
-                            total=float(total_val), completed=float(pts_val or 0), width=22
-                        ),
-                    )
-                else:
-                    workers_table.add_row(Text(f"[{i}]"), Text(short), Text("—"))
-            tasks_parts.append(Text(f"  Tasks: {len(workers)}\n"))
-            tasks_parts.append(workers_table)
-            if current_tasks and len(current_tasks) > 10:
-                tasks_parts.append(Text(f"  … +{len(current_tasks) - 10} more\n"))
     elif ingest_last and not ingest_last_stale:
         total = ingest_last.get("total_tasks") or 0
         done = ingest_last.get("done_tasks") or 0
@@ -243,21 +230,13 @@ def render_dashboard(data: dict[str, Any]) -> Any:
     else:
         tasks_parts.append(Text("Ingest: no data"))
 
-    standards_loading = data.get("standards_loading")
-    standards_pts = data.get("standards_loading_pts")
-    snippets_loading = data.get("snippets_loading")
-    snippets_pts = data.get("snippets_loading_pts")
-    metadata_loading = data.get("metadata_loading")
-    metadata_pts = data.get("metadata_loading_pts")
-    snippets = data.get("snippets")
     if not (ingest and ingest.get("status") == "in_progress") and (
         standards_loading or snippets_loading or metadata_loading
     ):
-        workers_extra: list[dict[str, Any]] = []
         if standards_loading and standards_pts and standards_pts.get("phase") != "parsing":
             tot_s = standards_pts.get("total") or 0
             if tot_s > 0:
-                workers_extra.append(
+                active_workers.append(
                     {
                         "label": "Standards — embed → Qdrant",
                         "short": "Standards → Qdrant",
@@ -266,7 +245,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                     }
                 )
         elif standards_loading:
-            workers_extra.append(
+            active_workers.append(
                 {
                     "label": "Standards — parsing",
                     "short": "Standards parsing",
@@ -277,7 +256,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
         if snippets_loading and snippets_pts and snippets_pts.get("phase") != "parsing":
             tot_sn = snippets_pts.get("total") or 0
             if tot_sn > 0:
-                workers_extra.append(
+                active_workers.append(
                     {
                         "label": "Snippets — embed → Qdrant",
                         "short": "Snippets → Qdrant",
@@ -286,7 +265,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                     }
                 )
         elif snippets_loading:
-            workers_extra.append(
+            active_workers.append(
                 {
                     "label": "Snippets — parsing",
                     "short": "Snippets parsing",
@@ -298,7 +277,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
             tot_m = metadata_pts.get("total") or 0
             if tot_m > 0:
                 phase = metadata_pts.get("phase") or "embedding"
-                workers_extra.append(
+                active_workers.append(
                     {
                         "label": f"Config metadata — {phase} → Qdrant",
                         "short": "Metadata → Qdrant",
@@ -307,7 +286,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                     }
                 )
         elif metadata_loading:
-            workers_extra.append(
+            active_workers.append(
                 {
                     "label": "Config metadata — parsing",
                     "short": "Metadata parsing",
@@ -315,87 +294,88 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                     "total": None,
                 }
             )
-        if workers_extra:
-            workers_extra_table = Table(show_header=False, box=None, padding=(0, 1))
-            workers_extra_table.add_column(style="dim", width=4)
-            workers_extra_table.add_column(max_width=38)
-            workers_extra_table.add_column(min_width=20, max_width=28)
-            for idx, w in enumerate(workers_extra):
-                i = idx + 1
-                pts_val = w.get("pts")
-                total_val = w.get("total")
-                short = w.get("short") or w["label"]
-                short = short if len(short) <= 38 else (short[:35] + "…")
-                if total_val is not None and total_val > 0:
-                    workers_extra_table.add_row(
-                        Text(f"[{i}]"),
-                        Text(f"{short} {(pts_val or 0)}/{total_val}"),
-                        ProgressBar(
-                            total=float(total_val), completed=float(pts_val or 0), width=22
-                        ),
-                    )
-                else:
-                    workers_extra_table.add_row(Text(f"[{i}]"), Text(short), Text("—"))
-            tasks_parts.append(Text(f"  Tasks: {len(workers_extra)}\n"))
-            tasks_parts.append(workers_extra_table)
-    standards_last = data.get("standards_last_run")
-    if not (ingest and ingest.get("status") == "in_progress"):
-        if not standards_loading:
-            if standards_last:
-                items_s = standards_last.get("items_loaded")
-                elapsed_s = standards_last.get("total_elapsed_sec")
-                parts = ["\nStandards: last run"]
-                if items_s is not None:
-                    parts.append(f", {items_s} items")
-                if elapsed_s is not None:
-                    parts.append(f", {format_duration(elapsed_s)}")
-                tasks_parts.append(Text("".join(parts)))
-            else:
-                tasks_parts.append(Text("\nStandards: no data (watchdog or load-standards)"))
-        if not snippets_loading:
-            if snippets:
-                items = snippets.get("items_loaded")
-                elapsed = snippets.get("total_elapsed_sec")
-                parts = ["\nSnippets: last run"]
-                if items is not None:
-                    parts.append(f", {items} items")
-                if elapsed is not None:
-                    parts.append(f", {format_duration(elapsed)}")
-                tasks_parts.append(Text("".join(parts)))
-            else:
-                tasks_parts.append(Text("\nSnippets: no data (watchdog or load-snippets)"))
-        # Config metadata (onec_config_metadata): show last run from Redis (same as standards/snippets)
-        if not metadata_loading:
-            metadata_last = data.get("metadata_last_run")
-            if metadata_last:
-                objects_m = metadata_last.get("objects_indexed")
-                elapsed_m = metadata_last.get("total_elapsed_sec")
-                parts_m = ["\nConfig metadata: last run"]
-                if objects_m is not None:
-                    parts_m.append(f", {objects_m:,} objects")
-                if elapsed_m is not None:
-                    parts_m.append(f", {format_duration(elapsed_m)}")
-                tasks_parts.append(Text("".join(parts_m)))
-            else:
-                meta_coll = next(
-                    (
-                        c
-                        for c in (data.get("collections") or [])
-                        if (c.get("name") or "").strip() == "onec_config_metadata"
-                    ),
-                    None,
+
+    tasks_parts.append(
+        Text(
+            "\n"
+            + _format_loader_summary(
+                "Standards",
+                loading=standards_loading,
+                pts=standards_pts,
+                last_run=standards_last,
+                count_key="items_loaded",
+                count_label="items",
+                no_data="no data (watchdog or load-standards)",
+            )
+        )
+    )
+    tasks_parts.append(
+        Text(
+            "\n"
+            + _format_loader_summary(
+                "Snippets",
+                loading=snippets_loading,
+                pts=snippets_pts,
+                last_run=snippets,
+                count_key="items_loaded",
+                count_label="items",
+                no_data="no data (watchdog or load-snippets)",
+            )
+        )
+    )
+    if metadata_loading or metadata_last:
+        metadata_summary = _format_loader_summary(
+            "Config metadata",
+            loading=metadata_loading,
+            pts=metadata_pts,
+            last_run=metadata_last,
+            count_key="objects_indexed",
+            count_label="objects",
+            no_data="no data",
+        )
+    else:
+        meta_coll = next(
+            (
+                c
+                for c in (data.get("collections") or [])
+                if (c.get("name") or "").strip() == "onec_config_metadata"
+            ),
+            None,
+        )
+        meta_pts = (meta_coll.get("points_count") or 0) if meta_coll else 0
+        if meta_pts > 0:
+            metadata_summary = f"Config metadata: {meta_pts:,} objects (onec_config_metadata)"
+        else:
+            metadata_summary = (
+                "Config metadata: no data (put KD2 XML in data/kd2, then run "
+                "metadata-graph-build or watchdog)"
+            )
+    tasks_parts.append(Text("\n" + metadata_summary))
+
+    if active_workers:
+        workers_table = Table(show_header=False, box=None, padding=(0, 1))
+        workers_table.add_column(style="dim", width=4)
+        workers_table.add_column(max_width=38)
+        workers_table.add_column(min_width=20, max_width=28)
+        for idx, w in enumerate(active_workers):
+            i = idx + 1
+            pts_val = w.get("pts")
+            total_val = w.get("total")
+            short = w.get("short") or w["label"]
+            short = short if len(short) <= 38 else (short[:35] + "…")
+            if total_val is not None and total_val > 0:
+                workers_table.add_row(
+                    Text(f"[{i}]"),
+                    Text(f"{short} {(pts_val or 0)}/{total_val}"),
+                    ProgressBar(total=float(total_val), completed=float(pts_val or 0), width=22),
                 )
-                meta_pts = (meta_coll.get("points_count") or 0) if meta_coll else 0
-                if meta_pts > 0:
-                    tasks_parts.append(
-                        Text(f"\nConfig metadata: {meta_pts:,} objects (onec_config_metadata)")
-                    )
-                else:
-                    tasks_parts.append(
-                        Text(
-                            "\nConfig metadata: no data (put KD2 XML in data/kd2, then run metadata-graph-build or watchdog)"
-                        )
-                    )
+            else:
+                workers_table.add_row(Text(f"[{i}]"), Text(short), Text("—"))
+        tasks_parts.append(Text(f"\n  Active tasks: {len(active_workers)}\n"))
+        tasks_parts.append(workers_table)
+        current_tasks = (ingest or {}).get("current") or []
+        if ingest and ingest.get("status") == "in_progress" and current_tasks and len(current_tasks) > 10:
+            tasks_parts.append(Text(f"  … +{len(current_tasks) - 10} more\n"))
 
     tasks_content: Any = Group(*tasks_parts)
     panels.append(Panel(tasks_content, title="[bold]Tasks[/bold]", border_style="blue"))

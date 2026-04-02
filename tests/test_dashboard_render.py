@@ -192,6 +192,37 @@ def test_render_dashboard_standards_snippets_loading_workers_no_ingest() -> None
     assert "Tasks" in out or "embed" in out or "Qdrant" in out
 
 
+def test_render_dashboard_loader_status_lines_and_active_tasks_are_separate() -> None:
+    """Tasks panel should show per-loader status lines and a separate active tasks table."""
+    from rich.console import Console
+
+    data = {
+        "ingest": None,
+        "ingest_last_run": None,
+        "ingest_last_run_stale": False,
+        "failed_tasks": [],
+        "index_status": {},
+        "collections": [{"name": "onec_config_metadata", "points_count": 3000}],
+        "snippets": None,
+        "standards_last_run": {"items_loaded": 1472, "total_elapsed_sec": 239},
+        "standards_loading": False,
+        "snippets_loading": False,
+        "metadata_loading": True,
+        "metadata_loading_pts": {"loaded": 3000, "total": 15117, "phase": "indexing"},
+        "storage_path_mb": None,
+        "mcp_metrics": {},
+    }
+    result = render_dashboard(data)
+    console = Console(force_terminal=True, no_color=True)
+    with console.capture() as cap:
+        console.print(result)
+    out = cap.get()
+    assert "Standards: last run, 1,472 items" in out
+    assert "Config metadata: loading (indexing → Qdrant, 3000/15117)" in out
+    assert "Active tasks: 1" in out
+    assert "Metadata → Qdrant 3000/15117" in out
+
+
 def test_render_dashboard_ingest_in_progress_eta_zero_division_handled() -> None:
     """Tasks panel still renders when ETA would cause ZeroDivisionError (done=0)."""
     from rich.console import Console
