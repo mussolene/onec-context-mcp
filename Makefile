@@ -215,9 +215,9 @@ metadata-watchdog-debug:
 	@echo "Диагностика config dir и watchdog (в контейнере ingest-worker)..."
 	$(COMPOSE) exec $(INGEST_SERVICE) python -c "\
 from pathlib import Path; \
-from onec_help import env_config; \
-from onec_help.watchdog import _scan_config_dir_stable; \
-from onec_help.config_crawler import find_config_root; \
+from onec_help.shared import env_config; \
+from onec_help.runtime.watchdog import _scan_config_dir_stable; \
+from onec_help.knowledge.config_crawler import find_config_root; \
 d = env_config.get_config_source_dir(); \
 p = Path(d).resolve() if d else None; \
 print('ONEC_CONFIG_SOURCE_DIR (effective):', repr(d)); \
