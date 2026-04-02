@@ -198,6 +198,13 @@ def _index_status() -> dict[str, Any]:
     return get_index_status()
 
 
+def _api_index_status() -> dict[str, Any]:
+    from ..knowledge.help_structured import API_COLLECTION_NAME
+    from ..search_store.indexer import get_index_status
+
+    return get_index_status(collection=API_COLLECTION_NAME)
+
+
 def _get_topic(
     topic_path: str,
     version: str | None = None,
@@ -214,6 +221,38 @@ def _get_topic(
         language=language,
         prefer_index=prefer_index,
     )
+
+
+def _search_api_objects(
+    query: str,
+    limit: int = 10,
+    version: str | None = None,
+    language: str | None = None,
+) -> list[dict[str, Any]]:
+    from ..knowledge.help_structured import search_api_objects
+
+    return search_api_objects(query, limit=limit, version=version, language=language)
+
+
+def _get_api_object(
+    name: str,
+    version: str | None = None,
+    language: str | None = None,
+) -> list[dict[str, Any]]:
+    from ..knowledge.help_structured import get_api_object
+
+    return get_api_object(name, version=version, language=language)
+
+
+def _search_official_examples(
+    query: str,
+    limit: int = 5,
+    version: str | None = None,
+    language: str | None = None,
+) -> list[dict[str, Any]]:
+    from ..knowledge.help_structured import search_official_examples
+
+    return search_official_examples(query, limit=limit, version=version, language=language)
 
 
 def _write_snippet_to_file(
@@ -531,6 +570,52 @@ def _compact_api_answer(result: dict[str, Any], content: str, *, max_chars: int 
     return "\n\n".join(lines)
 
 
+def _structured_api_sort_key(query: str, item: dict[str, Any]) -> tuple[int, bool, str]:
+    query_lower = (query or "").strip().lower()
+    name_lower = str(item.get("name") or "").strip().lower()
+    title_lower = str(item.get("title") or "").strip().lower()
+    return (
+        _match_priority(query_lower, name_lower or title_lower, ""),
+        _member_sort_key(query_lower, name_lower or title_lower),
+        str(item.get("topic_path") or item.get("path") or ""),
+    )
+
+
+def _format_structured_api_object(item: dict[str, Any], *, include_path: bool = True) -> str:
+    lines = [f"### {item.get('name') or item.get('title') or 'API'}"]
+    meta: list[str] = []
+    if item.get("kind"):
+        meta.append(str(item.get("kind")))
+    if item.get("version"):
+        meta.append(str(item.get("version")))
+    if item.get("entity_type") and item.get("entity_type") != item.get("kind"):
+        meta.append(str(item.get("entity_type")))
+    if meta:
+        lines.append(f"[{', '.join(meta)}]")
+    if include_path and item.get("topic_path"):
+        lines.append(f"path: {item.get('topic_path')}")
+    if item.get("summary"):
+        lines.append(str(item.get("summary")))
+    if item.get("syntax"):
+        lines.append("#### Синтаксис")
+        lines.append(f"```text\n{item.get('syntax')}\n```")
+    params = item.get("params") or []
+    if params:
+        lines.append("#### Параметры")
+        for param in params[:10]:
+            if isinstance(param, dict):
+                p_name = param.get("name") or "—"
+                p_type = param.get("type") or "—"
+                lines.append(f"- **{p_name}** ({p_type})")
+    if item.get("returns"):
+        lines.append("#### Возвращаемое значение")
+        lines.append(str(item.get("returns")))
+    if item.get("availability"):
+        lines.append("#### Доступность")
+        lines.append(str(item.get("availability")))
+    return "\n\n".join(lines)
+
+
 def _summarize_diagnostics_json(diagnostics_json: str | None) -> str:
     if not diagnostics_json:
         return ""
@@ -760,6 +845,8 @@ def _build_mcp_app(help_path: Path) -> Any:
         q, err = _truncate_if_needed(q_raw, MAX_QUERY_CHARS, "query")
         if err:
             return err
+        structured_hits = _get_api_object(q, version=version, language=language)
+        structured_hits = sorted(structured_hits, key=lambda item: _structured_api_sort_key(q, item))
         results = _search_keyword(
             q,
             limit=limit,
@@ -767,6 +854,33 @@ def _build_mcp_app(help_path: Path) -> Any:
             language=language,
         )
         results = _rank_keyword_results(q, results)
+        if structured_hits:
+            structured_lines = []
+            used_paths = {str(hit.get("topic_path") or hit.get("path") or "") for hit in structured_hits[:limit]}
+            row_num = 1
+            for hit in structured_hits[:limit]:
+                meta = _format_result_meta(
+                    {
+                        "entity_type": hit.get("entity_type") or hit.get("kind") or "topic",
+                        "breadcrumb": hit.get("breadcrumb") or [],
+                    }
+                )
+                path = hit.get("topic_path") or hit.get("path") or ""
+                structured_lines.append(
+                    f"{row_num}. **{hit.get('name') or hit.get('title') or ''}**{meta} (path: {path})"
+                )
+                if hit.get("summary"):
+                    structured_lines.append(f"   {str(hit.get('summary'))[: _snippet_max_chars()]}...")
+                row_num += 1
+            topic_results = [r for r in results if (r.get("path") or "") not in used_paths]
+            for hit in topic_results[: max(0, limit - len(structured_hits[:limit]))]:
+                meta = _format_result_meta(hit)
+                structured_lines.append(
+                    f"{row_num}. **{hit.get('title', '')}**{meta} (path: {hit.get('path', '')})"
+                )
+                structured_lines.append(f"   {hit.get('text', '')[: _snippet_max_chars()]}...")
+                row_num += 1
+            return "\n".join(structured_lines)
         if not results:
             return "No keyword matches. Try search_1c_help for semantic search."
         lines = []
@@ -833,6 +947,21 @@ def _build_mcp_app(help_path: Path) -> Any:
             return err
         if not name_clean:
             return "Provide API name, for example HTTPСоединение.Получить."
+        structured = _get_api_object(name_clean, version=version, language=language)
+        structured = sorted(structured, key=lambda item: _structured_api_sort_key(name_clean, item))
+        if structured:
+            best_item = structured[0]
+            if detail == "full" and best_item.get("topic_path"):
+                content = _get_topic(
+                    str(best_item.get("topic_path")),
+                    version=version,
+                    language=language,
+                    prefer_index=False,
+                )
+                if content:
+                    return content
+            if detail != "full":
+                return _format_structured_api_object(best_item)
         results = _rank_keyword_results(
             name_clean,
             _search_keyword(name_clean, limit=15, version=version, language=language),
@@ -873,6 +1002,58 @@ def _build_mcp_app(help_path: Path) -> Any:
         if detail == "full":
             return content
         return _compact_api_answer(topic, content, max_chars=1200)
+
+    @mcp.tool()
+    @_record_mcp_tool
+    def get_1c_api_object(
+        name: str,
+        version: str | None = None,
+        language: str | None = None,
+    ) -> str:
+        """Structured exact-first truth-source for one API object from onec_help_api."""
+        err = _check_rate_limit()
+        if err:
+            return err
+        name_clean, err = _truncate_if_needed((name or "").strip(), MAX_QUERY_CHARS, "name")
+        if err:
+            return err
+        if not name_clean:
+            return "Provide API name, for example HTTPСоединение.Получить."
+        structured = _get_api_object(name_clean, version=version, language=language)
+        structured = sorted(structured, key=lambda item: _structured_api_sort_key(name_clean, item))
+        if not structured:
+            return f"No structured API object found for «{name_clean}»."
+        return _format_structured_api_object(structured[0])
+
+    @mcp.tool()
+    @_record_mcp_tool
+    def search_1c_official_examples(
+        query: str,
+        limit: int = 5,
+        version: str | None = None,
+        language: str | None = None,
+    ) -> str:
+        """Search official examples extracted from platform help topics only."""
+        err = _check_rate_limit()
+        if err:
+            return err
+        q, err = _truncate_if_needed(query or "", MAX_QUERY_CHARS, "query")
+        if err:
+            return err
+        if not q.strip():
+            return "Provide query, for example HTTPСоединение.Получить."
+        items = _search_official_examples(q, limit=limit, version=version, language=language)
+        if not items:
+            return "No official examples found."
+        lines: list[str] = []
+        for idx, item in enumerate(items, 1):
+            title = item.get("title") or item.get("api_name") or "Example"
+            path = item.get("topic_path") or ""
+            lines.append(f"{idx}. **{title}** (path: {path})")
+            if item.get("description"):
+                lines.append(f"   {item.get('description')}")
+            lines.append(f"```bsl\n{_compact_code(str(item.get('code') or ''), 1200)}\n```")
+        return "\n".join(lines)
 
     def _search_memory_blocks(
         query: str,

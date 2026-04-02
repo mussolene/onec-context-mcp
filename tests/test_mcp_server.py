@@ -469,28 +469,111 @@ def test_mcp_tool_get_1c_code_answer_removed_from_app(help_sample_dir: Path) -> 
 
 
 def test_mcp_tool_get_1c_api_answer_via_app(help_sample_dir: Path) -> None:
-    """get_1c_api_answer uses exact-first keyword route and returns compact content."""
+    """get_1c_api_answer uses structured API layer before keyword/topic fallback."""
     app = mcp_server._build_mcp_app(help_sample_dir)
     with patch.object(
         mcp_server,
-        "_search_keyword",
+        "_get_api_object",
         return_value=[
-            {"title": "HTTPСоединение.ПолучитьЗаголовки", "path": "Head.md", "text": "head"},
-            {"title": "HTTPСоединение.Получить", "path": "Get.md", "text": "get"},
+            {
+                "name": "HTTPСоединение.Получить",
+                "title": "HTTPСоединение.Получить",
+                "summary": "Описание.",
+                "syntax": "HTTPСоединение.Получить(<Адрес>)",
+                "topic_path": "Get.md",
+                "version": "8.3.27.1859",
+                "kind": "method",
+                "entity_type": "method",
+                "breadcrumb": ["Объекты", "HTTPСоединение"],
+            }
+        ],
+    ):
+        result = asyncio.run(app.call_tool("get_1c_api_answer", {"name": "HTTPСоединение.Получить"}))
+    text = result.content[0].text if result.content else ""
+    assert "HTTPСоединение.Получить" in text
+    assert "Описание" in text
+    assert "Синтаксис" in text
+
+
+def test_mcp_tool_get_1c_api_object_via_app(help_sample_dir: Path) -> None:
+    """get_1c_api_object returns structured API payload from onec_help_api."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(
+        mcp_server,
+        "_get_api_object",
+        return_value=[
+            {
+                "name": "HTTPСоединение.Получить",
+                "title": "HTTPСоединение.Получить",
+                "summary": "Описание.",
+                "syntax": "HTTPСоединение.Получить(<Адрес>)",
+                "topic_path": "Get.md",
+                "version": "8.3.27.1859",
+                "kind": "method",
+                "entity_type": "method",
+                "breadcrumb": ["Объекты", "HTTPСоединение"],
+            }
+        ],
+    ):
+        result = asyncio.run(app.call_tool("get_1c_api_object", {"name": "HTTPСоединение.Получить"}))
+    text = result.content[0].text if result.content else ""
+    assert "HTTPСоединение.Получить" in text
+    assert "Get.md" in text
+
+
+def test_mcp_tool_search_1c_official_examples_via_app(help_sample_dir: Path) -> None:
+    """search_1c_official_examples reads only file-backed official examples."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(
+        mcp_server,
+        "_search_official_examples",
+        return_value=[
+            {
+                "api_name": "HTTPСоединение.Получить",
+                "title": "HTTPСоединение.Получить — пример 1",
+                "description": "GET",
+                "code": "Ответ = Соединение.Получить(\"/\");",
+                "topic_path": "Get.md",
+            }
+        ],
+    ):
+        result = asyncio.run(
+            app.call_tool("search_1c_official_examples", {"query": "HTTP GET", "limit": 3})
+        )
+    text = result.content[0].text if result.content else ""
+    assert "HTTPСоединение.Получить" in text
+    assert "Соединение.Получить" in text
+
+
+def test_mcp_tool_search_1c_help_keyword_merges_structured_hits(help_sample_dir: Path) -> None:
+    """search_1c_help_keyword should render structured API hit before broad topic noise."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(
+        mcp_server,
+        "_get_api_object",
+        return_value=[
+            {
+                "name": "HTTPСоединение.Получить",
+                "summary": "Описание.",
+                "topic_path": "Get.md",
+                "kind": "method",
+                "entity_type": "method",
+                "breadcrumb": ["Объекты", "HTTPСоединение"],
+            }
         ],
     ):
         with patch.object(
             mcp_server,
-            "_get_topic",
-            return_value="# HTTPСоединение.Получить\n\nОписание.\n\n```bsl\nОтвет = Соединение.Получить();\n```",
+            "_search_keyword",
+            return_value=[
+                {"title": "HTTPСоединение.ПолучитьЗаголовки", "path": "Head.md", "text": "head"},
+            ],
         ):
             result = asyncio.run(
-                app.call_tool("get_1c_api_answer", {"name": "HTTPСоединение.Получить"})
+                app.call_tool("search_1c_help_keyword", {"query": "HTTPСоединение.Получить", "limit": 5})
             )
     text = result.content[0].text if result.content else ""
-    assert "HTTPСоединение.Получить" in text
-    assert "Описание" in text
-    assert "Соединение.Получить" in text
+    assert text.splitlines()[0].startswith("1. **HTTPСоединение.Получить**")
 
 
 def test_mcp_tool_list_1c_help_titles_via_app(help_sample_dir: Path) -> None:

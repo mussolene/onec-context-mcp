@@ -752,6 +752,21 @@ def _bm25_text_from_payload(collection: str, payload: dict[str, Any]) -> str:
                 None, [payload.get("config_name"), payload.get("name"), payload.get("full_name")]
             )
         )
+    if collection == "onec_help_api":
+        text = (payload.get("text") or "").strip()
+        if text:
+            return text
+        return "\n".join(
+            str(part)
+            for part in (
+                payload.get("name") or "",
+                payload.get("title") or "",
+                payload.get("summary") or "",
+                payload.get("syntax") or "",
+                payload.get("returns") or "",
+            )
+            if part
+        )
     # onec_help and any other: title + text
     return ((payload.get("title") or "") + "\n" + (payload.get("text") or "")).strip() or ""
 
@@ -1450,6 +1465,8 @@ def search_index_keyword(
                             {
                                 "path": payload.get("path", ""),
                                 "title": payload.get("title", ""),
+                                "name": payload.get("name", ""),
+                                "kind": payload.get("kind", ""),
                                 "text": snippet,
                                 "score": getattr(h, "score", None),
                                 "version": payload.get("version", ""),
@@ -1544,6 +1561,8 @@ def search_index_keyword(
             rec = {
                 "path": path,
                 "title": payload.get("title", ""),
+                "name": payload.get("name", ""),
+                "kind": payload.get("kind", ""),
                 "text": snippet,
                 "score": None,
                 "version": payload.get("version", ""),

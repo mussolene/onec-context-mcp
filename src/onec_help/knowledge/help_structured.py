@@ -444,3 +444,77 @@ def search_official_examples(
             results.append((score, item))
     results.sort(key=lambda item: (-item[0], str(item[1].get("api_name") or ""), str(item[1].get("title") or "")))
     return [item for _, item in results[:limit]]
+
+
+def search_api_objects(
+    query: str,
+    *,
+    limit: int = 10,
+    version: str | None = None,
+    language: str | None = None,
+    qdrant_host: str | None = None,
+    qdrant_port: int | None = None,
+) -> list[dict[str, Any]]:
+    """Keyword search over structured API collection."""
+    from ..search_store.indexer import search_index_keyword
+
+    return search_index_keyword(
+        query,
+        qdrant_host=qdrant_host,
+        qdrant_port=qdrant_port,
+        collection=API_COLLECTION_NAME,
+        limit=limit,
+        version=version,
+        language=language,
+    )
+
+
+def get_api_object(
+    name: str,
+    *,
+    version: str | None = None,
+    language: str | None = None,
+    qdrant_host: str | None = None,
+    qdrant_port: int | None = None,
+) -> list[dict[str, Any]]:
+    """Exact-first lookup in structured API collection."""
+    from qdrant_client import QdrantClient
+    from qdrant_client.models import FieldCondition, Filter, MatchValue
+
+    host = qdrant_host or env_config.get_qdrant_host()
+    port = qdrant_port or env_config.get_qdrant_port()
+    client = QdrantClient(host=host, port=port, check_compatibility=False)
+    if not client.collection_exists(API_COLLECTION_NAME):
+        return []
+    name_clean = (name or "").strip()
+    if not name_clean:
+        return []
+    must = [FieldCondition(key="name", match=MatchValue(value=name_clean))]
+    if version:
+        must.append(FieldCondition(key="version", match=MatchValue(value=version)))
+    if language:
+        must.append(FieldCondition(key="language", match=MatchValue(value=language)))
+    results: list[dict[str, Any]] = []
+    try:
+        points, _ = client.scroll(
+            collection_name=API_COLLECTION_NAME,
+            scroll_filter=Filter(must=must),
+            limit=10,
+            with_payload=True,
+            with_vectors=False,
+        )
+        for point in points or []:
+            payload = getattr(point, "payload", None) or {}
+            results.append(payload)
+    except Exception:
+        results = []
+    if results:
+        return results
+    return search_api_objects(
+        name_clean,
+        limit=10,
+        version=version,
+        language=language,
+        qdrant_host=host,
+        qdrant_port=port,
+    )

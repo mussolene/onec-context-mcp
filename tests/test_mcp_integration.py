@@ -22,6 +22,8 @@ def test_live_tool_list_matches_narrow_surface(mcp_client: StreamableHttpMcpClie
     names = mcp_client.list_tools()
     assert "get_1c_code_answer" not in names
     assert "get_1c_api_answer" in names
+    assert "get_1c_api_object" in names
+    assert "search_1c_official_examples" in names
     assert "search_1c_metadata_exact" in names
     assert "search_1c_metadata_semantic" in names
     assert "search_1c_metadata_fields" in names
