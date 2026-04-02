@@ -982,8 +982,9 @@ def test_cmd_load_snippets_not_array(tmp_path: Path) -> None:
 
 
 @patch("onec_help.search_store.embedding.is_embedding_available", return_value=True)
+@patch("onec_help.search_store.indexer.add_bm25_to_collection", return_value=1)
 @patch("onec_help.interfaces.cli._get_memory_store")
-def test_cmd_load_snippets_success(mock_get_store, _mock_embed_avail, tmp_path: Path) -> None:
+def test_cmd_load_snippets_success(mock_get_store, _mock_add_bm25, _mock_embed_avail, tmp_path: Path) -> None:
     """cmd_load_snippets loads snippets and prints count."""
     snippet_file = tmp_path / "snippets.json"
     snippet_file.write_text(
@@ -1007,6 +1008,7 @@ def test_main_load_snippets(tmp_path: Path) -> None:
     snippet_file.write_text('[{"title": "X", "code_snippet": "x"}]', encoding="utf-8")
     with (
         patch("onec_help.search_store.embedding.is_embedding_available", return_value=True),
+        patch("onec_help.search_store.indexer.add_bm25_to_collection", return_value=1),
         patch("onec_help.interfaces.cli._get_memory_store") as mock_get,
     ):
         mock_store = MagicMock()
@@ -1027,8 +1029,9 @@ def test_cmd_load_snippets_exception(tmp_path: Path) -> None:
 
 
 @patch("onec_help.search_store.embedding.is_embedding_available", return_value=True)
+@patch("onec_help.search_store.indexer.add_bm25_to_collection", return_value=1)
 @patch("onec_help.interfaces.cli._get_memory_store")
-def test_cmd_load_snippets_from_folder(mock_get_store, _mock_embed_avail, tmp_path: Path) -> None:
+def test_cmd_load_snippets_from_folder(mock_get_store, _mock_add_bm25, _mock_embed_avail, tmp_path: Path) -> None:
     """cmd_load_snippets loads from folder (*.bsl, *.1c, *.json) when path is directory."""
     (tmp_path / "example.bsl").write_text("Сообщить(1);", encoding="utf-8")
     (tmp_path / "other.1c").write_text("Возврат Истина;", encoding="utf-8")
@@ -1048,8 +1051,9 @@ def test_cmd_load_snippets_from_folder(mock_get_store, _mock_embed_avail, tmp_pa
 
 
 @patch("onec_help.search_store.embedding.is_embedding_available", return_value=True)
+@patch("onec_help.search_store.indexer.add_bm25_to_collection", return_value=1)
 @patch("onec_help.interfaces.cli._get_memory_store")
-def test_cmd_load_snippets_type_split(mock_get_store, _mock_embed_avail, tmp_path: Path) -> None:
+def test_cmd_load_snippets_type_split(mock_get_store, _mock_add_bm25, _mock_embed_avail, tmp_path: Path) -> None:
     """cmd_load_snippets splits items by type into snippets and community_help domains."""
     mixed = tmp_path / "mixed.json"
     mixed.write_text(
@@ -1276,8 +1280,9 @@ def test_cmd_load_standards_no_source(capsys) -> None:
 
 
 @patch("onec_help.search_store.embedding.is_embedding_available", return_value=True)
+@patch("onec_help.search_store.indexer.add_bm25_to_collection", return_value=1)
 @patch("onec_help.interfaces.cli._get_memory_store")
-def test_cmd_load_standards_success(mock_get_store, _mock_embed_avail, tmp_path: Path) -> None:
+def test_cmd_load_standards_success(mock_get_store, _mock_add_bm25, _mock_embed_avail, tmp_path: Path) -> None:
     """cmd_load_standards loads markdown and upserts with domain=standards."""
     (tmp_path / "rule.md").write_text("# Проверка\n\nОписание правила.", encoding="utf-8")
     mock_store = MagicMock()
@@ -1290,11 +1295,28 @@ def test_cmd_load_standards_success(mock_get_store, _mock_embed_avail, tmp_path:
     assert call_kw.get("domain") == "standards"
 
 
+@patch("onec_help.runtime.redis_cache.metadata_cache_get", return_value={"signature": "sig", "objects_indexed": 10})
+@patch("onec_help.interfaces.cli._metadata_collection_has_points", return_value=True)
+@patch("onec_help.runtime.redis_cache.require_runtime_redis")
+def test_cmd_build_metadata_graph_skips_unchanged_cached_source(
+    _mock_require,
+    _mock_has_points,
+    _mock_cache_get,
+    tmp_path: Path,
+) -> None:
+    xml_path = tmp_path / "kd2.xml"
+    xml_path.write_text("<Конфигурация Имя='Cfg'/>", encoding="utf-8")
+    with patch("onec_help.interfaces.cli._metadata_source_signature", return_value="sig"):
+        args = make_args(source_dir=str(xml_path), source_format="kd2-xml", recreate=False)
+        assert cmd_build_metadata_graph(args) == 0
+
+
 @patch("onec_help.search_store.embedding.is_embedding_available", return_value=True)
+@patch("onec_help.search_store.indexer.add_bm25_to_collection", return_value=1)
 @patch("onec_help.interfaces.cli._get_memory_store")
 @patch("onec_help.knowledge.loaders.standards_loader.fetch_repo_archive")
 def test_cmd_load_standards_from_repo(
-    mock_fetch, mock_get_store, _mock_embed_avail, tmp_path: Path
+    mock_fetch, mock_get_store, _mock_add_bm25, _mock_embed_avail, tmp_path: Path
 ) -> None:
     """cmd_load_standards fetches from STANDARDS_REPOS (single repo) when no path given.
     Redirect copy destination to tmp_path to avoid writing to data/standards (pytest-* pollution)."""
@@ -1332,10 +1354,11 @@ def test_cmd_load_standards_from_repo(
 
 
 @patch("onec_help.search_store.embedding.is_embedding_available", return_value=True)
+@patch("onec_help.search_store.indexer.add_bm25_to_collection", return_value=1)
 @patch("onec_help.interfaces.cli._get_memory_store")
 @patch("onec_help.knowledge.loaders.standards_loader.fetch_repo_archive")
 def test_cmd_load_standards_from_repos(
-    mock_fetch, mock_get_store, _mock_embed_avail, tmp_path: Path
+    mock_fetch, mock_get_store, _mock_add_bm25, _mock_embed_avail, tmp_path: Path
 ) -> None:
     """cmd_load_standards fetches from STANDARDS_REPOS (multiple repos) when set.
     Redirect copy destination to tmp_path to avoid writing to data/standards."""

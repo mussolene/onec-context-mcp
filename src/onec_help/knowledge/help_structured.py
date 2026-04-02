@@ -1028,9 +1028,41 @@ def index_structured_help_snapshot(
     recreate: bool = True,
     batch_size: int = 200,
     bm25_enabled: bool | None = None,
+    progress_callback=None,
 ) -> dict[str, int]:
     """Index the structured help snapshot into dedicated Qdrant collections."""
     from ..search_store.indexer import add_bm25_to_collection
+
+    snapshot_base = (snapshot_dir or Path(get_help_structured_dir())).expanduser().resolve()
+    total_expected = sum(
+        len(loader(snapshot_base))
+        for loader in (load_api_objects, load_api_members, load_api_examples, load_api_links)
+    )
+    inserted_by_collection: dict[str, int] = {
+        API_OBJECTS_COLLECTION_NAME: 0,
+        API_MEMBERS_COLLECTION_NAME: 0,
+        API_EXAMPLES_COLLECTION_NAME: 0,
+        API_LINKS_COLLECTION_NAME: 0,
+    }
+
+    def _on_collection_progress(collection_name: str, loaded: int, total: int) -> None:
+        if not callable(progress_callback):
+            return
+        previous = inserted_by_collection.get(collection_name, 0)
+        inserted_by_collection[collection_name] = loaded
+        overall = sum(inserted_by_collection.values())
+        try:
+            progress_callback(
+                overall,
+                total_expected,
+                phase="index_structured",
+                collection=collection_name,
+                collection_loaded=loaded,
+                collection_total=total,
+                collection_delta=max(0, loaded - previous),
+            )
+        except Exception:
+            pass
 
     objects_inserted = index_structured_api_objects(
         snapshot_dir,
@@ -1039,6 +1071,9 @@ def index_structured_help_snapshot(
         collection=API_OBJECTS_COLLECTION_NAME,
         recreate=recreate,
         batch_size=batch_size,
+        progress_callback=lambda loaded, total: _on_collection_progress(
+            API_OBJECTS_COLLECTION_NAME, loaded, total
+        ),
     )
     members_inserted = index_structured_api_members(
         snapshot_dir,
@@ -1047,6 +1082,9 @@ def index_structured_help_snapshot(
         collection=API_MEMBERS_COLLECTION_NAME,
         recreate=recreate,
         batch_size=batch_size,
+        progress_callback=lambda loaded, total: _on_collection_progress(
+            API_MEMBERS_COLLECTION_NAME, loaded, total
+        ),
     )
     examples_inserted = index_structured_api_examples(
         snapshot_dir,
@@ -1055,6 +1093,9 @@ def index_structured_help_snapshot(
         collection=API_EXAMPLES_COLLECTION_NAME,
         recreate=recreate,
         batch_size=batch_size,
+        progress_callback=lambda loaded, total: _on_collection_progress(
+            API_EXAMPLES_COLLECTION_NAME, loaded, total
+        ),
     )
     links_inserted = index_structured_api_links(
         snapshot_dir,
@@ -1063,6 +1104,9 @@ def index_structured_help_snapshot(
         collection=API_LINKS_COLLECTION_NAME,
         recreate=recreate,
         batch_size=batch_size,
+        progress_callback=lambda loaded, total: _on_collection_progress(
+            API_LINKS_COLLECTION_NAME, loaded, total
+        ),
     )
 
     use_bm25 = env_config.get_bm25_enabled() if bm25_enabled is None else bm25_enabled
@@ -1153,6 +1197,7 @@ def _index_records(
     qdrant_port: int | None,
     payload_builder,
     use_dense: bool = True,
+    progress_callback=None,
 ) -> int:
     from qdrant_client import QdrantClient
     from qdrant_client.models import Distance, PointStruct, VectorParams
@@ -1183,6 +1228,7 @@ def _index_records(
         )
 
     inserted = 0
+    total_items = len(items)
     for start in range(0, len(items), batch_size):
         batch = items[start : start + batch_size]
         payloads = [payload_builder(item) for item in batch]
@@ -1202,6 +1248,11 @@ def _index_records(
             )
         client.upsert(collection_name=collection, points=points)
         inserted += len(points)
+        if callable(progress_callback):
+            try:
+                progress_callback(inserted, total_items)
+            except Exception:
+                pass
     return inserted
 
 
@@ -1213,6 +1264,7 @@ def index_structured_api_objects(
     collection: str = API_OBJECTS_COLLECTION_NAME,
     recreate: bool = True,
     batch_size: int = 200,
+    progress_callback=None,
 ) -> int:
     """Index structured API objects into dedicated object collection."""
     items = load_api_objects(snapshot_dir)
@@ -1223,6 +1275,7 @@ def index_structured_api_objects(
         batch_size=batch_size,
         qdrant_host=qdrant_host,
         qdrant_port=qdrant_port,
+        progress_callback=progress_callback,
         payload_builder=lambda item: {
             "object_name": item.get("object_name") or "",
             "full_name": item.get("full_name") or item.get("object_name") or "",
@@ -1256,6 +1309,7 @@ def index_structured_api_members(
     collection: str = API_MEMBERS_COLLECTION_NAME,
     recreate: bool = True,
     batch_size: int = 200,
+    progress_callback=None,
 ) -> int:
     """Index structured API members into dedicated member collection."""
     items = load_api_members(snapshot_dir)
@@ -1266,6 +1320,7 @@ def index_structured_api_members(
         batch_size=batch_size,
         qdrant_host=qdrant_host,
         qdrant_port=qdrant_port,
+        progress_callback=progress_callback,
         payload_builder=lambda item: {
             "owner_name": item.get("owner_name") or "",
             "owner_kind": item.get("owner_kind") or "type",
@@ -1304,6 +1359,7 @@ def index_structured_api_examples(
     collection: str = API_EXAMPLES_COLLECTION_NAME,
     recreate: bool = True,
     batch_size: int = 200,
+    progress_callback=None,
 ) -> int:
     """Index official examples into dedicated example collection."""
     items = load_api_examples(snapshot_dir)
@@ -1314,6 +1370,7 @@ def index_structured_api_examples(
         batch_size=batch_size,
         qdrant_host=qdrant_host,
         qdrant_port=qdrant_port,
+        progress_callback=progress_callback,
         payload_builder=lambda item: {
             "owner_name": item.get("owner_name") or "",
             "member_name": item.get("member_name") or "",
@@ -1351,6 +1408,7 @@ def index_structured_api_links(
     collection: str = API_LINKS_COLLECTION_NAME,
     recreate: bool = True,
     batch_size: int = 200,
+    progress_callback=None,
 ) -> int:
     """Index API links into dedicated relation collection."""
     items = load_api_links(snapshot_dir)
@@ -1361,6 +1419,7 @@ def index_structured_api_links(
         batch_size=batch_size,
         qdrant_host=qdrant_host,
         qdrant_port=qdrant_port,
+        progress_callback=progress_callback,
         payload_builder=lambda item: {
             "source_full_name": item.get("source_full_name") or "",
             "target_name": item.get("target_name") or "",

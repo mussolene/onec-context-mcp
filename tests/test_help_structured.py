@@ -10,6 +10,7 @@ from onec_help.knowledge.help_structured import (
     get_api_member,
     index_structured_api_members,
     index_structured_api_objects,
+    index_structured_help_snapshot,
     load_api_examples,
     load_api_members,
     load_api_objects,
@@ -164,6 +165,45 @@ def test_index_structured_api_members_uses_dense_vectors(tmp_path: Path) -> None
     points = client.upsert.call_args.kwargs["points"]
     assert points[0].vector == [0.4, 0.5, 0.6]
     assert points[0].payload["source_sections"] == {}
+
+
+def test_index_structured_help_snapshot_reports_progress(tmp_path: Path) -> None:
+    from unittest.mock import patch
+
+    (tmp_path / "api_objects.jsonl").write_text(
+        '{"id":1,"object_name":"HTTPСоединение","full_name":"HTTPСоединение","kind":"type","title":"HTTPСоединение","summary":"Описание","version":"8.3","language":"ru","topic_path":"o"}\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "api_members.jsonl").write_text(
+        '{"id":2,"owner_name":"HTTPСоединение","owner_kind":"type","member_name":"Получить","full_name":"HTTPСоединение.Получить","kind":"method","title":"HTTPСоединение.Получить","summary":"Описание","version":"8.3","language":"ru","topic_path":"m"}\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "api_examples.jsonl").write_text("", encoding="utf-8")
+    (tmp_path / "api_links.jsonl").write_text("", encoding="utf-8")
+    progress: list[tuple[int, int, str | None]] = []
+
+    def _progress(done: int, total: int, **kwargs) -> None:
+        progress.append((done, total, kwargs.get("collection")))
+
+    def _index_objects(*args, **kwargs):
+        kwargs["progress_callback"](1, 1)
+        return 1
+
+    def _index_members(*args, **kwargs):
+        kwargs["progress_callback"](1, 1)
+        return 1
+
+    with patch("onec_help.knowledge.help_structured.index_structured_api_objects", side_effect=_index_objects), patch(
+        "onec_help.knowledge.help_structured.index_structured_api_members", side_effect=_index_members
+    ), patch(
+        "onec_help.knowledge.help_structured.index_structured_api_examples", return_value=0
+    ), patch(
+        "onec_help.knowledge.help_structured.index_structured_api_links", return_value=0
+    ):
+        result = index_structured_help_snapshot(tmp_path, bm25_enabled=False, progress_callback=_progress)
+    assert result["objects"] == 1
+    assert result["members"] == 1
+    assert progress
 
 
 def test_search_official_examples_prefers_api_name_match(tmp_path: Path) -> None:

@@ -1052,6 +1052,8 @@ def run_ingest_from_unpacked(
         "status": "in_progress",
         "run_id": run_id,
         "failed": [],
+        "max_workers": max_workers,
+        "embedding_workers": embedding_workers or env_config.get_embedding_workers_default(),
     }
     interval_sec = float(env_config.get_index_status_interval_sec())
     stop_event = threading.Event()
@@ -1069,6 +1071,8 @@ def run_ingest_from_unpacked(
         total_points=0,
         folders=folders,
         status="in_progress",
+        max_workers=state.get("max_workers"),
+        embedding_workers=state.get("embedding_workers"),
     )
 
     total = 0
@@ -1077,15 +1081,51 @@ def run_ingest_from_unpacked(
         manifest = build_structured_api_snapshot(output_dir=Path(snapshot_dir), unpacked_dir=base)
         estimated_total = sum(int(manifest.get(name, 0) or 0) for name in ("objects", "members", "examples", "links"))
         with state_lock:
-            state["current"] = [{"path": str(base), "version": "", "language": "", "stage": "index_structured"}]
+            state["current"] = [
+                {
+                    "path": "structured_help",
+                    "version": "",
+                    "language": "",
+                    "stage": "index_structured",
+                    "points": 0,
+                    "estimated_total": estimated_total,
+                }
+            ]
             state["current_task_estimated_total"] = estimated_total
         _flush_ingest_status(state_lock, state)
+
+        def _structured_progress(
+            loaded: int,
+            total_expected: int,
+            *,
+            phase: str | None = None,
+            collection: str | None = None,
+            collection_loaded: int | None = None,
+            collection_total: int | None = None,
+            **_: Any,
+        ) -> None:
+            with state_lock:
+                state["current_task_points"] = loaded
+                state["current_task_estimated_total"] = total_expected
+                if state.get("current"):
+                    state["current"][0]["points"] = loaded
+                    state["current"][0]["estimated_total"] = total_expected
+                    state["current"][0]["stage"] = phase or "index_structured"
+                    if collection:
+                        state["current"][0]["collection"] = collection
+                    if collection_loaded is not None:
+                        state["current"][0]["collection_loaded"] = collection_loaded
+                    if collection_total is not None:
+                        state["current"][0]["collection_total"] = collection_total
+            _flush_ingest_status(state_lock, state)
+
         counts = index_structured_help_snapshot(
             Path(snapshot_dir),
             qdrant_host=qdrant_host,
             qdrant_port=qdrant_port,
             recreate=True,
             bm25_enabled=bm25,
+            progress_callback=_structured_progress,
         )
         total = sum(int(v or 0) for v in counts.values())
         completed_files: list[dict[str, Any]] = []

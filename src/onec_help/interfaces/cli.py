@@ -1,6 +1,7 @@
 """CLI: unpack, build-docs, build-index, mcp."""
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -37,6 +38,49 @@ def _load_operation_running_path(name: str) -> Path:
 def _load_operation_status_path(name: str) -> Path:
     """Path to status JSON (loaded/total pts) for dashboard progress."""
     return _load_operation_running_path(name).with_suffix(".status.json")
+
+
+def _metadata_source_signature(path: Path) -> str | None:
+    """Stable signature for metadata source path (KD2 XML / snapshot dir / config export dir)."""
+    try:
+        path = path.expanduser().resolve()
+        if path.is_file():
+            st = path.stat()
+            return f"{st.st_mtime}:{st.st_size}"
+        if not path.is_dir():
+            return None
+        parts: list[tuple[str, int]] = []
+        for f in path.rglob("*"):
+            if not f.is_file():
+                continue
+            if f.suffix.lower() not in {".xml", ".json", ".jsonl", ".bsl"}:
+                continue
+            try:
+                rel = str(f.relative_to(path))
+                parts.append((rel, f.stat().st_size))
+            except (OSError, ValueError):
+                continue
+        if not parts:
+            return None
+        parts.sort(key=lambda item: item[0])
+        raw = json.dumps(parts, ensure_ascii=False, separators=(",", ":"))
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    except OSError:
+        return None
+
+
+def _metadata_collection_has_points() -> bool:
+    try:
+        from ..search_store.indexer import get_index_status
+
+        status = get_index_status(
+            qdrant_host=env_config.get_qdrant_host(),
+            qdrant_port=env_config.get_qdrant_port(),
+            collection="onec_config_metadata",
+        )
+        return bool(status.get("exists")) and int(status.get("points_count") or 0) > 0
+    except Exception:
+        return False
 
 
 def _heartbeat_until(
@@ -179,6 +223,24 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
 
     try:
         redis_cache.require_runtime_redis("metadata-graph-build")
+        metadata_source_key = str(base)
+        metadata_signature = _metadata_source_signature(base)
+        cached_metadata = (
+            redis_cache.metadata_cache_get(metadata_source_key)
+            if metadata_signature and not bool(getattr(args, "recreate", False))
+            else None
+        )
+        if (
+            cached_metadata
+            and cached_metadata.get("signature") == metadata_signature
+            and _metadata_collection_has_points()
+        ):
+            print(
+                "metadata-graph-build │ Source unchanged (Redis cache); skipping embed/index",
+                file=sys.stderr,
+                flush=True,
+            )
+            return 0
     except RuntimeError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
@@ -425,7 +487,10 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
         # Записываем "last run" в Redis — дашборд покажет результат как у standards/snippets
         try:
             from ..runtime import redis_cache as _rc
+
             _rc.metadata_run_record(inserted, started_at)
+            if metadata_signature:
+                _rc.metadata_cache_set(metadata_source_key, metadata_signature, inserted)
         except Exception:
             pass
         return 0
@@ -1212,6 +1277,20 @@ def cmd_load_snippets(args: argparse.Namespace) -> int:
                 domain_counts.append(f"{domain}={n}")
 
             record_snippets_run(len(to_load), files_skipped, total_loaded, started_at)
+            if total_loaded > 0 and env_config.get_bm25_enabled():
+                try:
+                    from ..search_store.indexer import add_bm25_to_collection
+
+                    progress_line("load-snippets │ rebuilding BM25 for onec_help_memory")
+                    add_bm25_to_collection(
+                        qdrant_host=env_config.get_qdrant_host(),
+                        qdrant_port=env_config.get_qdrant_port(),
+                        collection="onec_help_memory",
+                        batch_size=200,
+                        verbose=True,
+                    )
+                except Exception as e:
+                    print(f"load-snippets │ BM25 rebuild failed: {e}", file=sys.stderr)
             progress_done(
                 f"load-snippets │ ✓ {total_loaded} loaded ({', '.join(domain_counts)}) → onec_help_memory"
             )
@@ -1454,6 +1533,20 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
         store = _get_memory_store()
         n = store.upsert_curated_snippets(items, progress_callback=_progress, domain="standards")
         redis_cache.standards_run_record(n, started_at)
+        if n > 0 and env_config.get_bm25_enabled():
+            try:
+                from ..search_store.indexer import add_bm25_to_collection
+
+                progress_line("load-standards │ rebuilding BM25 for onec_help_memory")
+                add_bm25_to_collection(
+                    qdrant_host=env_config.get_qdrant_host(),
+                    qdrant_port=env_config.get_qdrant_port(),
+                    collection="onec_help_memory",
+                    batch_size=200,
+                    verbose=True,
+                )
+            except Exception as e:
+                print(f"load-standards │ BM25 rebuild failed: {e}", file=sys.stderr)
         progress_done(f"load-standards │ ✓ {n} loaded → onec_help_memory (domain=standards)")
         return 0
     except Exception as e:

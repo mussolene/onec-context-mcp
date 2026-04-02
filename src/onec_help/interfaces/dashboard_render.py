@@ -60,6 +60,7 @@ def _format_ingest_worker_short(cur: dict[str, Any]) -> str:
     language = str(cur.get("language") or "").strip()
     path_str = str(cur.get("path") or "").strip()
     stage = str(cur.get("stage") or "indexing").strip()
+    collection = str(cur.get("collection") or "").strip()
     stage_label = (
         "embed"
         if stage == "embedding"
@@ -71,10 +72,24 @@ def _format_ingest_worker_short(cur: dict[str, Any]) -> str:
         if stage in {"indexing", "index_structured"}
         else (stage[:16] or "index")
     )
+    if collection:
+        collection = (
+            "members"
+            if collection.endswith("_members")
+            else "objects"
+            if collection.endswith("_objects")
+            else "examples"
+            if collection.endswith("_examples")
+            else "links"
+            if collection.endswith("_links")
+            else collection
+        )
     if not version and path_str:
         base = path_str.rstrip("/").split("/")[-1] or "help"
-        if base == "help_ingest":
+        if base in {"help_ingest", "structured_help"}:
             base = "structured help"
+        if collection:
+            return f"{base} {collection}"
         return f"{base} {stage_label}"
     stem = path_str.split("/")[-1][:14] if "/" in path_str else path_str[:14]
     if version:
@@ -166,6 +181,8 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 if stage == "embedding"
                 else "Qdrant"
                 if stage == "writing"
+                else "structured"
+                if stage == "index_structured"
                 else "index"
                 if stage == "indexing"
                 else (stage or "indexing")[:8]

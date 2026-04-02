@@ -209,6 +209,14 @@ def test_snippets_run_record_and_last_run(fake_redis) -> None:
     assert data.get("items_loaded") == 50
 
 
+def test_metadata_cache_set_and_get(fake_redis) -> None:
+    redis_cache.metadata_cache_set("/tmp/kd2", "sig-1", 123)
+    data = redis_cache.metadata_cache_get("/tmp/kd2")
+    assert data is not None
+    assert data.get("signature") == "sig-1"
+    assert data.get("objects_indexed") == 123
+
+
 def test_ingest_cache_get_indexed_set(fake_redis) -> None:
     """ingest_cache_get_indexed_set returns (version, language, hash) for indexed entries."""
     redis_cache.ingest_cache_set_entry("8.3/ru/doc.hbk", "abc123", 5)

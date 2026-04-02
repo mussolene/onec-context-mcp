@@ -32,6 +32,7 @@ _SNIPPETS_CACHE = "snippets:cache"
 _SNIPPETS_LAST_RUN = "snippets:last_run"
 _STANDARDS_LAST_RUN = "standards:last_run"
 _METADATA_LAST_RUN = "metadata:last_run"
+_METADATA_CACHE = "metadata:cache"
 
 _client: Any = None
 
@@ -53,6 +54,9 @@ class _NoOpRedis:
 
     def hgetall(self, name: str) -> dict[str, str]:
         return {}
+
+    def hget(self, name: str, key: str) -> None:
+        return None
 
     def hset(
         self,
@@ -632,6 +636,38 @@ def metadata_last_run() -> dict[str, Any] | None:
     except Exception as e:
         _LOG.debug("metadata_last_run: %s", e)
         return None
+
+
+def metadata_cache_get(source_key: str) -> dict[str, Any] | None:
+    """Return cached metadata source entry: {signature, objects_indexed, loaded_at}."""
+    try:
+        r = get_redis()
+        raw = (r.hgetall(_METADATA_CACHE) or {}).get(source_key)
+        if not raw:
+            return None
+        row = json.loads(raw)
+        return {
+            "signature": row.get("signature", ""),
+            "objects_indexed": int(row.get("objects_indexed", 0) or 0),
+            "loaded_at": float(row.get("loaded_at", 0) or 0),
+        }
+    except Exception as e:
+        _LOG.debug("metadata_cache_get: %s", e)
+        return None
+
+
+def metadata_cache_set(source_key: str, signature: str, objects_indexed: int) -> None:
+    """Record successful metadata indexing for a source signature."""
+    try:
+        r = get_redis()
+        row = {
+            "signature": signature,
+            "objects_indexed": int(objects_indexed or 0),
+            "loaded_at": time.time(),
+        }
+        r.hset(_METADATA_CACHE, source_key, json.dumps(row))
+    except Exception as e:
+        _LOG.debug("metadata_cache_set: %s", e)
 
 
 def snippets_cache_entries(limit: int = 50) -> list[dict[str, Any]]:

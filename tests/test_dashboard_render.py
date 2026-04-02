@@ -264,6 +264,50 @@ def test_render_dashboard_structured_help_ingest_short_label() -> None:
     assert "—/help_ingest" not in out
 
 
+def test_render_dashboard_structured_help_ingest_progress_bar() -> None:
+    from rich.console import Console
+
+    data = {
+        "ingest": {
+            "status": "in_progress",
+            "done_tasks": 0,
+            "total_tasks": 24,
+            "elapsed_sec": 60.0,
+            "max_workers": 4,
+            "embedding_workers": 6,
+            "current": [
+                {
+                    "path": "structured_help",
+                    "version": "",
+                    "language": "",
+                    "stage": "index_structured",
+                    "collection": "onec_help_api_members",
+                    "points": 1200,
+                    "estimated_total": 5000,
+                }
+            ],
+        },
+        "ingest_last_run": None,
+        "ingest_last_run_stale": False,
+        "failed_tasks": [],
+        "index_status": {},
+        "collections": [],
+        "snippets": None,
+        "standards_loading": False,
+        "snippets_loading": False,
+        "metadata_loading": False,
+        "storage_path_mb": None,
+        "mcp_metrics": {},
+    }
+    result = render_dashboard(data)
+    console = Console(force_terminal=True, no_color=True)
+    with console.capture() as cap:
+        console.print(result)
+    out = cap.get()
+    assert "structured help members 1200/5000" in out or "1200/5000" in out
+    assert "Embedding workers: 6" in out
+
+
 def test_render_dashboard_ingest_in_progress_eta_zero_division_handled() -> None:
     """Tasks panel still renders when ETA would cause ZeroDivisionError (done=0)."""
     from rich.console import Console
