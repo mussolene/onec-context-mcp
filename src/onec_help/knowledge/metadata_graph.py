@@ -15,8 +15,8 @@ import re
 import sys
 from typing import Any, cast
 
-from .. import env_config
-from ..config_crawler import ConfigObject, ConfigRelation, CrawlResult
+from ..shared import env_config
+from .config_crawler import ConfigObject, ConfigRelation, CrawlResult
 
 # Типы объектов метаданных по-русски (для понимания конфигурации и единообразия с справкой).
 _OBJECT_TYPE_RU: dict[str, str] = {
@@ -476,7 +476,7 @@ def build_metadata_graph_from_crawl(
     """
     from qdrant_client import models as qmodels  # type: ignore[import-not-found]
 
-    from ..indexer import _upsert_batch_with_retry
+    from ..search_store.indexer import _upsert_batch_with_retry
 
     if not crawl.objects:
         return 0
@@ -888,8 +888,8 @@ def search_metadata_semantic(
         qmodels=qmodels,
     )
     try:
-        from .. import embedding
-        from ..indexer import get_collection_vector_size
+        from ..search_store import embedding
+        from ..search_store.indexer import get_collection_vector_size
 
         coll_dim = get_collection_vector_size(
             collection=collection_name,

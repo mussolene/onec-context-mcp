@@ -4,7 +4,7 @@ from pathlib import Path
 
 from bs4 import BeautifulSoup
 
-from onec_help.html2md import (
+from onec_help.help_core.html2md import (
     _legacy_body_to_md,
     _looks_like_html,
     _looks_like_utf8_mojibake,

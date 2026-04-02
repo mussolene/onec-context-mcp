@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from onec_help.unpack import (
+from onec_help.help_core.unpack import (
     _decode_filename,
     _try_hbk_container,
     _try_unzip,
@@ -88,7 +88,7 @@ def test_unpack_hbk_calls_7z(tmp_path: Path) -> None:
     archive = tmp_path / "test.hbk"
     archive.write_bytes(b"fake")
     out = tmp_path / "out"
-    with patch("onec_help.unpack.subprocess.run") as run:
+    with patch("onec_help.help_core.unpack.subprocess.run") as run:
         run.return_value = MagicMock(returncode=0)
         unpack_hbk(archive, out)
         run.assert_called()
@@ -103,7 +103,7 @@ def test_unpack_hbk_retry_with_tstar(tmp_path: Path) -> None:
     archive = tmp_path / "a.hbk"
     archive.write_bytes(b"x")
     out = tmp_path / "out"
-    with patch("onec_help.unpack.subprocess.run") as run:
+    with patch("onec_help.help_core.unpack.subprocess.run") as run:
         run.return_value = MagicMock(returncode=1, stderr="err")
         run.return_value.returncode = 0
         run.side_effect = [MagicMock(returncode=1), MagicMock(returncode=0)]
@@ -118,7 +118,7 @@ def test_unpack_hbk_error_message(tmp_path: Path) -> None:
     archive = tmp_path / "help.hbk"
     archive.write_bytes(b"not a zip or 7z archive")
     out = tmp_path / "out"
-    with patch("onec_help.unpack.subprocess.run") as run:
+    with patch("onec_help.help_core.unpack.subprocess.run") as run:
         run.return_value = MagicMock(returncode=2, stderr="Headers Error", stdout="")
         run.side_effect = [MagicMock(returncode=2)] * 4 + [MagicMock(returncode=1)]
         # 7z: default, *, cab, zip; then unzip
@@ -134,7 +134,7 @@ def test_unpack_hbk_all_methods_fail_including_offset(tmp_path: Path) -> None:
     archive = tmp_path / "large.hbk"
     archive.write_bytes(b"x" * 3000)
     out = tmp_path / "out"
-    with patch("onec_help.unpack.subprocess.run") as run:
+    with patch("onec_help.help_core.unpack.subprocess.run") as run:
         run.return_value = MagicMock(returncode=2, stderr="Headers Error", stdout="")
         run.side_effect = [MagicMock(returncode=2)] * 4 + [MagicMock(returncode=1)]
         # 7z: default, *, cab, zip; then unzip
@@ -151,7 +151,7 @@ def test_unpack_fallback_zipfile(tmp_path: Path) -> None:
     with zipfile.ZipFile(archive, "w") as zf:
         zf.writestr("file.txt", "hello")
     out = tmp_path / "out"
-    with patch("onec_help.unpack.subprocess.run") as run:
+    with patch("onec_help.help_core.unpack.subprocess.run") as run:
         run.return_value = MagicMock(returncode=1)
         unpack_hbk(archive, out)
     assert (out / "file.txt").read_text() == "hello"
@@ -203,10 +203,10 @@ def test_try_unzip_mocked(tmp_path: Path) -> None:
     archive.write_bytes(b"fake")
     out = tmp_path / "out"
     out.mkdir()
-    with patch("onec_help.unpack.subprocess.run") as run:
+    with patch("onec_help.help_core.unpack.subprocess.run") as run:
         run.return_value = MagicMock(returncode=0)
         assert _try_unzip(archive, out) is True
-    with patch("onec_help.unpack.subprocess.run") as run:
+    with patch("onec_help.help_core.unpack.subprocess.run") as run:
         run.return_value = MagicMock(returncode=1)
         assert _try_unzip(archive, out) is False
 
@@ -219,7 +219,7 @@ def test_unpack_hbk_via_offset(tmp_path: Path) -> None:
     with zipfile.ZipFile(archive, "a", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("PayloadData/index.html", "<h1>OK</h1>")
     out = tmp_path / "out"
-    with patch("onec_help.unpack.subprocess.run") as run:
+    with patch("onec_help.help_core.unpack.subprocess.run") as run:
         run.side_effect = [MagicMock(returncode=1)] * 4  # 7z: default, *, cab, zip
         unpack_hbk(archive, out)
     assert (out / "PayloadData" / "index.html").exists()
@@ -230,7 +230,7 @@ def test_unpack_hbk_non_hbk_suffix_error(tmp_path: Path) -> None:
     archive = tmp_path / "data.bin"
     archive.write_bytes(b"x" * 3000)
     out = tmp_path / "out"
-    with patch("onec_help.unpack.subprocess.run") as run:
+    with patch("onec_help.help_core.unpack.subprocess.run") as run:
         run.side_effect = [MagicMock(returncode=2)] * 4 + [MagicMock(returncode=1)]
         # 7z: default, *, cab, zip; then unzip
         with pytest.raises(RuntimeError) as exc_info:
@@ -285,7 +285,7 @@ def test_unpack_hbk_7z_extracted_oserror_treated_as_false(tmp_path: Path) -> Non
         return orig_iterdir(self)
 
     with patch.object(Path, "iterdir", iterdir_mock):
-        with patch("onec_help.unpack.subprocess.run") as run:
+        with patch("onec_help.help_core.unpack.subprocess.run") as run:
             run.return_value = MagicMock(returncode=1, stderr="err")
             with pytest.raises(RuntimeError):
                 unpack_hbk(archive, out)
@@ -297,7 +297,7 @@ def test_unpack_hbk_7z_not_found_fallback_zipfile(tmp_path: Path) -> None:
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("inner.txt", "content")
     out = tmp_path / "out"
-    with patch("onec_help.unpack.subprocess.run") as run:
+    with patch("onec_help.help_core.unpack.subprocess.run") as run:
         run.side_effect = FileNotFoundError("7z not found")
         unpack_hbk(archive, out)
     assert (out / "inner.txt").read_text() == "content"
@@ -361,7 +361,7 @@ def test_unpack_hbk_via_scan_local_headers(tmp_path: Path) -> None:
     archive = tmp_path / "schemui_ru.hbk"
     archive.write_bytes(padding + entry)
     out = tmp_path / "out"
-    with patch("onec_help.unpack.subprocess.run") as run:
+    with patch("onec_help.help_core.unpack.subprocess.run") as run:
         run.side_effect = [MagicMock(returncode=2)] * 4 + [MagicMock(returncode=1)]
         unpack_hbk(archive, out)
     assert (out / "__categories__").read_bytes() == b"{1,2,3}"

@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
-from .. import env_config
+from ..shared import env_config
 
 
 def _make_args(**kwargs: Any) -> argparse.Namespace:
@@ -62,7 +62,7 @@ def _heartbeat_until(
 
 def _get_memory_store():
     """Return MemoryStore singleton. Wrapper so tests can patch onec_help.cli._get_memory_store and never touch real Qdrant."""
-    from ..memory import get_memory_store
+    from ..knowledge.memory import get_memory_store
 
     return get_memory_store()
 
@@ -76,13 +76,15 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
     """
     from qdrant_client import QdrantClient
 
-    from .. import embedding, metadata_graph, redis_cache
-    from ..config_crawler import (
+    from ..knowledge import metadata_graph
+    from ..knowledge.config_crawler import (
         CrawlResult,
         _looks_like_config_root,
         crawl_config,
         find_config_roots,
     )
+    from ..runtime import redis_cache
+    from ..search_store import embedding
 
     source_dir = getattr(args, "source_dir", None) or env_config.get_config_source_dir()
     if not source_dir:
@@ -132,7 +134,7 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
         )
         return 1
 
-    from .._utils import progress_done, progress_line
+    from ..shared._utils import progress_done, progress_line
 
     started_at = time.time()
     marker = _load_operation_running_path("metadata")
@@ -301,7 +303,7 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
         )
         # Записываем "last run" в Redis — дашборд покажет результат как у standards/snippets
         try:
-            from .. import redis_cache as _rc
+            from ..runtime import redis_cache as _rc
             _rc.metadata_run_record(inserted, started_at)
         except Exception:
             pass
@@ -317,7 +319,7 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
 
 def cmd_unpack(args: argparse.Namespace) -> int:
     """Unpack .hbk with 7z."""
-    from ..unpack import unpack_hbk
+    from ..help_core.unpack import unpack_hbk
 
     try:
         unpack_hbk(args.archive, args.output_dir)
@@ -331,7 +333,7 @@ def cmd_unpack(args: argparse.Namespace) -> int:
 
 def cmd_unpack_diag(args: argparse.Namespace) -> int:
     """Diagnose unpack failure: try each method and print results."""
-    from ..unpack import unpack_diag
+    from ..help_core.unpack import unpack_diag
 
     try:
         unpack_diag(args.archive, args.output_dir or "/tmp/unpack_diag")
@@ -343,7 +345,7 @@ def cmd_unpack_diag(args: argparse.Namespace) -> int:
 
 def cmd_build_docs(args: argparse.Namespace) -> int:
     """Generate Markdown from HTML in project dir."""
-    from ..html2md import build_docs
+    from ..help_core.html2md import build_docs
 
     out = args.output or Path(args.project_dir) / "docs_md"
     out = Path(out)
@@ -358,7 +360,7 @@ def cmd_build_docs(args: argparse.Namespace) -> int:
 
 def cmd_build_index(args: argparse.Namespace) -> int:
     """Build Qdrant index from Markdown (or HTML) in directory."""
-    from ..indexer import build_index
+    from ..search_store.indexer import build_index
 
     docs_dir = args.docs_dir or args.directory
     try:
@@ -381,7 +383,7 @@ def cmd_build_index(args: argparse.Namespace) -> int:
 
 def cmd_add_bm25(args: argparse.Namespace) -> int:
     """Add BM25 sparse vectors to collection(s). Use --collection to target one collection (no global clear)."""
-    from ..indexer import add_bm25_to_all_collections, add_bm25_to_collection
+    from ..search_store.indexer import add_bm25_to_all_collections, add_bm25_to_collection
 
     collection = getattr(args, "collection", None)
     batch_size = getattr(args, "batch_size", 200) or 200
@@ -447,7 +449,7 @@ def _short_error(err: str, max_len: int = 40) -> str:
 def cmd_dashboard(args: argparse.Namespace) -> int:
     """Print dashboard (Tasks, Errors, Database). --once: one frame; else Live refresh.
     Database (Qdrant) and tasks are re-fetched each refresh from env QDRANT_HOST/QDRANT_PORT."""
-    from ..dashboard_data import get_dashboard_data
+    from ..runtime.dashboard_data import get_dashboard_data
     from .dashboard_render import render_dashboard
 
     once = getattr(args, "once", False)
@@ -616,7 +618,7 @@ def cmd_read_hbk_container(args: argparse.Namespace) -> int:
     """Read HBK binary container (source: alkoleft/hbk-viewer); list entities or extract to dir."""
     from pathlib import Path
 
-    from ..hbk_container import (
+    from ..help_core.hbk_container import (
         extract_filestorage_bytes,
         extract_packblock_toc_bytes,
         read_container_from_path,
@@ -672,13 +674,13 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     """Ingest .hbk from multiple read-only source dirs: unpack to temp, build docs, index, cleanup."""
     from pathlib import Path
 
-    from .. import redis_cache
     from ..ingest import (
         discover_version_dirs,
         parse_languages_env,
         parse_source_dirs_env,
         run_ingest,
     )
+    from ..runtime import redis_cache
 
     sources: list[tuple[str, str]] = []
     if getattr(args, "sources", None):
@@ -852,7 +854,7 @@ def _load_json_items(p: Path) -> list[dict]:
 
 
 def _load_folder_items(d: Path, per_func: bool = False) -> list[dict]:
-    from ..snippets_loader import collect_from_folder
+    from ..knowledge.loaders.snippets_loader import collect_from_folder
 
     return collect_from_folder(d, per_function=per_func)
 
@@ -862,8 +864,8 @@ def cmd_load_snippets(args: argparse.Namespace) -> int:
     By default (explicit run) always loads; use --use-cache or SNIPPETS_SKIP_CACHE=0 to only load changed sources."""
     import time
 
-    from .. import redis_cache
-    from .._utils import progress_done, progress_line
+    from ..runtime import redis_cache
+    from ..shared._utils import progress_done, progress_line
     from ..snippets_cache import (
         _file_signature,
         _folder_signature,
@@ -952,7 +954,7 @@ def cmd_load_snippets(args: argparse.Namespace) -> int:
                 print("No snippets to load.", file=sys.stderr)
                 return 0
 
-            from .. import embedding
+            from ..search_store import embedding
 
             if not embedding.is_embedding_available():
                 print(
@@ -1066,7 +1068,7 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
     Sources: path arg, STANDARDS_DIR (only when no repos set), STANDARDS_REPOS (comma-separated).
     By default loads both v8-code-style and v8std. When STANDARDS_REPOS is set, STANDARDS_DIR is used only as copy destination."""
     path_arg = (getattr(args, "standards_path", None) or "").strip()
-    from .. import redis_cache
+    from ..runtime import redis_cache
 
     try:
         redis_cache.require_runtime_redis("load-standards")
@@ -1099,7 +1101,7 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
             if "github.com" not in repo_url:
                 repo_url = f"https://github.com/{repo_url}"
             try:
-                from ..standards_loader import fetch_repo_archive
+                from ..knowledge.loaders.standards_loader import fetch_repo_archive
 
                 d, tmp = fetch_repo_archive(repo_url, subpath=standards_subpath, branch=branch)
                 dirs_to_load.append(d)
@@ -1126,9 +1128,9 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
         import shutil as _shutil
         import time as _time
 
-        from .. import redis_cache
-        from .._utils import progress_done, progress_line
-        from ..standards_loader import collect_from_folder
+        from ..knowledge.loaders.standards_loader import collect_from_folder
+        from ..runtime import redis_cache
+        from ..shared._utils import progress_done, progress_line
 
         started_at = _time.time()
         _marker = _load_operation_running_path("standards")
@@ -1216,7 +1218,7 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
             print("No .md files found.", file=sys.stderr)
             return 0
 
-        from .. import embedding
+        from ..search_store import embedding
 
         if not embedding.is_embedding_available():
             print(
@@ -1271,7 +1273,7 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
 
 def cmd_parse_fastcode(args: argparse.Namespace) -> int:
     """Parse FastCode templates into snippets JSON."""
-    from ..parse_fastcode import run_parse
+    from ..knowledge.loaders.parse_fastcode import run_parse
 
     pages = None
     if args.pages and args.pages.lower() != "auto":
@@ -1295,7 +1297,7 @@ def cmd_parse_fastcode(args: argparse.Namespace) -> int:
 
 def cmd_parse_helpf(args: argparse.Namespace) -> int:
     """Parse HelpF.pro FAQ and Files into snippets JSON."""
-    from ..parse_helpf import run_parse
+    from ..knowledge.loaders.parse_helpf import run_parse
 
     pages = None
     if args.pages and args.pages.lower() != "auto":
@@ -1327,8 +1329,8 @@ def cmd_parse_helpf(args: argparse.Namespace) -> int:
 
 def cmd_watchdog(args: argparse.Namespace) -> int:
     """Run watchdog: monitor .hbk, ingest on change; process pending memory."""
-    from .. import redis_cache
-    from ..watchdog import run_watchdog
+    from ..runtime import redis_cache
+    from ..runtime.watchdog import run_watchdog
 
     try:
         redis_cache.require_runtime_redis("watchdog")

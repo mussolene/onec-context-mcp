@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from onec_help.form_metadata import _text, get_form_metadata, parse_form_xml
+from onec_help.knowledge.form_metadata import _text, get_form_metadata, parse_form_xml
 
 
 def test_get_form_metadata_minimal(tmp_path: Path) -> None:
@@ -71,7 +71,7 @@ def test_form_metadata_fallback_without_defusedxml() -> None:
     import sys
     from unittest.mock import patch
 
-    import onec_help.form_metadata as fm
+    import onec_help.knowledge.form_metadata as fm
 
     # Force the ImportError path (use standard ET)
     with patch.dict(sys.modules, {"defusedxml": None, "defusedxml.ElementTree": None}):

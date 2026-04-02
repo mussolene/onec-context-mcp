@@ -1,6 +1,6 @@
 """Tests for snippet_classifier."""
 
-from onec_help.snippet_classifier import classify_snippet_vs_reference
+from onec_help.knowledge.loaders.snippet_classifier import classify_snippet_vs_reference
 
 
 def test_snippet_code_dominates():

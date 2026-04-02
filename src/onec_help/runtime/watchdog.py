@@ -11,9 +11,9 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from .. import env_config
-from .._utils import safe_error_message
 from ..ingest import _ingest_cache_path, collect_hbk_tasks, discover_version_dirs
+from ..shared import env_config
+from ..shared._utils import safe_error_message
 from . import redis_cache
 
 _STANDARDS_EXT = frozenset({".md"})
@@ -26,7 +26,7 @@ _INGEST_STDERR_LOG_MAX_BYTES = 2 * 1024 * 1024  # 2 MiB; rotate to .old when exc
 def _get_collection_points(collection_name: str) -> int:
     """Return points count for a Qdrant collection, 0 if missing, -1 on error."""
     try:
-        from .. import indexer
+        from ..search_store import indexer
 
         status = indexer.get_index_status(collection=collection_name)
         if "error" in status and not status.get("exists", True):
@@ -600,7 +600,7 @@ def _run_build_metadata_graph(config_dir: str) -> bool:
 def _process_pending_memory() -> None:
     """Process pending memory embeddings via MemoryStore."""
     try:
-        from ..memory import get_memory_store
+        from ..knowledge.memory import get_memory_store
 
         n = get_memory_store().process_pending()
         if n > 0:

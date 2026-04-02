@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from onec_help.cli import (
+from onec_help.interfaces.cli import (
     _build_snippets_sources,
     _categorize_error,
     _env_path,
@@ -49,7 +49,7 @@ def test_cmd_build_docs(help_sample_dir: Path, tmp_path: Path) -> None:
     assert (tmp_path / "out_md").exists()
 
 
-@patch("onec_help.html2md.build_docs")
+@patch("onec_help.help_core.html2md.build_docs")
 def test_cmd_build_docs_error(mock_build_docs, tmp_path: Path) -> None:
     mock_build_docs.side_effect = RuntimeError("disk full")
     tmp_path.mkdir(exist_ok=True)
@@ -81,19 +81,19 @@ def test_cmd_read_hbk_container_empty_toc(
 
 def test_cmd_unpack_diag_success(tmp_path: Path) -> None:
     out = tmp_path / "diag_out"
-    with patch("onec_help.unpack.unpack_diag"):
+    with patch("onec_help.help_core.unpack.unpack_diag"):
         args = make_args(archive="/nonexistent.hbk", output_dir=str(out))
         assert cmd_unpack_diag(args) == 0
 
 
 def test_cmd_unpack_diag_error(tmp_path: Path) -> None:
-    with patch("onec_help.unpack.unpack_diag", side_effect=RuntimeError("diag failed")):
+    with patch("onec_help.help_core.unpack.unpack_diag", side_effect=RuntimeError("diag failed")):
         args = make_args(archive="/nonexistent.hbk", output_dir=str(tmp_path))
         assert cmd_unpack_diag(args) == 1
 
 
 def test_cmd_add_bm25_success() -> None:
-    with patch("onec_help.indexer.add_bm25_to_all_collections", return_value={"onec_help": 100}):
+    with patch("onec_help.search_store.indexer.add_bm25_to_all_collections", return_value={"onec_help": 100}):
         args = make_args()
         with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
             assert cmd_add_bm25(args) == 0
@@ -101,7 +101,7 @@ def test_cmd_add_bm25_success() -> None:
 
 def test_cmd_add_bm25_error() -> None:
     with patch(
-        "onec_help.indexer.add_bm25_to_all_collections",
+        "onec_help.search_store.indexer.add_bm25_to_all_collections",
         side_effect=RuntimeError("Qdrant unavailable"),
     ):
         args = make_args()
@@ -111,7 +111,7 @@ def test_cmd_add_bm25_error() -> None:
 
 def test_cmd_add_bm25_with_collection() -> None:
     """add-bm25 with --collection calls add_bm25_to_collection for that collection only."""
-    with patch("onec_help.indexer.add_bm25_to_collection", return_value=50) as m:
+    with patch("onec_help.search_store.indexer.add_bm25_to_collection", return_value=50) as m:
         args = make_args(collection="onec_config_metadata", batch_size=100)
         with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
             assert cmd_add_bm25(args) == 0
@@ -144,7 +144,7 @@ def test_cmd_unpack_fail() -> None:
     assert cmd_unpack(args) == 1
 
 
-@patch("onec_help.unpack.unpack_hbk")
+@patch("onec_help.help_core.unpack.unpack_hbk")
 def test_cmd_unpack_success(mock_unpack, tmp_path: Path) -> None:
     (tmp_path / "fake.hbk").write_bytes(b"x")
     args = make_args(archive=str(tmp_path / "fake.hbk"), output_dir=str(tmp_path / "out"))
@@ -152,7 +152,7 @@ def test_cmd_unpack_success(mock_unpack, tmp_path: Path) -> None:
     mock_unpack.assert_called_once()
 
 
-@patch("onec_help.indexer.build_index")
+@patch("onec_help.search_store.indexer.build_index")
 def test_cmd_build_index(mock_build, help_sample_dir: Path) -> None:
     mock_build.return_value = 5
     args = make_args(directory=str(help_sample_dir), docs_dir=None)
@@ -160,7 +160,7 @@ def test_cmd_build_index(mock_build, help_sample_dir: Path) -> None:
         assert cmd_build_index(args) == 0
 
 
-@patch("onec_help.indexer.build_index")
+@patch("onec_help.search_store.indexer.build_index")
 def test_cmd_build_index_error(mock_build, help_sample_dir: Path) -> None:
     mock_build.side_effect = RuntimeError("Qdrant unavailable")
     args = make_args(directory=str(help_sample_dir), docs_dir=None)
@@ -361,7 +361,7 @@ def test_cmd_unpack_sync_no_sources_error(mock_run) -> None:
     mock_run.assert_not_called()
 
 
-@patch("onec_help.indexer.build_index")
+@patch("onec_help.search_store.indexer.build_index")
 def test_cmd_build_index_incremental_no_bm25(mock_build, help_sample_dir: Path) -> None:
     """cmd_build_index passes incremental and no_bm25 to build_index."""
     mock_build.return_value = 3
@@ -386,7 +386,7 @@ def test_cmd_load_snippets_path_not_found(capsys: pytest.CaptureFixture[str]) ->
     assert "not found" in capsys.readouterr().err
 
 
-@patch("onec_help.cli._build_snippets_sources", return_value=[])
+@patch("onec_help.interfaces.cli._build_snippets_sources", return_value=[])
 def test_cmd_load_snippets_no_source_returns_zero(
     mock_build, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -407,7 +407,7 @@ def test_cmd_load_standards_path_not_found(capsys: pytest.CaptureFixture[str]) -
     assert "not found" in err or "path" in err.lower() or "Error:" in err
 
 
-@patch("onec_help.parse_fastcode.run_parse", return_value=0)
+@patch("onec_help.knowledge.loaders.parse_fastcode.run_parse", return_value=0)
 def test_cmd_parse_fastcode_pages_range(mock_run, tmp_path: Path) -> None:
     """cmd_parse_fastcode parses pages '1-3' as range."""
     args = make_args(pages="1-3", out=str(tmp_path / "out.json"), delay=0)
@@ -416,7 +416,7 @@ def test_cmd_parse_fastcode_pages_range(mock_run, tmp_path: Path) -> None:
     assert call_kw["pages"] == [1, 2, 3]
 
 
-@patch("onec_help.parse_helpf.run_parse", return_value=0)
+@patch("onec_help.knowledge.loaders.parse_helpf.run_parse", return_value=0)
 def test_cmd_parse_helpf_pages_list(mock_run, tmp_path: Path) -> None:
     """cmd_parse_helpf parses pages '1,2,5' as list."""
     args = make_args(
@@ -453,10 +453,10 @@ def test_cmd_qdrant_restore_file_not_found(
     assert "not found" in capsys.readouterr().err or "Error:" in capsys.readouterr().err
 
 
-@patch("onec_help.cli._clear_before_reinit", return_value=True)
-@patch("onec_help.cli.cmd_load_standards", return_value=0)
-@patch("onec_help.cli.cmd_load_snippets", return_value=0)
-@patch("onec_help.cli.cmd_ingest", return_value=0)
+@patch("onec_help.interfaces.cli._clear_before_reinit", return_value=True)
+@patch("onec_help.interfaces.cli.cmd_load_standards", return_value=0)
+@patch("onec_help.interfaces.cli.cmd_load_snippets", return_value=0)
+@patch("onec_help.interfaces.cli.cmd_ingest", return_value=0)
 def test_cmd_reinit_force(
     mock_ingest, mock_snippets, mock_standards, mock_clear_before_reinit, tmp_path: Path
 ) -> None:
@@ -475,7 +475,7 @@ def test_cmd_reinit_force(
     mock_standards.assert_called()
 
 
-@patch("onec_help.mcp_server.run_mcp")
+@patch("onec_help.interfaces.mcp_server.run_mcp")
 def test_cmd_mcp_runtime_error_fastmcp(mock_run_mcp, capsys: pytest.CaptureFixture[str]) -> None:
     """cmd_mcp returns 1 when run_mcp raises RuntimeError mentioning fastmcp."""
     mock_run_mcp.side_effect = RuntimeError("fastmcp not installed")
@@ -654,7 +654,7 @@ def test_cmd_ingest_exception(mock_run) -> None:
         assert cmd_ingest(args) == 1
 
 
-@patch("onec_help.watchdog.run_watchdog")
+@patch("onec_help.runtime.watchdog.run_watchdog")
 def test_cmd_watchdog_success(mock_run_watchdog) -> None:
     """cmd_watchdog calls run_watchdog with poll/pending intervals and returns 0."""
     args = make_args(poll_interval=120, pending_interval=300)
@@ -666,7 +666,7 @@ def test_cmd_watchdog_success(mock_run_watchdog) -> None:
     )
 
 
-@patch("onec_help.watchdog.run_watchdog")
+@patch("onec_help.runtime.watchdog.run_watchdog")
 def test_cmd_watchdog_once(mock_run_watchdog) -> None:
     """cmd_watchdog with once=True calls run_watchdog with once=True."""
     args = make_args(poll_interval=60, pending_interval=60, once=True)
@@ -678,7 +678,7 @@ def test_cmd_watchdog_once(mock_run_watchdog) -> None:
     )
 
 
-@patch("onec_help.watchdog.run_watchdog")
+@patch("onec_help.runtime.watchdog.run_watchdog")
 def test_cmd_watchdog_exception(mock_run_watchdog) -> None:
     """cmd_watchdog returns 1 when run_watchdog raises."""
     mock_run_watchdog.side_effect = RuntimeError("watchdog error")
@@ -686,7 +686,7 @@ def test_cmd_watchdog_exception(mock_run_watchdog) -> None:
     assert cmd_watchdog(args) == 1
 
 
-@patch("onec_help.redis_cache.require_runtime_redis")
+@patch("onec_help.runtime.redis_cache.require_runtime_redis")
 def test_cmd_watchdog_requires_redis(mock_require) -> None:
     """cmd_watchdog fails fast when Redis is unavailable."""
     mock_require.side_effect = RuntimeError("Redis is required for watchdog.")
@@ -694,7 +694,7 @@ def test_cmd_watchdog_requires_redis(mock_require) -> None:
     assert cmd_watchdog(args) == 1
 
 
-@patch("onec_help.watchdog.run_watchdog")
+@patch("onec_help.runtime.watchdog.run_watchdog")
 def test_cmd_watchdog_keyboard_interrupt(mock_run_watchdog) -> None:
     """cmd_watchdog returns 0 on KeyboardInterrupt (graceful exit)."""
     mock_run_watchdog.side_effect = KeyboardInterrupt
@@ -702,7 +702,7 @@ def test_cmd_watchdog_keyboard_interrupt(mock_run_watchdog) -> None:
     assert cmd_watchdog(args) == 0
 
 
-@patch("onec_help.mcp_server.run_mcp")
+@patch("onec_help.interfaces.mcp_server.run_mcp")
 def test_cmd_mcp_run_raises(mock_run_mcp) -> None:
     """When run_mcp raises (e.g. fastmcp required), cmd_mcp returns 1."""
     mock_run_mcp.side_effect = RuntimeError("fastmcp required: pip install fastmcp")
@@ -721,8 +721,8 @@ def test_cmd_load_snippets_no_source(capsys) -> None:
     # Unset defaults: env_config uses data/snippets when SNIPPETS_DIR is empty
     with (
         patch.dict("os.environ", {"SNIPPETS_JSON_PATH": "", "SNIPPETS_DIR": ""}, clear=False),
-        patch("onec_help.env_config.get_snippets_dir", return_value=""),
-        patch("onec_help.env_config.get_snippets_json_path", return_value=""),
+        patch("onec_help.shared.env_config.get_snippets_dir", return_value=""),
+        patch("onec_help.shared.env_config.get_snippets_json_path", return_value=""),
     ):
         args = make_args(snippets_file=None, from_project=False)
         assert cmd_load_snippets(args) == 0
@@ -738,7 +738,7 @@ def test_cmd_load_snippets_invalid_json(tmp_path: Path) -> None:
     assert cmd_load_snippets(args) == 1
 
 
-@patch("onec_help.redis_cache.require_runtime_redis")
+@patch("onec_help.runtime.redis_cache.require_runtime_redis")
 def test_cmd_load_snippets_requires_redis(mock_require, tmp_path: Path) -> None:
     """cmd_load_snippets fails fast when Redis is unavailable."""
     mock_require.side_effect = RuntimeError("Redis is required for load-snippets.")
@@ -756,8 +756,8 @@ def test_cmd_load_snippets_not_array(tmp_path: Path) -> None:
     assert cmd_load_snippets(args) == 1
 
 
-@patch("onec_help.embedding.is_embedding_available", return_value=True)
-@patch("onec_help.cli._get_memory_store")
+@patch("onec_help.search_store.embedding.is_embedding_available", return_value=True)
+@patch("onec_help.interfaces.cli._get_memory_store")
 def test_cmd_load_snippets_success(mock_get_store, _mock_embed_avail, tmp_path: Path) -> None:
     """cmd_load_snippets loads snippets and prints count."""
     snippet_file = tmp_path / "snippets.json"
@@ -781,8 +781,8 @@ def test_main_load_snippets(tmp_path: Path) -> None:
     snippet_file = tmp_path / "snippets.json"
     snippet_file.write_text('[{"title": "X", "code_snippet": "x"}]', encoding="utf-8")
     with (
-        patch("onec_help.embedding.is_embedding_available", return_value=True),
-        patch("onec_help.cli._get_memory_store") as mock_get,
+        patch("onec_help.search_store.embedding.is_embedding_available", return_value=True),
+        patch("onec_help.interfaces.cli._get_memory_store") as mock_get,
     ):
         mock_store = MagicMock()
         mock_store.upsert_curated_snippets.return_value = 1
@@ -796,13 +796,13 @@ def test_cmd_load_snippets_exception(tmp_path: Path) -> None:
     """cmd_load_snippets returns 1 when get_memory_store raises."""
     snippet_file = tmp_path / "snippets.json"
     snippet_file.write_text('[{"title": "X", "code_snippet": "x"}]', encoding="utf-8")
-    with patch("onec_help.cli._get_memory_store", side_effect=RuntimeError("no qdrant")):
+    with patch("onec_help.interfaces.cli._get_memory_store", side_effect=RuntimeError("no qdrant")):
         args = make_args(snippets_file=str(snippet_file))
         assert cmd_load_snippets(args) == 1
 
 
-@patch("onec_help.embedding.is_embedding_available", return_value=True)
-@patch("onec_help.cli._get_memory_store")
+@patch("onec_help.search_store.embedding.is_embedding_available", return_value=True)
+@patch("onec_help.interfaces.cli._get_memory_store")
 def test_cmd_load_snippets_from_folder(mock_get_store, _mock_embed_avail, tmp_path: Path) -> None:
     """cmd_load_snippets loads from folder (*.bsl, *.1c, *.json) when path is directory."""
     (tmp_path / "example.bsl").write_text("Сообщить(1);", encoding="utf-8")
@@ -822,8 +822,8 @@ def test_cmd_load_snippets_from_folder(mock_get_store, _mock_embed_avail, tmp_pa
     assert titles == {"example", "other", "FromJSON"}
 
 
-@patch("onec_help.embedding.is_embedding_available", return_value=True)
-@patch("onec_help.cli._get_memory_store")
+@patch("onec_help.search_store.embedding.is_embedding_available", return_value=True)
+@patch("onec_help.interfaces.cli._get_memory_store")
 def test_cmd_load_snippets_type_split(mock_get_store, _mock_embed_avail, tmp_path: Path) -> None:
     """cmd_load_snippets splits items by type into snippets and community_help domains."""
     mixed = tmp_path / "mixed.json"
@@ -983,7 +983,7 @@ def test_cmd_qdrant_restore_http_error(mock_urlopen, tmp_path: Path) -> None:
         assert cmd_qdrant_restore(args) == 1
 
 
-@patch("onec_help.parse_fastcode.run_parse")
+@patch("onec_help.knowledge.loaders.parse_fastcode.run_parse")
 def test_cmd_parse_fastcode(mock_run, tmp_path: Path) -> None:
     """cmd_parse_fastcode delegates to run_parse with correct args."""
     mock_run.return_value = 0
@@ -998,7 +998,7 @@ def test_cmd_parse_fastcode(mock_run, tmp_path: Path) -> None:
     assert call_kw["fetch_detail"] is True
 
 
-@patch("onec_help.parse_fastcode.run_parse")
+@patch("onec_help.knowledge.loaders.parse_fastcode.run_parse")
 def test_cmd_parse_fastcode_auto_pages(mock_run, tmp_path: Path) -> None:
     """cmd_parse_fastcode with pages=auto passes None."""
     mock_run.return_value = 0
@@ -1010,7 +1010,7 @@ def test_cmd_parse_fastcode_auto_pages(mock_run, tmp_path: Path) -> None:
     assert mock_run.call_args[1]["pages"] is None
 
 
-@patch("onec_help.parse_helpf.run_parse")
+@patch("onec_help.knowledge.loaders.parse_helpf.run_parse")
 def test_cmd_parse_helpf(mock_run, tmp_path: Path) -> None:
     """cmd_parse_helpf delegates to run_parse."""
     mock_run.return_value = 0
@@ -1031,7 +1031,7 @@ def test_cmd_parse_helpf(mock_run, tmp_path: Path) -> None:
 
 def test_cmd_load_standards_no_source(capsys) -> None:
     """cmd_load_standards returns 0 when no path and no STANDARDS_* (default disabled)."""
-    import onec_help.cli as cli_mod
+    import onec_help.interfaces.cli as cli_mod
 
     args = make_args(standards_path=None)
     # Unset defaults: env_config uses data/standards when STANDARDS_DIR is empty
@@ -1042,16 +1042,16 @@ def test_cmd_load_standards_no_source(capsys) -> None:
             clear=False,
         ),
         patch.object(cli_mod, "_DEFAULT_STANDARDS_REPOS", ""),
-        patch("onec_help.env_config.get_standards_dir", return_value=""),
-        patch("onec_help.env_config.get_standards_repos", return_value=""),
+        patch("onec_help.shared.env_config.get_standards_dir", return_value=""),
+        patch("onec_help.shared.env_config.get_standards_repos", return_value=""),
     ):
         assert cmd_load_standards(args) == 0
     err = capsys.readouterr().err
     assert "No source" in err and ("STANDARDS_REPOS" in err or "STANDARDS_DIR" in err)
 
 
-@patch("onec_help.embedding.is_embedding_available", return_value=True)
-@patch("onec_help.cli._get_memory_store")
+@patch("onec_help.search_store.embedding.is_embedding_available", return_value=True)
+@patch("onec_help.interfaces.cli._get_memory_store")
 def test_cmd_load_standards_success(mock_get_store, _mock_embed_avail, tmp_path: Path) -> None:
     """cmd_load_standards loads markdown and upserts with domain=standards."""
     (tmp_path / "rule.md").write_text("# Проверка\n\nОписание правила.", encoding="utf-8")
@@ -1065,9 +1065,9 @@ def test_cmd_load_standards_success(mock_get_store, _mock_embed_avail, tmp_path:
     assert call_kw.get("domain") == "standards"
 
 
-@patch("onec_help.embedding.is_embedding_available", return_value=True)
-@patch("onec_help.cli._get_memory_store")
-@patch("onec_help.standards_loader.fetch_repo_archive")
+@patch("onec_help.search_store.embedding.is_embedding_available", return_value=True)
+@patch("onec_help.interfaces.cli._get_memory_store")
+@patch("onec_help.knowledge.loaders.standards_loader.fetch_repo_archive")
 def test_cmd_load_standards_from_repo(
     mock_fetch, mock_get_store, _mock_embed_avail, tmp_path: Path
 ) -> None:
@@ -1106,9 +1106,9 @@ def test_cmd_load_standards_from_repo(
     mock_store.upsert_curated_snippets.assert_called_once()
 
 
-@patch("onec_help.embedding.is_embedding_available", return_value=True)
-@patch("onec_help.cli._get_memory_store")
-@patch("onec_help.standards_loader.fetch_repo_archive")
+@patch("onec_help.search_store.embedding.is_embedding_available", return_value=True)
+@patch("onec_help.interfaces.cli._get_memory_store")
+@patch("onec_help.knowledge.loaders.standards_loader.fetch_repo_archive")
 def test_cmd_load_standards_from_repos(
     mock_fetch, mock_get_store, _mock_embed_avail, tmp_path: Path
 ) -> None:
@@ -1152,20 +1152,20 @@ def test_cmd_load_standards_from_repos(
     mock_store.upsert_curated_snippets.assert_called_once()
 
 
-@patch("onec_help.dashboard_data.get_dashboard_data")
+@patch("onec_help.runtime.dashboard_data.get_dashboard_data")
 def test_main_dashboard(mock_get_data) -> None:
     """main() parses argv and invokes cmd_dashboard."""
     mock_get_data.return_value = _minimal_dashboard_data(
         collections=[{"name": "onec_help", "points_count": 10}],
     )
     with patch("sys.argv", ["onec_help", "dashboard", "--once"]):
-        from onec_help.cli import main
+        from onec_help.interfaces.cli import main
 
         assert main() == 0
     mock_get_data.assert_called()
 
 
-@patch("onec_help.parse_fastcode.run_parse")
+@patch("onec_help.knowledge.loaders.parse_fastcode.run_parse")
 def test_main_parse_fastcode(mock_run, tmp_path: Path) -> None:
     """main() with parse-fastcode invokes run_parse."""
     mock_run.return_value = 0
@@ -1176,7 +1176,7 @@ def test_main_parse_fastcode(mock_run, tmp_path: Path) -> None:
     assert mock_run.call_args[1]["out"] == out
 
 
-@patch("onec_help.parse_helpf.run_parse")
+@patch("onec_help.knowledge.loaders.parse_helpf.run_parse")
 def test_main_parse_helpf(mock_run, tmp_path: Path) -> None:
     """main() with parse-helpf invokes run_parse."""
     mock_run.return_value = 0
@@ -1207,14 +1207,14 @@ def _minimal_dashboard_data(**overrides):
     return data
 
 
-@patch("onec_help.metadata_graph.build_metadata_graph_from_crawl", return_value=1)
-@patch("onec_help.embedding.is_embedding_available", return_value=True)
-@patch("onec_help.config_crawler.crawl_config")
+@patch("onec_help.knowledge.metadata_graph.build_metadata_graph_from_crawl", return_value=1)
+@patch("onec_help.search_store.embedding.is_embedding_available", return_value=True)
+@patch("onec_help.knowledge.config_crawler.crawl_config")
 def test_cmd_build_metadata_graph_success(
     mock_crawl, _mock_embed_avail, mock_build, tmp_path: Path
 ) -> None:
     """cmd_build_metadata_graph calls crawl_config and metadata_graph.build_metadata_graph_from_crawl."""
-    from onec_help.config_crawler import ConfigObject, CrawlResult
+    from onec_help.knowledge.config_crawler import ConfigObject, CrawlResult
 
     crawl = CrawlResult(
         root_dir=tmp_path,
@@ -1240,7 +1240,7 @@ def test_cmd_build_metadata_graph_success(
         },
         clear=False,
     ):
-        with patch("onec_help.config_crawler.find_config_roots", return_value=[tmp_path]):
+        with patch("onec_help.knowledge.config_crawler.find_config_roots", return_value=[tmp_path]):
             assert cmd_build_metadata_graph(args) == 0
     mock_crawl.assert_called_once()
     mock_build.assert_called_once()
@@ -1251,13 +1251,13 @@ def test_cmd_build_metadata_graph_no_source_dir_returns_error(
 ) -> None:
     """cmd_build_metadata_graph returns 1 when no source_dir and get_config_source_dir returns empty."""
     args = make_args(source_dir=None, recreate=True)
-    with patch("onec_help.cli.env_config.get_config_source_dir", return_value=""):
+    with patch("onec_help.interfaces.cli.env_config.get_config_source_dir", return_value=""):
         assert cmd_build_metadata_graph(args) == 1
     err = capsys.readouterr().err
     assert "configuration source dir not set" in err or "Pass path" in err
 
 
-@patch("onec_help.dashboard_data.get_dashboard_data")
+@patch("onec_help.runtime.dashboard_data.get_dashboard_data")
 def test_cmd_dashboard_not_exists(mock_get_data, capsys: pytest.CaptureFixture[str]) -> None:
     """dashboard with no index still renders (No collections, empty tasks) and returns 0."""
     mock_get_data.return_value = _minimal_dashboard_data()
@@ -1266,7 +1266,7 @@ def test_cmd_dashboard_not_exists(mock_get_data, capsys: pytest.CaptureFixture[s
     assert "Tasks" in out or "Ingest" in out  # dashboard rendered
 
 
-@patch("onec_help.dashboard_data.get_dashboard_data")
+@patch("onec_help.runtime.dashboard_data.get_dashboard_data")
 def test_cmd_dashboard_error(mock_get_data, capsys: pytest.CaptureFixture[str]) -> None:
     """dashboard with index_status error returns 1 and prints error."""
     mock_get_data.return_value = _minimal_dashboard_data(
@@ -1310,7 +1310,7 @@ def test_build_snippets_sources_snippets_dir(tmp_path: Path) -> None:
     assert any(s[1] == "json" for s in sources)
 
 
-@patch("onec_help.dashboard_data.get_dashboard_data")
+@patch("onec_help.runtime.dashboard_data.get_dashboard_data")
 def test_cmd_dashboard_once_returns_zero_and_prints(
     mock_get_data, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1341,9 +1341,9 @@ def test_cmd_dashboard_without_rich_returns_one(capsys: pytest.CaptureFixture[st
     assert "rich" in err.lower()
 
 
-@patch("onec_help.cli.cmd_load_standards", return_value=0)
-@patch("onec_help.cli.cmd_load_snippets", return_value=0)
-@patch("onec_help.cli.cmd_ingest", return_value=0)
+@patch("onec_help.interfaces.cli.cmd_load_standards", return_value=0)
+@patch("onec_help.interfaces.cli.cmd_load_snippets", return_value=0)
+@patch("onec_help.interfaces.cli.cmd_ingest", return_value=0)
 def test_cmd_init_runs_three_tasks(
     mock_ingest,
     mock_snippets,
@@ -1357,8 +1357,8 @@ def test_cmd_init_runs_three_tasks(
     assert mock_standards.call_count == 1
 
 
-@patch("onec_help.cli.cmd_init", return_value=0)
-@patch("onec_help.cli._collection_has_data", return_value=True)
+@patch("onec_help.interfaces.cli.cmd_init", return_value=0)
+@patch("onec_help.interfaces.cli._collection_has_data", return_value=True)
 def test_cmd_reinit_skips_wipe_when_has_data_no_force(
     mock_has_data,
     mock_init,
@@ -1370,9 +1370,9 @@ def test_cmd_reinit_skips_wipe_when_has_data_no_force(
     mock_has_data.assert_called()
 
 
-@patch("onec_help.cli.cmd_load_standards", return_value=0)
-@patch("onec_help.cli.cmd_load_snippets", return_value=0)
-@patch("onec_help.cli.cmd_ingest", return_value=1)
+@patch("onec_help.interfaces.cli.cmd_load_standards", return_value=0)
+@patch("onec_help.interfaces.cli.cmd_load_snippets", return_value=0)
+@patch("onec_help.interfaces.cli.cmd_ingest", return_value=1)
 def test_cmd_init_returns_one_when_any_task_fails(
     mock_ingest,
     mock_snippets,
@@ -1383,11 +1383,11 @@ def test_cmd_init_returns_one_when_any_task_fails(
     assert cmd_init(args) == 1
 
 
-@patch("onec_help.cli.cmd_load_standards", return_value=0)
-@patch("onec_help.cli.cmd_load_snippets", return_value=0)
-@patch("onec_help.cli.cmd_ingest", return_value=0)
-@patch("onec_help.cli._clear_before_reinit")
-@patch("onec_help.cli._collection_has_data", return_value=False)
+@patch("onec_help.interfaces.cli.cmd_load_standards", return_value=0)
+@patch("onec_help.interfaces.cli.cmd_load_snippets", return_value=0)
+@patch("onec_help.interfaces.cli.cmd_ingest", return_value=0)
+@patch("onec_help.interfaces.cli._clear_before_reinit")
+@patch("onec_help.interfaces.cli._collection_has_data", return_value=False)
 def test_cmd_reinit_force_clears_and_runs_tasks(
     mock_has_data,
     mock_clear,

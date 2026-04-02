@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from onec_help.watchdog import (
+from onec_help.runtime.watchdog import (
     _process_pending_memory,
     _run_build_metadata_graph,
     _run_ingest,
@@ -37,16 +37,16 @@ def _watchdog_loop_mocks(
             raise raise_exc("stop")
 
     with (
-        patch("onec_help.watchdog._load_watchdog_state", return_value={}),
-        patch("onec_help.watchdog._save_watchdog_state"),
-        patch("onec_help.watchdog.time.sleep", side_effect=sleep),
-        patch("onec_help.watchdog.time.time", return_value=0.0),
-        patch("onec_help.watchdog._run_ingest", side_effect=run_ingest),
-        patch("onec_help.watchdog._run_load_standards", side_effect=run_load_standards),
-        patch("onec_help.watchdog._run_load_snippets"),
-        patch("onec_help.watchdog._run_build_metadata_graph"),
-        patch("onec_help.watchdog._process_pending_memory"),
-        patch("onec_help.watchdog._scan_config_dir_stable", return_value={}),
+        patch("onec_help.runtime.watchdog._load_watchdog_state", return_value={}),
+        patch("onec_help.runtime.watchdog._save_watchdog_state"),
+        patch("onec_help.runtime.watchdog.time.sleep", side_effect=sleep),
+        patch("onec_help.runtime.watchdog.time.time", return_value=0.0),
+        patch("onec_help.runtime.watchdog._run_ingest", side_effect=run_ingest),
+        patch("onec_help.runtime.watchdog._run_load_standards", side_effect=run_load_standards),
+        patch("onec_help.runtime.watchdog._run_load_snippets"),
+        patch("onec_help.runtime.watchdog._run_build_metadata_graph"),
+        patch("onec_help.runtime.watchdog._process_pending_memory"),
+        patch("onec_help.runtime.watchdog._scan_config_dir_stable", return_value={}),
     ):
         yield
 
@@ -135,7 +135,7 @@ def test_run_watchdog_triggers_ingest_on_hbk_change(tmp_path: Path) -> None:
 
 def test_run_ingest_success() -> None:
     """_run_ingest runs subprocess without error when ingest succeeds."""
-    with patch("onec_help.watchdog.subprocess.run") as mock_run:
+    with patch("onec_help.runtime.watchdog.subprocess.run") as mock_run:
         mock_run.return_value = type("R", (), {"returncode": 0, "stdout": b"", "stderr": b""})()
         _run_ingest()
     mock_run.assert_called_once()
@@ -146,7 +146,7 @@ def test_run_ingest_success() -> None:
 
 def test_run_ingest_failure(capsys: pytest.CaptureFixture[str]) -> None:
     """_run_ingest logs when subprocess fails."""
-    with patch("onec_help.watchdog.subprocess.run") as mock_run:
+    with patch("onec_help.runtime.watchdog.subprocess.run") as mock_run:
         mock_run.side_effect = OSError("7z not found")
         _run_ingest()
     err = capsys.readouterr().err
@@ -155,7 +155,7 @@ def test_run_ingest_failure(capsys: pytest.CaptureFixture[str]) -> None:
 
 def test_process_pending_memory_success(capsys: pytest.CaptureFixture[str]) -> None:
     """_process_pending_memory logs when entries are processed."""
-    with patch("onec_help.memory.get_memory_store") as mock_get:
+    with patch("onec_help.knowledge.memory.get_memory_store") as mock_get:
         mock_store = type("Store", (), {"process_pending": lambda self: 3})()
         mock_get.return_value = mock_store
         _process_pending_memory()
@@ -165,7 +165,7 @@ def test_process_pending_memory_success(capsys: pytest.CaptureFixture[str]) -> N
 
 def test_process_pending_memory_no_entries() -> None:
     """_process_pending_memory does not log when 0 entries processed."""
-    with patch("onec_help.memory.get_memory_store") as mock_get:
+    with patch("onec_help.knowledge.memory.get_memory_store") as mock_get:
         mock_store = type("Store", (), {"process_pending": lambda self: 0})()
         mock_get.return_value = mock_store
         _process_pending_memory()
@@ -174,7 +174,7 @@ def test_process_pending_memory_no_entries() -> None:
 
 def test_process_pending_memory_import_from_memory() -> None:
     """_process_pending_memory imports get_memory_store from memory module."""
-    with patch("onec_help.memory.get_memory_store") as mock_get:
+    with patch("onec_help.knowledge.memory.get_memory_store") as mock_get:
         mock_store = type("Store", (), {"process_pending": lambda self: 0})()
         mock_get.return_value = mock_store
         _process_pending_memory()
@@ -238,7 +238,7 @@ def test_run_watchdog_triggers_load_standards_when_dir_changes(tmp_path: Path) -
 
 def test_run_load_standards_success() -> None:
     """_run_load_standards runs subprocess with path."""
-    with patch("onec_help.watchdog.subprocess.run") as mock_run:
+    with patch("onec_help.runtime.watchdog.subprocess.run") as mock_run:
         mock_run.return_value = type("R", (), {"returncode": 0})()
         _run_load_standards("/data/standards")
     mock_run.assert_called_once()
@@ -249,7 +249,7 @@ def test_run_load_standards_success() -> None:
 
 def test_run_load_snippets_success() -> None:
     """_run_load_snippets runs subprocess with path."""
-    with patch("onec_help.watchdog.subprocess.run") as mock_run:
+    with patch("onec_help.runtime.watchdog.subprocess.run") as mock_run:
         mock_run.return_value = type("R", (), {"returncode": 0})()
         _run_load_snippets("/data/snippets")
     mock_run.assert_called_once()
@@ -258,7 +258,7 @@ def test_run_load_snippets_success() -> None:
 
 def test_run_build_metadata_graph_success() -> None:
     """_run_build_metadata_graph runs subprocess with path."""
-    with patch("onec_help.watchdog.subprocess.run") as mock_run:
+    with patch("onec_help.runtime.watchdog.subprocess.run") as mock_run:
         mock_run.return_value = type("R", (), {"returncode": 0})()
         _run_build_metadata_graph("/data/config")
     mock_run.assert_called_once()

@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-import onec_help.parse_its_v8std as mod
+import onec_help.knowledge.loaders.parse_its_v8std as mod
 
 
 def test_safe_folder_name_normal() -> None:

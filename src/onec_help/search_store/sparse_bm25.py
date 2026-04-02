@@ -25,7 +25,7 @@ def _stemmer():
     """Lazy Snowball stemmer (Russian). Latin tokens pass through unchanged."""
     global _USE_STEMMING, _STEMMER
     if _USE_STEMMING is None:
-        from .. import env_config
+        from ..shared import env_config
 
         _USE_STEMMING = env_config.get_bm25_stemming()
     if _USE_STEMMING and _STEMMER is None:
@@ -163,7 +163,7 @@ def load_vocab(
 
 def bm25_vocab_path(collection: str = "onec_help") -> Path:
     """Default path for BM25 vocab file."""
-    from .. import env_config
+    from ..shared import env_config
 
     base = Path(env_config.get_data_dir())
     if not base.is_absolute():

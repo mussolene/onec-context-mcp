@@ -787,7 +787,7 @@ def crawl_config(root_dir: Path) -> CrawlResult:
     # Связь объект → форма: parent_id у формы, relations для графа.
     relations: list[ConfigRelation] = []
     try:
-        from ..form_metadata import get_form_metadata as _get_form_metadata
+        from .form_metadata import get_form_metadata as _get_form_metadata
     except ImportError:
         _get_form_metadata = None
 

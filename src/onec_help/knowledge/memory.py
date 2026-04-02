@@ -32,7 +32,7 @@ def _get_memory_qdrant_client() -> Any:
         if _memory_qdrant_client is None:
             from qdrant_client import QdrantClient as _QdrantClient
 
-            from .. import env_config
+            from ..shared import env_config
 
             _memory_qdrant_client = _QdrantClient(
                 host=env_config.get_qdrant_host(),
@@ -47,7 +47,7 @@ def get_memory_store(base_path: Path | None = None) -> "MemoryStore":
     global _store
     with _store_lock:
         if _store is None:
-            from .. import env_config
+            from ..shared import env_config
 
             path = base_path
             if path is None:
@@ -61,7 +61,7 @@ def get_memory_store(base_path: Path | None = None) -> "MemoryStore":
 
 
 def _is_memory_enabled() -> bool:
-    from .. import env_config
+    from ..shared import env_config
 
     return env_config.get_memory_enabled()
 
@@ -152,7 +152,7 @@ class MemoryStore:
             pass
 
     def _write_long_or_pending(self, event_type: str, payload: dict[str, Any], ts: float) -> None:
-        from .. import embedding
+        from ..search_store import embedding
 
         if not embedding.is_embedding_available():
             self._append_pending(payload, ts)
@@ -242,7 +242,7 @@ class MemoryStore:
     def process_pending(self) -> int:
         """Process pending_memory.json: embed and upsert to onec_help_memory when embedding available.
         Returns number of processed items. Uses get_embedding_batch for throughput."""
-        from .. import embedding
+        from ..search_store import embedding
 
         if not embedding.is_embedding_available():
             return 0
@@ -310,7 +310,7 @@ class MemoryStore:
         progress_callback: optional (done, total, skipped) called periodically.
         domain: 'snippets' | 'community_help' | 'standards' — filter for search_long.
         Uses get_embedding_batch for throughput (same benefits as help indexer)."""
-        from .. import embedding
+        from ..search_store import embedding
 
         if not embedding.is_embedding_available():
             return 0
@@ -395,7 +395,7 @@ class MemoryStore:
         try:
             from qdrant_client.models import FieldCondition, Filter, MatchValue, SparseVector
 
-            from .. import embedding
+            from ..search_store import embedding
 
             client = _get_memory_qdrant_client()
             if not client.collection_exists(_MEMORY_COLLECTION):
@@ -421,7 +421,7 @@ class MemoryStore:
             # BM25 hybrid leg
             bm25_pts: list[Any] = []
             try:
-                from ..sparse_bm25 import bm25_vocab_path, load_vocab, query_vector
+                from ..search_store.sparse_bm25 import bm25_vocab_path, load_vocab, query_vector
 
                 vp = bm25_vocab_path(_MEMORY_COLLECTION)
                 if vp.exists():

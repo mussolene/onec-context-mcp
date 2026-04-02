@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from onec_help.categories import (
+from onec_help.help_core.categories import (
     build_tree,
     extract_html_title,
     find_categories_root,

@@ -11,7 +11,7 @@ _DEFAULT_DB = "mcp_metrics.db"
 
 def _use_redis() -> bool:
     """True if Redis should be used for MCP metrics. False only when MCP_METRICS_DB is set (force SQLite)."""
-    from .. import env_config
+    from ..shared import env_config
 
     if env_config.get_mcp_metrics_db():
         return False  # explicit SQLite path
@@ -44,7 +44,7 @@ def record_request(
 
 def _metrics_db_path() -> str:
     """Path to SQLite DB. From env_config or next to ingest cache."""
-    from .. import env_config
+    from ..shared import env_config
 
     path = env_config.get_mcp_metrics_db()
     if path:
@@ -87,7 +87,7 @@ def get_metrics() -> dict[str, Any]:
     """Return total count and count in last hour. For dashboard. Reads from Redis when available."""
     if _use_redis():
         try:
-            from .. import redis_cache
+            from . import redis_cache
 
             return redis_cache.mcp_metrics_get()
         except Exception:

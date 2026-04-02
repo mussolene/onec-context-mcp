@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from onec_help.config_crawler import ConfigObject, ConfigRelation, CrawlResult
-from onec_help.metadata_graph import (
+from onec_help.knowledge.config_crawler import ConfigObject, ConfigRelation, CrawlResult
+from onec_help.knowledge.metadata_graph import (
     _edge_payload_from_relation,
     _node_payload_from_object,
     _object_to_markdown,

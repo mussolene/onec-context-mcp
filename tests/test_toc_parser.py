@@ -1,6 +1,6 @@
 """Tests for toc_parser (PackBlock TOC from hbk-viewer)."""
 
-from onec_help.toc_parser import (
+from onec_help.help_core.toc_parser import (
     load_toc_json,
     parse_toc_content,
     path_to_section_and_title_from_toc,

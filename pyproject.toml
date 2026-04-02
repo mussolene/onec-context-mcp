@@ -33,7 +33,7 @@ dev = [
 ]
 
 [project.scripts]
-onec_help = "onec_help.cli:main"
+onec_help = "onec_help.interfaces.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

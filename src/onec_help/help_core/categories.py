@@ -4,7 +4,7 @@ import os
 import re
 from pathlib import Path
 
-from ..html2md import read_file_with_encoding_fallback
+from .html2md import read_file_with_encoding_fallback
 
 
 def parse_content_file(content_path) -> list:

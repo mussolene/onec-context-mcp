@@ -46,7 +46,7 @@ def _get_http_client() -> Any:
                 )
     return _http_client
 
-from .. import env_config as _env_config  # noqa: E402
+from ..shared import env_config as _env_config  # noqa: E402
 
 
 def sanitize_text_for_embedding(text: str) -> str:
@@ -357,7 +357,7 @@ def _get_dimension_from_qdrant(collection: str | None = None) -> int | None:
     if collection is None and _cached_qdrant_dimension is not None:
         return _cached_qdrant_dimension
     try:
-        from .. import indexer
+        from . import indexer
 
         for coll in (main_coll, "onec_help", "onec_help_memory"):
             dim = indexer.get_collection_vector_size(collection=coll)

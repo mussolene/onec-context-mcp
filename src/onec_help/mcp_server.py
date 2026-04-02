@@ -1,10 +1,6 @@
-"""Compatibility alias for MCP server entry points."""
+"""Bootstrap entry point for ``python -m onec_help.mcp_server``."""
 
-import sys
-
-from .interfaces import mcp_server as _impl
+from .interfaces.mcp_server import _main
 
 if __name__ == "__main__":
-    _impl._main()
-
-sys.modules[__name__] = _impl
+    _main()

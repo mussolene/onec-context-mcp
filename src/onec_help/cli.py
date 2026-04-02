@@ -1,10 +1,6 @@
-"""Compatibility alias for CLI entry points."""
+"""Bootstrap entry point for ``python -m onec_help.cli``."""
 
-import sys
-
-from .interfaces import cli as _impl
+from .interfaces.cli import main
 
 if __name__ == "__main__":
-    raise SystemExit(_impl.main())
-
-sys.modules[__name__] = _impl
+    raise SystemExit(main())

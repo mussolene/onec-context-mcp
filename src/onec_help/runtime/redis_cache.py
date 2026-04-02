@@ -14,7 +14,7 @@ import time
 from collections.abc import Iterator
 from typing import Any
 
-from .. import env_config
+from ..shared import env_config
 
 _LOG = logging.getLogger(__name__)
 

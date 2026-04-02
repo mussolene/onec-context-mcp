@@ -3,7 +3,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from onec_help._utils import (
+from onec_help.shared._utils import (
     dir_size_on_disk,
     format_duration,
     mask_path_for_log,
@@ -51,7 +51,7 @@ def test_progress_line_non_tty_no_overwrite() -> None:
 
 def test_progress_done_writes_newline() -> None:
     """progress_done writes message with newline (fallback path when Rich disabled)."""
-    with patch("onec_help._utils._rich_console", return_value=None), patch("sys.stderr") as stderr:
+    with patch("onec_help.shared._utils._rich_console", return_value=None), patch("sys.stderr") as stderr:
         progress_done("done")
         stderr.write.assert_called_once()
         assert stderr.write.call_args[0][0].endswith("\n")
@@ -63,7 +63,7 @@ def test_progress_line_uses_rich_when_tty() -> None:
     fake_console = MagicMock()
     with patch("sys.stderr") as stderr:
         stderr.isatty.return_value = True
-        with patch("onec_help._utils._rich_console", return_value=fake_console):
+        with patch("onec_help.shared._utils._rich_console", return_value=fake_console):
             progress_line("hello", overwrite=True)
     fake_console.print.assert_called_once()
     assert fake_console.print.call_args[0][0] == "hello"
@@ -75,7 +75,7 @@ def test_progress_done_uses_rich_when_tty() -> None:
     fake_console = MagicMock()
     with patch("sys.stderr") as stderr:
         stderr.isatty.return_value = True
-        with patch("onec_help._utils._rich_console", return_value=fake_console):
+        with patch("onec_help.shared._utils._rich_console", return_value=fake_console):
             progress_done("done")
     fake_console.print.assert_called_once_with("done")
 
@@ -92,7 +92,7 @@ def test_rich_console_returns_none_when_import_error() -> None:
         return real_import(name, *args, **kwargs)
 
     with patch("builtins.__import__", side_effect=fake_import):
-        from onec_help._utils import _rich_console as _rc
+        from onec_help.shared._utils import _rich_console as _rc
 
         assert _rc() is None
 
@@ -118,7 +118,7 @@ def test_progress_line_overwrite_false_uses_print_no_carriage_return() -> None:
     fake_console = MagicMock()
     with patch("sys.stderr") as stderr:
         stderr.isatty.return_value = True
-        with patch("onec_help._utils._rich_console", return_value=fake_console):
+        with patch("onec_help.shared._utils._rich_console", return_value=fake_console):
             progress_line("msg", overwrite=False)
     fake_console.print.assert_called_once_with("msg")
 
@@ -129,7 +129,7 @@ def test_progress_line_console_raises_fallback_to_stderr() -> None:
     fake_console.print.side_effect = OSError("write failed")
     with patch("sys.stderr") as stderr:
         stderr.isatty.return_value = True
-        with patch("onec_help._utils._rich_console", return_value=fake_console):
+        with patch("onec_help.shared._utils._rich_console", return_value=fake_console):
             progress_line("fallback")
     stderr.write.assert_called()
     assert "fallback" in "".join(c[0][0] for c in stderr.write.call_args_list)
@@ -141,7 +141,7 @@ def test_progress_done_console_raises_fallback_to_stderr() -> None:
     fake_console.print.side_effect = RuntimeError("display error")
     with patch("sys.stderr") as stderr:
         stderr.isatty.return_value = True
-        with patch("onec_help._utils._rich_console", return_value=fake_console):
+        with patch("onec_help.shared._utils._rich_console", return_value=fake_console):
             progress_done("fallback")
     stderr.write.assert_called_once()
     assert "fallback" in stderr.write.call_args[0][0]

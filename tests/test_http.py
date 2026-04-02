@@ -1,11 +1,11 @@
-"""Tests for onec_help._http (SSL/HTTP helpers)."""
+"""Tests for onec_help.shared._http (SSL/HTTP helpers)."""
 
 import importlib
 import ssl
 import sys
 from unittest.mock import MagicMock, patch
 
-import onec_help._http as _http
+import onec_help.shared._http as _http
 
 
 def test_get_ssl_context() -> None:

@@ -37,12 +37,12 @@ except ImportError:
     SparseVectorParams = None  # type: ignore
     Modifier = None  # type: ignore
 
-from .. import env_config
-from .._utils import path_inside_base, safe_error_message
-from ..toc_parser import (
+from ..help_core.toc_parser import (
     load_toc_json,
     path_to_section_and_title_from_toc,
 )
+from ..shared import env_config
+from ..shared._utils import path_inside_base, safe_error_message
 
 COLLECTION_NAME = "onec_help"
 SNIPPET_MAX_CHARS = 850
@@ -126,7 +126,7 @@ def _extract_keywords(text: str, max_tokens: int = 50) -> list[str]:
 
 def get_embedding_dimension() -> int:
     """Return vector size for the current embedding backend (for collection creation). Lazy import."""
-    from .. import embedding
+    from . import embedding
 
     return embedding.get_embedding_dimension()
 
@@ -252,9 +252,8 @@ def build_index(
     embedding_workers: parallel API requests for openai_api (env EMBEDDING_WORKERS).
     bm25: add BM25 sparse vectors (default: BM25_ENABLED env, 1). Ignored when incremental.
     path_prefix: if set, prepend to path in payload (e.g. "8.3/1cv8_ru" for version/platform_lang)."""
-    from .. import embedding
-    from ..categories import build_tree, find_categories_root, parse_content_file
-    from ..html2md import (
+    from ..help_core.categories import build_tree, find_categories_root, parse_content_file
+    from ..help_core.html2md import (
         _ENCODINGS_UTF8_FIRST,
         _looks_like_html,
         _normalize_md_text,
@@ -263,6 +262,7 @@ def build_index(
         html_to_md_content,
         read_file_with_encoding_fallback,
     )
+    from . import embedding
 
     if QdrantClient is None:
         raise RuntimeError("qdrant-client is required. pip install qdrant-client")
@@ -375,7 +375,7 @@ def build_index(
             rel_str, text, title, outgoing_links = item
             all_items.append((rel_str, text, title, len(all_items), outgoing_links))
         if all_items:
-            from ..sparse_bm25 import bm25_vocab_path, build_bm25_vectors, save_vocab
+            from .sparse_bm25 import bm25_vocab_path, build_bm25_vectors, save_vocab
 
             texts_bm25 = [it[1] for it in all_items]
             vectors_bm25, vocab_bm25, doc_freq_bm25 = build_bm25_vectors(texts_bm25)
@@ -790,8 +790,8 @@ def add_bm25_to_collection(
     after the temp is fully written. On re-run, if tmp exists with marker, finishes
     the swap (recovery). Returns total points migrated.
     """
-    from .. import embedding
-    from ..sparse_bm25 import bm25_vocab_path, build_bm25_vectors, save_vocab
+    from . import embedding
+    from .sparse_bm25 import bm25_vocab_path, build_bm25_vectors, save_vocab
 
     if QdrantClient is None or SparseVector is None or SparseVectorParams is None:
         raise RuntimeError("qdrant-client required for add-bm25")
@@ -1054,7 +1054,7 @@ def _remove_bm25_from_collection(
     verbose: bool,
 ) -> None:
     """Remove sparse (BM25) from collection: scroll all, recreate dense-only, upsert."""
-    from .. import embedding
+    from . import embedding
 
     points = []
     offset = None
@@ -1178,7 +1178,7 @@ def search_index(
 ):
     """Search Qdrant; return list of payloads with path, title, text snippet.
     version, language, entity_type: optional payload filters."""
-    from .. import embedding
+    from . import embedding
 
     host = qdrant_host or env_config.get_qdrant_host()
     port = qdrant_port or env_config.get_qdrant_port()
@@ -1398,7 +1398,7 @@ def search_index_keyword(
     # BM25 path: when collection has sparse vectors and vocab exists
     if SparseVector is not None and _collection_has_sparse(client, collection):
         try:
-            from ..sparse_bm25 import bm25_vocab_path, load_vocab, query_vector
+            from .sparse_bm25 import bm25_vocab_path, load_vocab, query_vector
 
             vocab_path = bm25_vocab_path(collection)
             if vocab_path.exists():
@@ -1735,7 +1735,7 @@ def _apply_outgoing_links(text: str, payload: dict[str, Any]) -> str:
 
 def get_topic_by_path(help_path, topic_path) -> str:
     """Read topic content: .md first, then .html converted to Markdown."""
-    from ..html2md import (
+    from ..help_core.html2md import (
         _ENCODINGS_UTF8_FIRST,
         html_to_md_content,
         read_file_with_encoding_fallback,

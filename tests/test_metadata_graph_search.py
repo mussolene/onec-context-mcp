@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from onec_help import metadata_graph
+from onec_help.knowledge import metadata_graph
 
 
 class _DummyClient:

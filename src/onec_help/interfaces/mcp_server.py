@@ -29,8 +29,8 @@ def _coerce_str_to_list(v: Any) -> Any:
 
 _StrList = Annotated[list[str], BeforeValidator(_coerce_str_to_list)]
 
-from .._utils import format_duration, safe_error_message  # noqa: E402
-from ..mcp_metrics import record_request as _record_mcp_request  # noqa: E402
+from ..runtime.mcp_metrics import record_request as _record_mcp_request  # noqa: E402
+from ..shared._utils import format_duration, safe_error_message  # noqa: E402
 
 
 def _record_mcp_tool(f):
@@ -63,14 +63,14 @@ def _record_mcp_tool(f):
 
 def _snippet_max_chars() -> int:
     """Snippet length for search results. From env_config."""
-    from .. import env_config
+    from ..shared import env_config
 
     return env_config.get_mcp_snippet_max_chars()
 
 
 def _max_topic_content_chars() -> int:
     """Max chars per topic preview in search_with_content/compact answer helpers. From env_config."""
-    from .. import env_config
+    from ..shared import env_config
 
     return env_config.get_mcp_max_topic_chars()
 
@@ -84,7 +84,7 @@ _rate_lock = threading.Lock()
 
 def _check_rate_limit() -> str | None:
     """Return error message if over rate limit, else None. MCP_RATE_LIMIT_PER_MIN=0 disables."""
-    from .. import env_config
+    from ..shared import env_config
 
     limit = env_config.get_mcp_rate_limit_per_min()
     if limit <= 0:
@@ -158,7 +158,7 @@ def _read_cursor_doc(relative: str) -> str:
 
 def _get_help_path() -> Path:
     if _HELP_PATH is None:
-        from .. import env_config
+        from ..shared import env_config
 
         return Path(env_config.get_help_path()).resolve()
     return _HELP_PATH
@@ -170,7 +170,7 @@ def _search(
     version: str | None = None,
     language: str | None = None,
 ) -> list[dict[str, Any]]:
-    from ..indexer import search_index
+    from ..search_store.indexer import search_index
 
     return search_index(query, limit=limit, version=version, language=language)
 
@@ -181,19 +181,19 @@ def _search_keyword(
     version: str | None = None,
     language: str | None = None,
 ) -> list[dict[str, Any]]:
-    from ..indexer import search_index_keyword
+    from ..search_store.indexer import search_index_keyword
 
     return search_index_keyword(query, limit=limit, version=version, language=language)
 
 
 def _list_titles(limit: int = 100, path_prefix: str = "") -> list[dict[str, Any]]:
-    from ..indexer import list_index_titles
+    from ..search_store.indexer import list_index_titles
 
     return list_index_titles(limit=limit, path_prefix=path_prefix or "")
 
 
 def _index_status() -> dict[str, Any]:
-    from ..indexer import get_index_status
+    from ..search_store.indexer import get_index_status
 
     return get_index_status()
 
@@ -204,7 +204,7 @@ def _get_topic(
     language: str | None = None,
     prefer_index: bool = False,
 ) -> str:
-    from ..indexer import get_topic_content
+    from ..search_store.indexer import get_topic_content
 
     base = _get_help_path()
     return get_topic_content(
@@ -660,7 +660,7 @@ def _mcp_error_to_redis_callback(error: Exception, context: Any) -> None:
     if method == "tools/call":
         return  # tool handler already recorded via decorator
     try:
-        from .. import redis_cache
+        from ..runtime import redis_cache
 
         redis_cache.mcp_request_record(
             tool_name=method[:64],
@@ -717,7 +717,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         memory_results: list[dict[str, Any]] = []
         if include_user_memory:
             try:
-                from ..memory import get_memory_store
+                from ..knowledge.memory import get_memory_store
 
                 memory_results = get_memory_store().search_long(query, limit=min(5, limit))
             except Exception as e:
@@ -886,7 +886,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         if err:
             return err
         try:
-            from ..memory import get_memory_store
+            from ..knowledge.memory import get_memory_store
 
             store = get_memory_store()
             fetch = max(limit * 2, 10)
@@ -1022,7 +1022,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         )
         if content:
             try:
-                from ..memory import get_memory_store
+                from ..knowledge.memory import get_memory_store
 
                 title = content.split("\n")[0].strip().lstrip("#").strip() or ""
                 get_memory_store().write_event(
@@ -1053,8 +1053,8 @@ def _build_mcp_app(help_path: Path) -> Any:
         if err:
             return err
         try:
-            from .. import env_config
-            from ..memory import get_memory_store
+            from ..knowledge.memory import get_memory_store
+            from ..shared import env_config
 
             payload: dict[str, Any] = {
                 "code_snippet": cs,
@@ -1103,7 +1103,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         xc, err = _truncate_if_needed(xml_content or "", MAX_QUERY_CHARS, "xml_content")
         if err:
             return err
-        from ..form_metadata import parse_form_xml
+        from ..knowledge.form_metadata import parse_form_xml
 
         data = parse_form_xml(xc)
         err = data.get("error")
@@ -1180,7 +1180,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         limit: int,
         search_fn: Any,
     ) -> tuple[list[dict[str, Any]], str | None]:
-        from ..metadata_graph import get_metadata_config_versions
+        from ..knowledge.metadata_graph import get_metadata_config_versions
 
         cfg_ver = (config_version or "").strip()
         if cfg_ver:
@@ -1206,8 +1206,9 @@ def _build_mcp_app(help_path: Path) -> Any:
         query_vector: list[float] | None = None
         if getattr(search_fn, "__name__", "") == "search_metadata_semantic" and (query or "").strip():
             try:
-                from .. import embedding, env_config
-                from ..indexer import get_collection_vector_size
+                from ..search_store import embedding
+                from ..search_store.indexer import get_collection_vector_size
+                from ..shared import env_config
 
                 coll_dim = get_collection_vector_size(
                     collection="onec_config_metadata",
@@ -1269,7 +1270,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         if err:
             return err
         try:
-            from ..metadata_graph import search_metadata_exact
+            from ..knowledge.metadata_graph import search_metadata_exact
         except Exception as e:  # pragma: no cover - import/runtime guard
             return f"Metadata graph module is not available: {safe_error_message(e)}"
         items, resolved_version = _search_metadata_across_versions(
@@ -1302,7 +1303,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         if err:
             return err
         try:
-            from ..metadata_graph import search_metadata_semantic
+            from ..knowledge.metadata_graph import search_metadata_semantic
         except Exception as e:  # pragma: no cover - import/runtime guard
             return f"Metadata graph module is not available: {safe_error_message(e)}"
         items, resolved_version = _search_metadata_across_versions(
@@ -1340,7 +1341,10 @@ def _build_mcp_app(help_path: Path) -> Any:
         if err:
             return err
         try:
-            from ..metadata_graph import get_metadata_config_versions, search_metadata_fields
+            from ..knowledge.metadata_graph import (
+                get_metadata_config_versions,
+                search_metadata_fields,
+            )
         except Exception as e:  # pragma: no cover - import/runtime guard
             return f"Metadata graph module is not available: {safe_error_message(e)}"
 
@@ -1409,7 +1413,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         if not object_id or not object_id.strip():
             return "Provide non-empty object_id."
         try:
-            from ..metadata_graph import get_metadata_config_versions, get_metadata_object
+            from ..knowledge.metadata_graph import get_metadata_config_versions, get_metadata_object
         except Exception as e:  # pragma: no cover - import/runtime guard
             return f"Metadata graph module is not available: {safe_error_message(e)}"
 
@@ -1429,7 +1433,7 @@ def _build_mcp_app(help_path: Path) -> Any:
                 "Объект метаданных не найден. "
                 "Выполните metadata-graph-build для выгрузки конфигурации и укажите верный config_version."
             )
-        from ..metadata_graph import _OBJECT_TYPE_RU, format_requisite_type_display
+        from ..knowledge.metadata_graph import _OBJECT_TYPE_RU, format_requisite_type_display
 
         type_ru = _OBJECT_TYPE_RU.get(obj.get("object_type", ""), obj.get("object_type", ""))
         lines = [
@@ -1550,7 +1554,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         Returns paths and titles from outgoing links in the topic.
         Pass the topic path as **topic_path** or **path** (e.g. 'Format971.md').
         version, language: optional filters when reading from index."""
-        from ..indexer import get_1c_help_related as _get_related
+        from ..search_store.indexer import get_1c_help_related as _get_related
 
         topic = (topic_path or path or "").strip()
         if not topic:
@@ -1562,7 +1566,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         )
         if not items:
             # Fallback: surface unresolved link titles so the AI can follow up
-            from ..indexer import get_1c_help_unresolved_links as _get_unresolved
+            from ..search_store.indexer import get_1c_help_unresolved_links as _get_unresolved
 
             unresolved = _get_unresolved(topic, version=version, language=language)
             if unresolved:
@@ -1614,7 +1618,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         topic_path_or_query: path from search (with or without version prefix) or short query (e.g. 'CryptoManager'). For short queries server uses keyword search first (path/title match) and prefers results with a meaningful title (not Untitled); then semantic fallback.
         version_left, version_right: platform versions, e.g. '8.2.19.130', '8.3.27.1859'.
         For best predictability pass exact path from search_1c_help_keyword. include_diff: if True, append unified diff."""
-        from ..indexer import compare_1c_help as _compare
+        from ..search_store.indexer import compare_1c_help as _compare
 
         return _compare(
             topic_path_or_query,
@@ -1642,12 +1646,12 @@ def _build_mcp_app(help_path: Path) -> Any:
             f"Topics indexed: **{count}**",
             f"Embeddings: **{count}**",
         ]
-        from .. import env_config
+        from ..shared import env_config
 
         storage_path = env_config.get_qdrant_storage_path()
         if storage_path and os.path.isdir(storage_path):
             try:
-                from .._utils import dir_size_on_disk
+                from ..shared._utils import dir_size_on_disk
 
                 total = dir_size_on_disk(storage_path)
                 lines.append(f"DB size: **{total / (1024 * 1024):.1f} MB**")
@@ -1660,7 +1664,7 @@ def _build_mcp_app(help_path: Path) -> Any:
 
         # Memory and metadata collections: point counts for verification
         try:
-            from ..indexer import get_all_collections_status
+            from ..search_store.indexer import get_all_collections_status
 
             for coll in get_all_collections_status():
                 if coll.get("name") == "onec_help_memory":
@@ -1680,7 +1684,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         except Exception:
             pass
         try:
-            from ..metadata_graph import get_metadata_config_summaries
+            from ..knowledge.metadata_graph import get_metadata_config_summaries
 
             summaries = get_metadata_config_summaries()
             if summaries:
@@ -1788,7 +1792,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         if err:
             return err
         try:
-            from ..context_builder import ContextRequest, build_context
+            from ..knowledge.context_builder import ContextRequest, build_context
         except Exception as e:  # pragma: no cover - import/runtime guard
             return f"Context builder is not available: {safe_error_message(e)}"
 
@@ -1875,7 +1879,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         if err:
             return err
         try:
-            from ..context_builder import ContextRequest, build_context
+            from ..knowledge.context_builder import ContextRequest, build_context
         except Exception as e:  # pragma: no cover - import/runtime guard
             return f"Context builder is not available: {safe_error_message(e)}"
 
@@ -2490,7 +2494,7 @@ def _main() -> None:
     p.add_argument("--port", type=int, default=None, help="Port (default: env MCP_PORT or 8050)")
     p.add_argument("--path", default=None, help="URL path (default: env MCP_PATH or /mcp)")
     args = p.parse_args()
-    from .. import env_config
+    from ..shared import env_config
 
     transport = (args.transport or env_config.get_mcp_transport()).strip()
     host = (args.host or env_config.get_mcp_host()).strip()

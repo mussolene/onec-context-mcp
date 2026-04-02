@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-from onec_help.sparse_bm25 import (
+from onec_help.search_store.sparse_bm25 import (
     bm25_vocab_path,
     build_bm25_vectors,
     load_vocab,
@@ -104,7 +104,7 @@ def test_build_bm25_vectors_empty_corpus() -> None:
 
 def test_stemmer_import_error_returns_none() -> None:
     """_stemmer hits except when snowballstemmer import fails (lines 36-37)."""
-    import onec_help.sparse_bm25 as mod
+    import onec_help.search_store.sparse_bm25 as mod
 
     mod._USE_STEMMING = None
     mod._STEMMER = None
@@ -116,7 +116,7 @@ def test_stemmer_import_error_returns_none() -> None:
         return orig_import(name, *args, **kwargs)
 
     try:
-        with patch("onec_help.env_config.get_bm25_stemming", return_value=True):
+        with patch("onec_help.shared.env_config.get_bm25_stemming", return_value=True):
             with patch("builtins.__import__", side_effect=raise_for_snowball):
                 result = mod._stemmer()
                 assert result is None
@@ -127,7 +127,7 @@ def test_stemmer_import_error_returns_none() -> None:
 
 def test_tokenize_bm25_with_stemming() -> None:
     """tokenize_bm25 uses stemmer when stemmer is available (line 49: stem.stemWord path)."""
-    import onec_help.sparse_bm25 as mod
+    import onec_help.search_store.sparse_bm25 as mod
 
     mod._USE_STEMMING = None
     mod._STEMMER = None
@@ -139,7 +139,7 @@ def test_tokenize_bm25_with_stemming() -> None:
 
 def test_tokenize_bm25_stemming_real_when_available() -> None:
     """When BM25_STEMMING=1 and snowballstemmer is installed, tokenize uses stemWord (line 49)."""
-    import onec_help.sparse_bm25 as mod
+    import onec_help.search_store.sparse_bm25 as mod
 
     mod._USE_STEMMING = None
     mod._STEMMER = None
@@ -154,7 +154,7 @@ def test_tokenize_bm25_stemming_via_fake_module() -> None:
     """When __import__ returns fake snowballstemmer, tokenize runs stemWord path (line 49)."""
     import sys
 
-    import onec_help.sparse_bm25 as mod
+    import onec_help.search_store.sparse_bm25 as mod
 
     mod._USE_STEMMING = None
     mod._STEMMER = None
@@ -169,7 +169,7 @@ def test_tokenize_bm25_stemming_via_fake_module() -> None:
         return orig_import(name, *args, **kwargs)
 
     try:
-        with patch("onec_help.env_config.get_bm25_stemming", return_value=True):
+        with patch("onec_help.shared.env_config.get_bm25_stemming", return_value=True):
             with patch("builtins.__import__", side_effect=fake_import):
                 _ = mod._stemmer()
             result = tokenize_bm25("Слово тест")
@@ -181,7 +181,7 @@ def test_tokenize_bm25_stemming_via_fake_module() -> None:
 
 def test_tokenize_bm25_stem_word_line_48() -> None:
     """With _STEMMER set, tokenize_bm25 uses stem.stemWord (line 48)."""
-    import onec_help.sparse_bm25 as mod
+    import onec_help.search_store.sparse_bm25 as mod
 
     fake = type("Stem", (), {"stemWord": lambda self, t: t})()
     old_stemmer = mod._STEMMER
@@ -195,18 +195,18 @@ def test_tokenize_bm25_stem_word_line_48() -> None:
 
 def test_tokenize_bm25_no_stemmer_returns_raw_line_49() -> None:
     """When _stemmer returns None, tokenize_bm25 returns raw tokens (line 49)."""
-    import onec_help.sparse_bm25 as mod
+    import onec_help.search_store.sparse_bm25 as mod
 
     mod._USE_STEMMING = None
     mod._STEMMER = None
-    with patch("onec_help.env_config.get_bm25_stemming", return_value=False):
+    with patch("onec_help.shared.env_config.get_bm25_stemming", return_value=False):
         out = tokenize_bm25("слово проверка")
     assert out == ["слово", "проверка"]
 
 
 def test_bm25_idf_positive() -> None:
     """_bm25_idf with df>0, N>0 returns positive value (line 73)."""
-    import onec_help.sparse_bm25 as mod
+    import onec_help.search_store.sparse_bm25 as mod
 
     assert mod._bm25_idf(1, 10) > 0
     assert mod._bm25_idf(2, 100) > 0
@@ -214,7 +214,7 @@ def test_bm25_idf_positive() -> None:
 
 def test_build_bm25_vectors_term_not_in_vocab_skipped() -> None:
     """When vocab is capped, term not in vocab is skipped in vector build (line 104)."""
-    import onec_help.sparse_bm25 as mod
+    import onec_help.search_store.sparse_bm25 as mod
 
     with patch.object(mod, "_MAX_VOCAB_SIZE", 2):
         vectors, vocab, doc_freq = build_bm25_vectors(["слово один два", "слово два три"])

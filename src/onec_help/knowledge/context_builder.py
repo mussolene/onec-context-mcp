@@ -13,7 +13,8 @@ from dataclasses import asdict, dataclass
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from .. import env_config, indexer
+from ..search_store import indexer
+from ..shared import env_config
 
 _OBJECT_DIRS = {
     "Catalogs": "Catalog",
@@ -105,7 +106,7 @@ def _auto_config_version(explicit: str | None, need_metadata: bool) -> str:
     if cfg_ver or not need_metadata:
         return cfg_ver
     try:
-        from ..metadata_graph import get_metadata_config_versions
+        from .metadata_graph import get_metadata_config_versions
 
         versions = get_metadata_config_versions()
         if len(versions) == 1:
@@ -156,7 +157,7 @@ def build_context(req: ContextRequest) -> dict[str, Any]:
     memory_items: list[dict[str, Any]] = []
     if memory_limit and q:
         try:
-            from ..memory import get_memory_store
+            from .memory import get_memory_store
 
             memory_items = get_memory_store().search_long(q, limit=min(per_source_limit, memory_limit))
         except Exception:
@@ -165,7 +166,7 @@ def build_context(req: ContextRequest) -> dict[str, Any]:
     metadata_objects: list[dict[str, Any]] = []
     if metadata_limit and metadata_query and cfg_ver:
         try:
-            from ..metadata_graph import search_metadata_exact, search_metadata_semantic
+            from .metadata_graph import search_metadata_exact, search_metadata_semantic
 
             metadata_limit_effective = min(per_source_limit, metadata_limit)
             object_type = local_context.get("object_type") or None

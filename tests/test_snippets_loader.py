@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from onec_help.snippets_loader import collect_from_folder
+from onec_help.knowledge.loaders.snippets_loader import collect_from_folder
 
 
 def test_collect_from_folder_bsl(tmp_path: Path) -> None:

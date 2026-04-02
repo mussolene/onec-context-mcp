@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from onec_help.hbk_container import (
+from onec_help.help_core.hbk_container import (
     extract_book_bytes,
     extract_filestorage_bytes,
     extract_packblock_toc_bytes,

@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-from onec_help.parse_fastcode import (
+from onec_help.knowledge.loaders.parse_fastcode import (
     _detect_total_pages,
     _extract_detail_links,
     _is_safe_fastcode_detail_url,
@@ -36,8 +36,8 @@ def test_detect_total_pages_sliding_window() -> None:
         return fake_html(p)
 
     with (
-        patch("onec_help.parse_fastcode._fetch_page", side_effect=mock_fetch),
-        patch("onec_help.parse_fastcode.time.sleep"),
+        patch("onec_help.knowledge.loaders.parse_fastcode._fetch_page", side_effect=mock_fetch),
+        patch("onec_help.knowledge.loaders.parse_fastcode.time.sleep"),
     ):
         opener = MagicMock()
         pages = _detect_total_pages(opener)
@@ -177,16 +177,16 @@ def test_run_parse_fastcode_mocked(tmp_path) -> None:
     out = tmp_path / "fastcode_snippets.json"
 
     with (
-        patch("onec_help.parse_fastcode._get_opener", return_value=MagicMock()),
+        patch("onec_help.knowledge.loaders.parse_fastcode._get_opener", return_value=MagicMock()),
         patch(
-            "onec_help.parse_fastcode._fetch_page",
+            "onec_help.knowledge.loaders.parse_fastcode._fetch_page",
             side_effect=lambda _p, _o: listing_html,
         ),
         patch(
-            "onec_help.parse_fastcode.fetch_url",
+            "onec_help.knowledge.loaders.parse_fastcode.fetch_url",
             side_effect=lambda _url, _o: detail_html,
         ),
-        patch("onec_help.parse_fastcode.time.sleep"),
+        patch("onec_help.knowledge.loaders.parse_fastcode.time.sleep"),
     ):
         result = run_parse(out, pages=[1], fetch_detail=True)
 

@@ -7,26 +7,25 @@ from unittest.mock import patch
 import pytest
 
 
-# Pre-import submodules so patch("onec_help.<sub>.attr") works (CI editable install)
+# Pre-import submodules so patch() targets resolve under editable installs.
 def _ensure_onec_help_submodules():
-    """Bind submodules to onec_help package (editable install quirk)."""
-    import onec_help
-
+    """Import frequently patched modules so dotted patch paths resolve reliably."""
     for _name in (
-        "_http",
-        "embedding",
-        "hbk_container",
-        "indexer",
-        "memory",
-        "parse_fastcode",
-        "parse_its_v8std",
-        "standards_loader",
-        "toc_parser",
-        "unpack",
-        "watchdog",
+        "onec_help.shared._http",
+        "onec_help.search_store.embedding",
+        "onec_help.help_core.hbk_container",
+        "onec_help.search_store.indexer",
+        "onec_help.knowledge.memory",
+        "onec_help.knowledge.loaders.parse_fastcode",
+        "onec_help.knowledge.loaders.parse_its_v8std",
+        "onec_help.knowledge.loaders.standards_loader",
+        "onec_help.help_core.toc_parser",
+        "onec_help.help_core.unpack",
+        "onec_help.runtime.watchdog",
+        "onec_help.interfaces.cli",
+        "onec_help.interfaces.mcp_server",
     ):
-        _mod = __import__(f"onec_help.{_name}", fromlist=[_name])
-        setattr(onec_help, _name, _mod)
+        importlib.import_module(_name)
 
 
 _ensure_onec_help_submodules()
@@ -55,8 +54,8 @@ def _disable_httpx_in_tests():
 def _reset_qdrant_singletons():
     """Reset shared QdrantClient singletons between tests.
     Singletons are module-level globals; without reset, a mock from one test leaks into the next."""
-    import onec_help.indexer as _indexer
-    import onec_help.memory as _memory
+    import onec_help.knowledge.memory as _memory
+    import onec_help.search_store.indexer as _indexer
 
     _indexer._default_qdrant_client = None
     _indexer._default_qdrant_client_key = None
@@ -112,7 +111,7 @@ def embedding_backend_none_for_network_tests(request):
     path = str(getattr(request, "fspath", None) or "")
     if "test_indexer" in path or "test_embedding" in path:
         with patch.dict("os.environ", {"EMBEDDING_BACKEND": "none"}, clear=False):
-            import onec_help.embedding as emb
+            import onec_help.search_store.embedding as emb
 
             importlib.reload(emb)
             _ensure_onec_help_submodules()
@@ -220,5 +219,5 @@ def redis_mock_for_ingest(request):
         client.incr.side_effect = incr
         client.scan_iter.return_value = []
         client.ping.return_value = True
-    with patch("onec_help.redis_cache.get_redis", return_value=client):
+    with patch("onec_help.runtime.redis_cache.get_redis", return_value=client):
         yield

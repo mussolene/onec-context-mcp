@@ -225,9 +225,9 @@ def test_run_ingest_skips_cached(tmp_path: Path) -> None:
     h = _file_sha256(hbk_path)
     with patch.dict("os.environ", {"INGEST_CACHE_FILE": str(cache_file)}, clear=False):
         _update_ingest_cache_entry(key, h, 5)
-        with patch("onec_help.indexer.build_index") as mock_idx:
-            with patch("onec_help.html2md.build_docs") as mock_docs:
-                with patch("onec_help.unpack.unpack_hbk") as mock_unpack:
+        with patch("onec_help.search_store.indexer.build_index") as mock_idx:
+            with patch("onec_help.help_core.html2md.build_docs") as mock_docs:
+                with patch("onec_help.help_core.unpack.unpack_hbk") as mock_unpack:
                     n = run_ingest(
                         source_dirs_with_versions=[(tmp_path, "v")],
                         languages=["ru"],
@@ -568,7 +568,7 @@ def test_run_unpack_only_no_tasks(tmp_path: Path) -> None:
     assert n == 0
 
 
-@patch("onec_help.unpack.unpack_hbk")
+@patch("onec_help.help_core.unpack.unpack_hbk")
 def test_run_unpack_only_one_archive(mock_unpack: MagicMock, tmp_path: Path) -> None:
     (tmp_path / "v").mkdir()
     (tmp_path / "v" / "1cv8_ru.hbk").write_bytes(b"x")
@@ -587,9 +587,9 @@ def test_run_unpack_only_one_archive(mock_unpack: MagicMock, tmp_path: Path) -> 
     assert (out / "v" / "ru" / "1cv8_ru").exists()
 
 
-@patch("onec_help.indexer.build_index")
-@patch("onec_help.html2md.build_docs")
-@patch("onec_help.unpack.unpack_hbk")
+@patch("onec_help.search_store.indexer.build_index")
+@patch("onec_help.help_core.html2md.build_docs")
+@patch("onec_help.help_core.unpack.unpack_hbk")
 @patch("qdrant_client.QdrantClient")
 def test_run_ingest_unpack_fails_one_task(
     mock_qdrant: MagicMock,
@@ -616,9 +616,9 @@ def test_run_ingest_unpack_fails_one_task(
     mock_build_index.assert_not_called()
 
 
-@patch("onec_help.indexer.build_index")
-@patch("onec_help.html2md.build_docs")
-@patch("onec_help.unpack.unpack_hbk")
+@patch("onec_help.search_store.indexer.build_index")
+@patch("onec_help.help_core.html2md.build_docs")
+@patch("onec_help.help_core.unpack.unpack_hbk")
 @patch("qdrant_client.QdrantClient")
 def test_run_ingest_integration_mock(
     mock_qdrant: MagicMock,
@@ -684,7 +684,7 @@ def test_write_hbk_info(tmp_path: Path) -> None:
     assert info["hash"] == "abc123"
 
 
-@patch("onec_help.unpack.unpack_hbk")
+@patch("onec_help.help_core.unpack.unpack_hbk")
 def test_run_unpack_sync_one_archive(mock_unpack: MagicMock, tmp_path: Path) -> None:
     """run_unpack_sync unpacks to version/stem and writes .hbk_info.json."""
     (tmp_path / "v").mkdir()
@@ -711,7 +711,7 @@ def test_run_unpack_sync_one_archive(mock_unpack: MagicMock, tmp_path: Path) -> 
     assert info["language"] == "ru"
 
 
-@patch("onec_help.unpack.unpack_hbk")
+@patch("onec_help.help_core.unpack.unpack_hbk")
 def test_run_unpack_sync_skip_unchanged(mock_unpack: MagicMock, tmp_path: Path) -> None:
     """run_unpack_sync skips when .hbk_info.json hash matches."""
     (tmp_path / "v").mkdir()
@@ -733,7 +733,7 @@ def test_run_unpack_sync_skip_unchanged(mock_unpack: MagicMock, tmp_path: Path) 
     mock_unpack.assert_not_called()
 
 
-@patch("onec_help.unpack.unpack_hbk")
+@patch("onec_help.help_core.unpack.unpack_hbk")
 def test_run_unpack_only_two_workers(mock_unpack: MagicMock, tmp_path: Path) -> None:
     """run_unpack_only with max_workers=2 uses thread pool."""
     (tmp_path / "v").mkdir()
@@ -774,9 +774,9 @@ def test_run_ingest_temp_base_creation_fails(tmp_path: Path) -> None:
             )
 
 
-@patch("onec_help.indexer.build_index")
-@patch("onec_help.html2md.build_docs")
-@patch("onec_help.unpack.unpack_hbk")
+@patch("onec_help.search_store.indexer.build_index")
+@patch("onec_help.help_core.html2md.build_docs")
+@patch("onec_help.help_core.unpack.unpack_hbk")
 @patch("qdrant_client.QdrantClient")
 def test_run_ingest_failed_log(
     mock_qdrant: MagicMock,
@@ -808,9 +808,9 @@ def test_run_ingest_failed_log(
     assert "1cv8_ru" in fail_log.read_text()
 
 
-@patch("onec_help.indexer.build_index")
-@patch("onec_help.html2md.build_docs")
-@patch("onec_help.unpack.unpack_hbk")
+@patch("onec_help.search_store.indexer.build_index")
+@patch("onec_help.help_core.html2md.build_docs")
+@patch("onec_help.help_core.unpack.unpack_hbk")
 @patch("qdrant_client.QdrantClient")
 def test_run_ingest_failed_log_write_raises(
     mock_qdrant: MagicMock,
@@ -891,7 +891,7 @@ def test_collect_unpacked_tasks_with_hbk_info(tmp_path: Path) -> None:
     assert language == "en"
 
 
-@patch("onec_help.indexer.build_index")
+@patch("onec_help.search_store.indexer.build_index")
 @patch("qdrant_client.QdrantClient")
 def test_run_ingest_from_unpacked_one(
     mock_qdrant: MagicMock, mock_build_index: MagicMock, tmp_path: Path

@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from onec_help import redis_cache
+from onec_help.runtime import redis_cache
 
 
 def _make_redis_mock():

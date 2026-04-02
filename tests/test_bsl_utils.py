@@ -2,7 +2,11 @@
 
 from pathlib import Path
 
-from onec_help.bsl_utils import extract_func_name, extract_procedures_and_functions, get_functions
+from onec_help.knowledge.bsl_utils import (
+    extract_func_name,
+    extract_procedures_and_functions,
+    get_functions,
+)
 
 FIXTURE_OBJECT_MODULE = (
     Path(__file__).resolve().parent / "fixtures" / "bsl_sample" / "ObjectModule.bsl"

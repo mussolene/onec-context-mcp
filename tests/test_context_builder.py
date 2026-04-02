@@ -1,16 +1,16 @@
 from unittest.mock import patch
 
-from onec_help.context_builder import ContextRequest, build_context
+from onec_help.knowledge.context_builder import ContextRequest, build_context
 
 
 def test_build_context_includes_help_and_memory_and_metadata() -> None:
     """build_context aggregates help_topics, memory and metadata_objects."""
 
     with (
-        patch("onec_help.indexer.search_hybrid") as mock_help,
-        patch("onec_help.memory.get_memory_store") as mock_mem_store,
-        patch("onec_help.metadata_graph.search_metadata_exact") as mock_meta_exact,
-        patch("onec_help.metadata_graph.search_metadata_semantic") as mock_meta_semantic,
+        patch("onec_help.search_store.indexer.search_hybrid") as mock_help,
+        patch("onec_help.knowledge.memory.get_memory_store") as mock_mem_store,
+        patch("onec_help.knowledge.metadata_graph.search_metadata_exact") as mock_meta_exact,
+        patch("onec_help.knowledge.metadata_graph.search_metadata_semantic") as mock_meta_semantic,
     ):
         mock_help.return_value = [
             {"path": "a.html", "title": "A", "text": "help snippet"},
@@ -42,10 +42,10 @@ def test_build_context_includes_help_and_memory_and_metadata() -> None:
 def test_build_context_uses_file_uri_to_focus_metadata() -> None:
     """Object name and type from file path should drive metadata lookup."""
     with (
-        patch("onec_help.indexer.search_hybrid") as mock_help,
-        patch("onec_help.memory.get_memory_store") as mock_mem_store,
-        patch("onec_help.metadata_graph.search_metadata_exact") as mock_meta_exact,
-        patch("onec_help.metadata_graph.search_metadata_semantic") as mock_meta_semantic,
+        patch("onec_help.search_store.indexer.search_hybrid") as mock_help,
+        patch("onec_help.knowledge.memory.get_memory_store") as mock_mem_store,
+        patch("onec_help.knowledge.metadata_graph.search_metadata_exact") as mock_meta_exact,
+        patch("onec_help.knowledge.metadata_graph.search_metadata_semantic") as mock_meta_semantic,
     ):
         mock_help.return_value = []
         mock_mem_store.return_value.search_long.return_value = []
@@ -70,9 +70,9 @@ def test_build_context_uses_file_uri_to_focus_metadata() -> None:
 def test_build_context_uses_keyword_route_for_api_queries() -> None:
     """API-like queries should use exact keyword lookup, not broad hybrid search."""
     with (
-        patch("onec_help.indexer.search_index_keyword") as mock_kw,
-        patch("onec_help.indexer.search_hybrid") as mock_help,
-        patch("onec_help.memory.get_memory_store") as mock_mem_store,
+        patch("onec_help.search_store.indexer.search_index_keyword") as mock_kw,
+        patch("onec_help.search_store.indexer.search_hybrid") as mock_help,
+        patch("onec_help.knowledge.memory.get_memory_store") as mock_mem_store,
     ):
         mock_kw.return_value = [{"path": "Get.html", "title": "HTTPСоединение.Получить"}]
         mock_help.return_value = []

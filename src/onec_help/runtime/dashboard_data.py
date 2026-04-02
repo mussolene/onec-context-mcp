@@ -6,8 +6,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .. import env_config
-from ..indexer import get_all_collections_status, get_index_status
 from ..ingest import (
     _ingest_cache_path,
     read_ingest_errors_log,
@@ -16,8 +14,10 @@ from ..ingest import (
     read_last_ingest_failed,
     read_last_ingest_run,
 )
+from ..search_store.indexer import get_all_collections_status, get_index_status
+from ..search_store.sparse_bm25 import bm25_vocab_path
+from ..shared import env_config
 from ..snippets_cache import read_last_snippets_run
-from ..sparse_bm25 import bm25_vocab_path
 from . import redis_cache
 from .mcp_metrics import get_metrics as get_mcp_metrics
 
@@ -109,7 +109,7 @@ def _storage_path_mb() -> float | None:
     if not path or not os.path.isdir(path):
         return None
     try:
-        from .._utils import dir_size_on_disk
+        from ..shared._utils import dir_size_on_disk
 
         return round(dir_size_on_disk(path) / (1024 * 1024), 1)
     except OSError:

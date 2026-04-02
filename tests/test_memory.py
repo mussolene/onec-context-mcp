@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from onec_help.memory import (
+from onec_help.knowledge.memory import (
     MemoryStore,
     _is_memory_enabled,
     get_memory_store,
@@ -22,14 +22,14 @@ def test_memory_enabled_variants() -> None:
         with patch.dict("os.environ", {"MEMORY_ENABLED": val}, clear=False):
             from importlib import reload
 
-            from onec_help import memory
+            from onec_help.knowledge import memory
 
             reload(memory)
             assert memory._is_memory_enabled() is True
     with patch.dict("os.environ", {"MEMORY_ENABLED": "0"}, clear=False):
         from importlib import reload
 
-        from onec_help import memory
+        from onec_help.knowledge import memory
 
         reload(memory)
         assert memory._is_memory_enabled() is False
@@ -46,7 +46,7 @@ def test_write_event_disabled_returns_early(tmp_path: Path) -> None:
 
 def test_get_memory_store_singleton(tmp_path: Path) -> None:
     with patch.dict("os.environ", {"MEMORY_BASE_PATH": str(tmp_path)}, clear=False):
-        from onec_help import memory
+        from onec_help.knowledge import memory
 
         memory._store = None
         s1 = get_memory_store()
@@ -65,7 +65,7 @@ def test_get_memory_store_from_env(tmp_path: Path) -> None:
         },
         clear=False,
     ):
-        from onec_help import memory
+        from onec_help.knowledge import memory
 
         memory._store = None
         store = get_memory_store()
@@ -75,7 +75,7 @@ def test_get_memory_store_from_env(tmp_path: Path) -> None:
 
 
 def test_get_memory_store_explicit_base_path(tmp_path: Path) -> None:
-    from onec_help import memory
+    from onec_help.knowledge import memory
 
     memory._store = None
     store = get_memory_store(base_path=tmp_path)
@@ -176,8 +176,8 @@ def test_write_long_or_pending_embedding_available(tmp_path: Path) -> None:
         {"MEMORY_ENABLED": "1", "QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"},
         clear=False,
     ):
-        with patch("onec_help.embedding.is_embedding_available", return_value=True):
-            with patch("onec_help.embedding.get_embedding", return_value=[0.1] * 768):
+        with patch("onec_help.search_store.embedding.is_embedding_available", return_value=True):
+            with patch("onec_help.search_store.embedding.get_embedding", return_value=[0.1] * 768):
                 with patch("qdrant_client.QdrantClient") as mock_qc:
                     mock_client = MagicMock()
                     mock_client.collection_exists.return_value = True
@@ -194,7 +194,7 @@ def test_write_long_or_pending_embedding_available(tmp_path: Path) -> None:
 def test_write_long_or_pending_embedding_unavailable_appends_pending(tmp_path: Path) -> None:
     """When is_embedding_available is False, _write_long_or_pending appends to pending only."""
     with patch.dict("os.environ", {"MEMORY_ENABLED": "1"}, clear=False):
-        with patch("onec_help.embedding.is_embedding_available", return_value=False):
+        with patch("onec_help.search_store.embedding.is_embedding_available", return_value=False):
             store = MemoryStore(tmp_path, short_limit=5, medium_limit=100, medium_ttl_days=7)
             store._write_long_or_pending(
                 "save_snippet", {"topic_path": "b.md", "code_snippet": "x"}, 2.0
@@ -207,8 +207,8 @@ def test_write_long_or_pending_embedding_unavailable_appends_pending(tmp_path: P
 def test_write_long_or_pending_embedding_fails_appends_pending(tmp_path: Path) -> None:
     """When get_embedding raises, _write_long_or_pending appends to pending."""
     with patch.dict("os.environ", {"MEMORY_ENABLED": "1"}, clear=False):
-        with patch("onec_help.embedding.is_embedding_available", return_value=True):
-            with patch("onec_help.embedding.get_embedding", side_effect=RuntimeError("API down")):
+        with patch("onec_help.search_store.embedding.is_embedding_available", return_value=True):
+            with patch("onec_help.search_store.embedding.get_embedding", side_effect=RuntimeError("API down")):
                 store = MemoryStore(tmp_path, short_limit=5, medium_limit=100, medium_ttl_days=7)
                 store._write_long_or_pending("get_topic", {"topic_path": "a.md"}, 1.0)
                 assert store.pending_path.exists()
@@ -264,9 +264,9 @@ def test_process_pending_embedding_available(tmp_path: Path) -> None:
             [{"id": "id1", "payload": {"topic_path": "a.md", "title": "A"}, "created_at": 1.0}]
         )
     )
-    with patch("onec_help.embedding.is_embedding_available", return_value=True):
+    with patch("onec_help.search_store.embedding.is_embedding_available", return_value=True):
         with patch(
-            "onec_help.embedding.get_embedding_batch",
+            "onec_help.search_store.embedding.get_embedding_batch",
             return_value=[[0.1] * 768],
         ):
             with patch("qdrant_client.QdrantClient") as mock_qc:
@@ -280,7 +280,7 @@ def test_process_pending_embedding_available(tmp_path: Path) -> None:
 
 def test_process_pending_embedding_unavailable(tmp_path: Path) -> None:
     """process_pending returns 0 when embedding unavailable."""
-    with patch("onec_help.embedding.is_embedding_available", return_value=False):
+    with patch("onec_help.search_store.embedding.is_embedding_available", return_value=False):
         store = MemoryStore(tmp_path, short_limit=5, medium_limit=100, medium_ttl_days=7)
         store.pending_path.write_text('[{"id":"x","payload":{"a":1},"created_at":0}]')
         assert store.process_pending() == 0
@@ -288,14 +288,14 @@ def test_process_pending_embedding_unavailable(tmp_path: Path) -> None:
 
 def test_process_pending_no_file(tmp_path: Path) -> None:
     """process_pending returns 0 when no pending file."""
-    with patch("onec_help.embedding.is_embedding_available", return_value=True):
+    with patch("onec_help.search_store.embedding.is_embedding_available", return_value=True):
         store = MemoryStore(tmp_path, short_limit=5, medium_limit=100, medium_ttl_days=7)
         assert store.process_pending() == 0
 
 
 def test_process_pending_invalid_data(tmp_path: Path) -> None:
     """process_pending handles invalid JSON or non-list."""
-    with patch("onec_help.embedding.is_embedding_available", return_value=True):
+    with patch("onec_help.search_store.embedding.is_embedding_available", return_value=True):
         store = MemoryStore(tmp_path, short_limit=5, medium_limit=100, medium_ttl_days=7)
         store.pending_path.write_text("not json")
         assert store.process_pending() == 0
@@ -305,9 +305,9 @@ def test_process_pending_invalid_data(tmp_path: Path) -> None:
 
 def test_search_long(tmp_path: Path) -> None:
     """search_long queries Qdrant and returns results with RRF score."""
-    with patch("onec_help.embedding.get_embedding", return_value=[0.1] * 768):
+    with patch("onec_help.search_store.embedding.get_embedding", return_value=[0.1] * 768):
         with patch("qdrant_client.QdrantClient") as mock_qc:
-            with patch("onec_help.sparse_bm25.bm25_vocab_path", return_value=tmp_path / "no_vocab"):
+            with patch("onec_help.search_store.sparse_bm25.bm25_vocab_path", return_value=tmp_path / "no_vocab"):
                 mock_client = MagicMock()
                 mock_client.collection_exists.return_value = True
                 mock_point = MagicMock()
@@ -325,7 +325,7 @@ def test_search_long(tmp_path: Path) -> None:
 
 def test_search_long_no_collection(tmp_path: Path) -> None:
     """search_long returns [] when collection does not exist."""
-    with patch("onec_help.embedding.get_embedding", return_value=[0.1] * 768):
+    with patch("onec_help.search_store.embedding.get_embedding", return_value=[0.1] * 768):
         with patch("qdrant_client.QdrantClient") as mock_qc:
             mock_client = MagicMock()
             mock_client.collection_exists.return_value = False
@@ -336,7 +336,7 @@ def test_search_long_no_collection(tmp_path: Path) -> None:
 
 def test_search_long_with_domain_filter(tmp_path: Path) -> None:
     """search_long passes domain filter to Qdrant."""
-    with patch("onec_help.embedding.get_embedding", return_value=[0.1] * 768):
+    with patch("onec_help.search_store.embedding.get_embedding", return_value=[0.1] * 768):
         with patch("qdrant_client.QdrantClient") as mock_qc:
             mock_client = MagicMock()
             mock_client.collection_exists.return_value = True
@@ -358,7 +358,7 @@ def test_upsert_long_exception(tmp_path: Path) -> None:
 
 def test_upsert_curated_snippets_embedding_unavailable(tmp_path: Path) -> None:
     """upsert_curated_snippets returns 0 when embedding is not available."""
-    with patch("onec_help.embedding.is_embedding_available", return_value=False):
+    with patch("onec_help.search_store.embedding.is_embedding_available", return_value=False):
         store = MemoryStore(tmp_path, short_limit=5, medium_limit=100, medium_ttl_days=7)
         items = [{"title": "A", "description": "d", "code_snippet": "x"}]
         assert store.upsert_curated_snippets(items) == 0
@@ -366,9 +366,9 @@ def test_upsert_curated_snippets_embedding_unavailable(tmp_path: Path) -> None:
 
 def test_upsert_curated_snippets_success(tmp_path: Path) -> None:
     """upsert_curated_snippets embeds and upserts to long memory."""
-    with patch("onec_help.embedding.is_embedding_available", return_value=True):
+    with patch("onec_help.search_store.embedding.is_embedding_available", return_value=True):
         with patch(
-            "onec_help.embedding.get_embedding_batch",
+            "onec_help.search_store.embedding.get_embedding_batch",
             return_value=[[0.1] * 768, [0.1] * 768],
         ):
             with patch("qdrant_client.QdrantClient") as mock_qc:
@@ -401,9 +401,9 @@ def test_format_long_summary_fallback(tmp_path: Path) -> None:
 
 def test_upsert_curated_snippets_accepts_instruction(tmp_path: Path) -> None:
     """upsert_curated_snippets accepts items with instruction (references, no code)."""
-    with patch("onec_help.embedding.is_embedding_available", return_value=True):
+    with patch("onec_help.search_store.embedding.is_embedding_available", return_value=True):
         with patch(
-            "onec_help.embedding.get_embedding_batch",
+            "onec_help.search_store.embedding.get_embedding_batch",
             return_value=[[0.1] * 768],
         ):
             with patch("qdrant_client.QdrantClient") as mock_qc:
@@ -420,9 +420,9 @@ def test_upsert_curated_snippets_accepts_instruction(tmp_path: Path) -> None:
 
 def test_upsert_curated_snippets_skips_invalid(tmp_path: Path) -> None:
     """upsert_curated_snippets skips items without title, code_snippet, or instruction."""
-    with patch("onec_help.embedding.is_embedding_available", return_value=True):
+    with patch("onec_help.search_store.embedding.is_embedding_available", return_value=True):
         with patch(
-            "onec_help.embedding.get_embedding_batch",
+            "onec_help.search_store.embedding.get_embedding_batch",
             return_value=[[0.1] * 768],
         ):
             with patch("qdrant_client.QdrantClient") as mock_qc:
@@ -480,7 +480,7 @@ def test_append_pending_empty_existing(tmp_path: Path) -> None:
 
 def test_process_pending_data_not_list(tmp_path: Path) -> None:
     """process_pending returns 0 when data is not a list."""
-    with patch("onec_help.embedding.is_embedding_available", return_value=True):
+    with patch("onec_help.search_store.embedding.is_embedding_available", return_value=True):
         store = MemoryStore(tmp_path, short_limit=5, medium_limit=100, medium_ttl_days=7)
         store.pending_path.write_text('{"a": 1}')
         assert store.process_pending() == 0
@@ -488,7 +488,7 @@ def test_process_pending_data_not_list(tmp_path: Path) -> None:
 
 def test_process_pending_skips_empty_payload(tmp_path: Path) -> None:
     """process_pending skips items with empty payload."""
-    with patch("onec_help.embedding.is_embedding_available", return_value=True):
+    with patch("onec_help.search_store.embedding.is_embedding_available", return_value=True):
         store = MemoryStore(tmp_path, short_limit=5, medium_limit=100, medium_ttl_days=7)
         store.pending_path.write_text('[{"id":"x","payload":{},"created_at":0}]')
         assert store.process_pending() == 0
@@ -500,9 +500,9 @@ def test_process_pending_vectors_mismatch_retry(tmp_path: Path) -> None:
     store.pending_path.write_text(
         json.dumps([{"id": "i1", "payload": {"title": "A"}, "created_at": 1.0}])
     )
-    with patch("onec_help.embedding.is_embedding_available", return_value=True):
+    with patch("onec_help.search_store.embedding.is_embedding_available", return_value=True):
         with patch(
-            "onec_help.embedding.get_embedding_batch",
+            "onec_help.search_store.embedding.get_embedding_batch",
             return_value=[],  # always wrong count
         ):
             n = store.process_pending()
@@ -528,9 +528,9 @@ def test_process_pending_upsert_exception(tmp_path: Path) -> None:
             raise RuntimeError("Qdrant down")
         return None
 
-    with patch("onec_help.embedding.is_embedding_available", return_value=True):
+    with patch("onec_help.search_store.embedding.is_embedding_available", return_value=True):
         with patch(
-            "onec_help.embedding.get_embedding_batch",
+            "onec_help.search_store.embedding.get_embedding_batch",
             return_value=[[0.1] * 768],
         ):
             with patch.object(store, "_upsert_long", side_effect=upsert_side_effect):
@@ -542,9 +542,9 @@ def test_process_pending_upsert_exception(tmp_path: Path) -> None:
 
 def test_upsert_curated_skips_non_dict(tmp_path: Path) -> None:
     """upsert_curated_snippets skips non-dict items."""
-    with patch("onec_help.embedding.is_embedding_available", return_value=True):
+    with patch("onec_help.search_store.embedding.is_embedding_available", return_value=True):
         with patch(
-            "onec_help.embedding.get_embedding_batch",
+            "onec_help.search_store.embedding.get_embedding_batch",
             return_value=[[0.1] * 768],
         ):
             with patch("qdrant_client.QdrantClient") as mock_qc:
@@ -566,9 +566,9 @@ def test_upsert_curated_vectors_mismatch(tmp_path: Path) -> None:
     def cb(done, total, skipped):
         progress_calls.append((done, total, skipped))
 
-    with patch("onec_help.embedding.is_embedding_available", return_value=True):
+    with patch("onec_help.search_store.embedding.is_embedding_available", return_value=True):
         with patch(
-            "onec_help.embedding.get_embedding_batch",
+            "onec_help.search_store.embedding.get_embedding_batch",
             return_value=[[0.1] * 768, [0.1] * 768],  # wrong count
         ):
             n = store.upsert_curated_snippets(items, progress_callback=cb)
@@ -592,9 +592,9 @@ def test_upsert_curated_upsert_exception(tmp_path: Path) -> None:
             raise RuntimeError("fail")
         return None
 
-    with patch("onec_help.embedding.is_embedding_available", return_value=True):
+    with patch("onec_help.search_store.embedding.is_embedding_available", return_value=True):
         with patch(
-            "onec_help.embedding.get_embedding_batch",
+            "onec_help.search_store.embedding.get_embedding_batch",
             return_value=[[0.1] * 768, [0.1] * 768],
         ):
             with patch.object(store, "_upsert_long", side_effect=upsert_raise_second):
@@ -604,7 +604,7 @@ def test_upsert_curated_upsert_exception(tmp_path: Path) -> None:
 
 def test_search_long_fallback_search(tmp_path: Path) -> None:
     """search_long returns [] when query_points raises (no fallback to client.search)."""
-    with patch("onec_help.embedding.get_embedding", return_value=[0.1] * 768):
+    with patch("onec_help.search_store.embedding.get_embedding", return_value=[0.1] * 768):
         with patch("qdrant_client.QdrantClient") as mock_qc:
             mock_client = MagicMock()
             mock_client.collection_exists.return_value = True
@@ -617,7 +617,7 @@ def test_search_long_fallback_search(tmp_path: Path) -> None:
 
 def test_search_long_exception(tmp_path: Path) -> None:
     """search_long returns [] on exception."""
-    with patch("onec_help.embedding.get_embedding", return_value=[0.1] * 768):
+    with patch("onec_help.search_store.embedding.get_embedding", return_value=[0.1] * 768):
         with patch("qdrant_client.QdrantClient", side_effect=RuntimeError("connection refused")):
             store = MemoryStore(tmp_path, short_limit=5, medium_limit=100, medium_ttl_days=7)
             assert store.search_long("query") == []

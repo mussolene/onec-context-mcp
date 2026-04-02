@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .._utils import format_duration
+from ..shared._utils import format_duration
 
 if TYPE_CHECKING:
     from rich.text import Text

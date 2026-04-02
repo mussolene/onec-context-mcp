@@ -1,8 +1,8 @@
 from pathlib import Path
 from typing import Any
 
-from onec_help import metadata_graph
-from onec_help.config_crawler import ConfigObject, CrawlResult
+from onec_help.knowledge import metadata_graph
+from onec_help.knowledge.config_crawler import ConfigObject, CrawlResult
 
 
 class FakeQdrantClient:

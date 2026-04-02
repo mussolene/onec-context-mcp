@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from onec_help.standards_loader import (
+from onec_help.knowledge.loaders.standards_loader import (
     _first_heading,
     _first_paragraph,
     collect_from_folder,
@@ -76,7 +76,7 @@ def test_collect_skips_unreadable_file(tmp_path: Path) -> None:
 
 def test_fetch_repo_archive_non_github_url_raises() -> None:
     """Non-GitHub URL hits else branch; invalid owner/repo pattern raises (lines 59, 66-68)."""
-    with patch("onec_help.standards_loader.urlopen"):
+    with patch("onec_help.knowledge.loaders.standards_loader.urlopen"):
         with pytest.raises(ValueError) as exc_info:
             fetch_repo_archive("https://example.com/foo/bar", branch="main")
     msg = str(exc_info.value).lower()
@@ -85,7 +85,7 @@ def test_fetch_repo_archive_non_github_url_raises() -> None:
 
 def test_fetch_repo_archive_non_github_url_with_dot_git() -> None:
     """Non-GitHub URL ending with .git hits line 61 (base = base[:-4])."""
-    with patch("onec_help.standards_loader.urlopen"):
+    with patch("onec_help.knowledge.loaders.standards_loader.urlopen"):
         with pytest.raises(ValueError) as exc_info:
             fetch_repo_archive("https://example.com/foo/repo.git", branch="main")
     assert "invalid" in str(exc_info.value).lower() or "owner" in str(exc_info.value).lower()
@@ -93,12 +93,12 @@ def test_fetch_repo_archive_non_github_url_with_dot_git() -> None:
 
 def test_fetch_repo_archive_extract_fails_cleans_up() -> None:
     """When ZipFile.extractall raises, temp dir is cleaned up and exception re-raised (lines 91-93)."""
-    with patch("onec_help.standards_loader.urlopen") as mock_urlopen:
+    with patch("onec_help.knowledge.loaders.standards_loader.urlopen") as mock_urlopen:
         resp = MagicMock()
         resp.read.return_value = b"fake"
         mock_urlopen.return_value.__enter__.return_value = resp
         mock_urlopen.return_value.__exit__.return_value = None
-        with patch("onec_help.standards_loader.zipfile.ZipFile") as mock_zip:
+        with patch("onec_help.knowledge.loaders.standards_loader.zipfile.ZipFile") as mock_zip:
             zf = MagicMock()
             zf.extractall.side_effect = OSError("disk full")
             mock_zip.return_value.__enter__.return_value = zf
@@ -119,7 +119,7 @@ def test_fetch_repo_archive(tmp_path: Path) -> None:
     def fake_urlopen(*args, **kwargs):
         return io.BytesIO(data)
 
-    with patch("onec_help.standards_loader.urlopen", side_effect=fake_urlopen):
+    with patch("onec_help.knowledge.loaders.standards_loader.urlopen", side_effect=fake_urlopen):
         target, temp_dir = fetch_repo_archive(
             "https://github.com/1C-Company/v8-code-style", subpath="docs"
         )
@@ -143,7 +143,7 @@ def test_fetch_repo_archive_rejects_invalid_owner() -> None:
 
 def test_fetch_repo_archive_has_https_validation() -> None:
     """AUDIT-005: fetch_repo_archive enforces https scheme (SSRF protection)."""
-    import onec_help.standards_loader as sl
+    import onec_help.knowledge.loaders.standards_loader as sl
 
     src = Path(sl.__file__).read_text()
     assert 'startswith("https://")' in src

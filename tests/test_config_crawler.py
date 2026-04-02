@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from onec_help.config_crawler import (
+from onec_help.knowledge.config_crawler import (
     ConfigObject,
     CrawlResult,
     crawl_config,
@@ -136,7 +136,7 @@ def test_find_config_roots_returns_all_export_subdirs(tmp_path: Path) -> None:
 
 def test_read_config_dump_info_extracts_requisites_and_tabular_sections(tmp_path: Path) -> None:
     """ConfigDumpInfo.xml (hierarchical export) provides requisites and tabular sections by object."""
-    from onec_help.config_crawler import _read_config_dump_info
+    from onec_help.knowledge.config_crawler import _read_config_dump_info
 
     dump_xml = """<?xml version="1.0" encoding="UTF-8"?>
 <ConfigDumpInfo xmlns="http://v8.1c.ru/8.3/xcf/dumpinfo">

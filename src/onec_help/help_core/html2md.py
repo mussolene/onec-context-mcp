@@ -160,7 +160,7 @@ _ENCODINGS_UTF8_FIRST = ("utf-8", "cp1251", "cp866", "latin-1")
 
 # Макс. размер HTML (байты). From env_config.
 def _html_max_bytes() -> int:
-    from .. import env_config
+    from ..shared import env_config
 
     return env_config.get_help_html_max_bytes()
 
@@ -184,7 +184,7 @@ def _looks_like_utf8_mojibake(text: str) -> bool:
 
 
 def _file_encodings() -> tuple[str, ...]:
-    from .. import env_config
+    from ..shared import env_config
 
     order = env_config.get_help_file_encoding()
     # HELP_FILE_ENCODING=cp1251 — сначала CP1251 (если точно знаете, что все файлы в 1251)

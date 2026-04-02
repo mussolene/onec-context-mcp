@@ -1,6 +1,6 @@
 """Tests for dashboard_render.render_dashboard()."""
 
-from onec_help.dashboard_render import render_dashboard
+from onec_help.interfaces.dashboard_render import render_dashboard
 
 
 def test_render_dashboard_returns_rich_group() -> None:

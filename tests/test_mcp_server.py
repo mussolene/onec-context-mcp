@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pytest
 from mcp.shared.exceptions import McpError
 
-from onec_help import mcp_server
+from onec_help.interfaces import mcp_server
 
 
 def test_snippet_max_chars_default() -> None:
@@ -403,10 +403,10 @@ def test_mcp_tool_get_1c_help_index_status_ingest_in_progress(help_sample_dir: P
     }
     with patch("onec_help.ingest.read_ingest_status", return_value=ingest_in_progress):
         with patch(
-            "onec_help.indexer.get_index_status",
+            "onec_help.search_store.indexer.get_index_status",
             return_value={"exists": True, "points_count": 55, "collection": "onec_help"},
         ):
-            with patch("onec_help.indexer.get_all_collections_status", return_value=[]):
+            with patch("onec_help.search_store.indexer.get_all_collections_status", return_value=[]):
                 result = asyncio.run(app.call_tool("get_1c_help_index_status", {}))
     text = result.content[0].text if result.content else ""
     assert "Ingest in progress" in text
@@ -535,7 +535,7 @@ def test_mcp_tool_get_1c_help_related_via_app(help_sample_dir: Path) -> None:
     """Call get_1c_help_related tool via app."""
     app = mcp_server._build_mcp_app(help_sample_dir)
     with patch(
-        "onec_help.indexer.get_1c_help_related",
+        "onec_help.search_store.indexer.get_1c_help_related",
         return_value=[
             {"path": "related1.html", "title": "Related 1"},
             {"path": "related2.html", "title": "Related 2"},
@@ -554,7 +554,7 @@ def test_mcp_tool_get_1c_help_related_via_app(help_sample_dir: Path) -> None:
 def test_mcp_tool_get_1c_help_related_empty(help_sample_dir: Path) -> None:
     """get_1c_help_related returns message when no related topics."""
     app = mcp_server._build_mcp_app(help_sample_dir)
-    with patch("onec_help.indexer.get_1c_help_related", return_value=[]):
+    with patch("onec_help.search_store.indexer.get_1c_help_related", return_value=[]):
         result = asyncio.run(app.call_tool("get_1c_help_related", {"topic_path": "x.md"}))
     text = result.content[0].text if result.content else ""
     assert "No related" in text
@@ -564,7 +564,7 @@ def test_mcp_tool_compare_1c_help_via_app(help_sample_dir: Path) -> None:
     """Call compare_1c_help tool via app."""
     app = mcp_server._build_mcp_app(help_sample_dir)
     with patch(
-        "onec_help.indexer.compare_1c_help",
+        "onec_help.search_store.indexer.compare_1c_help",
         return_value="Left: 8.3\nRight: 8.3.27\nDiff summary.",
     ):
         result = asyncio.run(
@@ -647,7 +647,7 @@ def test_mcp_tool_search_1c_standards(help_sample_dir: Path) -> None:
     memory_results = [
         {"payload": {"title": "Стандарт", "domain": "standards"}},
     ]
-    with patch("onec_help.memory.get_memory_store") as mock_store:
+    with patch("onec_help.knowledge.memory.get_memory_store") as mock_store:
         mock_store.return_value.search_long.return_value = memory_results
         result = asyncio.run(
             app.call_tool(
@@ -666,7 +666,7 @@ def test_mcp_tool_search_1c_snippets(help_sample_dir: Path) -> None:
     memory_results = [
         {"payload": {"title": "Пример", "domain": "snippets", "code_snippet": "Сообщить(1);"}},
     ]
-    with patch("onec_help.memory.get_memory_store") as mock_store:
+    with patch("onec_help.knowledge.memory.get_memory_store") as mock_store:
         mock_store.return_value.search_long.return_value = memory_results
         result = asyncio.run(
             app.call_tool(
@@ -686,7 +686,7 @@ def test_mcp_tool_search_1c_memory(help_sample_dir: Path) -> None:
         {"payload": {"title": "Стандарт именования", "domain": "standards", "description": "Правила именования"}},
         {"payload": {"title": "Пример запроса", "domain": "snippets", "code_snippet": "ВЫБРАТЬ 1", "description": "Пример"}},
     ]
-    with patch("onec_help.memory.get_memory_store") as mock_get_store:
+    with patch("onec_help.knowledge.memory.get_memory_store") as mock_get_store:
         mock_store = mock_get_store.return_value
         mock_store.search_long.return_value = memory_results
         result = asyncio.run(
@@ -704,7 +704,7 @@ def test_mcp_tool_search_1c_memory(help_sample_dir: Path) -> None:
 def test_mcp_tool_search_1c_memory_with_domains(help_sample_dir: Path) -> None:
     """search_1c_memory with domains=standards,snippets calls search_long per domain."""
     app = mcp_server._build_mcp_app(help_sample_dir)
-    with patch("onec_help.memory.get_memory_store") as mock_get_store:
+    with patch("onec_help.knowledge.memory.get_memory_store") as mock_get_store:
         mock_store = mock_get_store.return_value
         mock_store.search_long.side_effect = [
             [{"payload": {"title": "Стандарт", "domain": "standards"}}],
@@ -757,7 +757,7 @@ def test_mcp_tool_get_1c_function_info_empty_name(help_sample_dir: Path) -> None
     assert "Provide" in text or "name" in text
 
 
-@patch("onec_help.metadata_graph.search_metadata_exact")
+@patch("onec_help.knowledge.metadata_graph.search_metadata_exact")
 def test_mcp_tool_search_1c_metadata_exact_via_app(mock_search_meta, help_sample_dir: Path) -> None:
     """Call search_1c_metadata_exact tool via app."""
     app = mcp_server._build_mcp_app(help_sample_dir)
@@ -782,7 +782,7 @@ def test_mcp_tool_search_1c_metadata_exact_via_app(mock_search_meta, help_sample
     assert "Sales" in text or "Document" in text
 
 
-@patch("onec_help.metadata_graph.search_metadata_semantic")
+@patch("onec_help.knowledge.metadata_graph.search_metadata_semantic")
 def test_mcp_tool_search_1c_metadata_semantic_via_app(mock_search_meta, help_sample_dir: Path) -> None:
     """Call search_1c_metadata_semantic tool via app."""
     app = mcp_server._build_mcp_app(help_sample_dir)
@@ -807,7 +807,7 @@ def test_mcp_tool_search_1c_metadata_semantic_via_app(mock_search_meta, help_sam
     assert "Sales" in text or "Document" in text
 
 
-@patch("onec_help.metadata_graph.search_metadata_fields")
+@patch("onec_help.knowledge.metadata_graph.search_metadata_fields")
 def test_mcp_tool_search_1c_metadata_fields_via_app(mock_search_fields, help_sample_dir: Path) -> None:
     """Call search_1c_metadata_fields tool via app."""
     app = mcp_server._build_mcp_app(help_sample_dir)
@@ -841,7 +841,7 @@ def test_mcp_tool_search_1c_metadata_fields_via_app(mock_search_fields, help_sam
     assert "Document Sales" in text
 
 
-@patch("onec_help.metadata_graph.get_metadata_object")
+@patch("onec_help.knowledge.metadata_graph.get_metadata_object")
 def test_mcp_tool_get_1c_metadata_object_via_app(mock_get_meta, help_sample_dir: Path) -> None:
     """Call get_1c_metadata_object tool via app."""
     app = mcp_server._build_mcp_app(help_sample_dir)
@@ -864,7 +864,7 @@ def test_mcp_tool_get_1c_metadata_object_via_app(mock_get_meta, help_sample_dir:
     assert "Sales" in text or "Document" in text
 
 
-@patch("onec_help.context_builder.build_context")
+@patch("onec_help.knowledge.context_builder.build_context")
 def test_mcp_tool_get_1c_context_bundle_via_app(mock_build_ctx, help_sample_dir: Path) -> None:
     """Call get_1c_context_bundle tool via app."""
     app = mcp_server._build_mcp_app(help_sample_dir)
@@ -894,7 +894,7 @@ def test_mcp_tool_get_1c_context_bundle_via_app(mock_build_ctx, help_sample_dir:
     assert "Объекты конфигурации" in text
 
 
-@patch("onec_help.context_builder.build_context")
+@patch("onec_help.knowledge.context_builder.build_context")
 def test_mcp_tool_get_1c_task_context_via_app(mock_build_ctx, help_sample_dir: Path) -> None:
     """get_1c_task_context returns compact local context and top results."""
     app = mcp_server._build_mcp_app(help_sample_dir)

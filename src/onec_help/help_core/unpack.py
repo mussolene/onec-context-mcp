@@ -11,7 +11,7 @@ from pathlib import Path
 
 # Таймаут 7z/unzip (секунды). From env_config.
 def _unpack_timeout() -> int:
-    from .. import env_config
+    from ..shared import env_config
 
     return env_config.get_unpack_timeout()
 
@@ -137,12 +137,12 @@ def _try_hbk_container(path_to_hbk: Path, output_dir: Path) -> bool:
     if path_to_hbk.suffix.lower() != ".hbk":
         return False
     try:
-        from ..hbk_container import (
+        from .hbk_container import (
             extract_filestorage_bytes,
             extract_packblock_toc_bytes,
             read_container_from_path,
         )
-        from ..toc_parser import (
+        from .toc_parser import (
             parse_toc_content,
             save_toc_json,
             toc_chunks_to_flat,

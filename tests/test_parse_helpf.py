@@ -3,8 +3,8 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import onec_help.parse_helpf as parse_helpf_module
-from onec_help.parse_helpf import (
+import onec_help.knowledge.loaders.parse_helpf as parse_helpf_module
+from onec_help.knowledge.loaders.parse_helpf import (
     _extract_faq_links,
     _extract_file_links,
     _extract_freelance_links,

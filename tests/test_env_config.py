@@ -3,7 +3,7 @@
 import os
 from unittest.mock import patch
 
-from onec_help import env_config
+from onec_help.shared import env_config
 
 
 def test_get_data_dir_default() -> None:
