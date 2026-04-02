@@ -295,8 +295,19 @@ def _v8sh_nodes_text(nodes: list[Any]) -> str:
 def _v8sh_compact_prose(text: str) -> str:
     value = _normalize_md_text(text)
     value = re.sub(r":\s*\n\s*", ": ", value)
-    value = re.sub(r"\n\s*\.\s*\n", " .\n", value)
-    value = re.sub(r"\n{2,}", "\n", value)
+    value = re.sub(r"\(\s*\n\s*", "(", value)
+    value = re.sub(r"\s*\n\s*\)", ")", value)
+    value = re.sub(r"\n\s*-\s*", " - ", value)
+    lines = [line.strip() for line in value.splitlines() if line.strip()]
+    compact: list[str] = []
+    for line in lines:
+        if compact and not compact[-1].endswith((".", ":", ";", "!", "?", ",")) and not line.startswith("-"):
+            compact[-1] = f"{compact[-1]} {line}".strip()
+        else:
+            compact.append(line)
+    value = "\n".join(compact)
+    value = re.sub(r"\s+\.\s*", " . ", value)
+    value = re.sub(r"\s{2,}", " ", value)
     return value.strip()
 
 
@@ -335,6 +346,7 @@ def _v8sh_rubric_params(nodes: list[Any]) -> list[str]:
                 description,
                 flags=re.IGNORECASE | re.DOTALL,
             ).strip()
+            description = _v8sh_compact_prose(description)
         bullet = f"- **{name}** ({type_name})"
         if description:
             bullet += f" — {description}"

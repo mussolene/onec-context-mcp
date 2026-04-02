@@ -14,6 +14,7 @@ from .help_structured import (
     API_OBJECTS_FILE,
     get_help_structured_dir,
     iter_help_topics_from_index,
+    iter_help_topics_from_unpacked,
 )
 
 _METHOD_LIKE_KINDS = {"method", "function", "constructor"}
@@ -188,7 +189,8 @@ def build_structured_help_scorecard(
         if str(item.get("topic_path") or "").strip()
     }
 
-    help_topics = iter_help_topics_from_index(
+    unpacked_topics = iter_help_topics_from_unpacked()
+    help_topics = unpacked_topics or iter_help_topics_from_index(
         qdrant_host=qdrant_host,
         qdrant_port=qdrant_port,
         collection=collection,
@@ -256,6 +258,7 @@ def build_structured_help_scorecard(
         "path_coverage_pct": round(len(structured_paths) * 100.0 / len(help_paths), 1) if help_paths else 0.0,
         "help_only_total": len(help_only),
         "help_only_entity_types": dict(help_only_types.most_common(10)),
+        "source": "unpacked_html" if unpacked_topics else "indexed_topics",
     }
     targets = {
         key: {

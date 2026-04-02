@@ -123,6 +123,9 @@ def test_build_structured_help_scorecard_reports_metrics(tmp_path: Path) -> None
         encoding="utf-8",
     )
     with patch(
+        "onec_help.knowledge.help_structured_scorecard.iter_help_topics_from_unpacked",
+        return_value=[],
+    ), patch(
         "onec_help.knowledge.help_structured_scorecard.iter_help_topics_from_index",
         return_value=[
             {"path": "HTTPConnection.html", "entity_type": "topic"},
@@ -194,8 +197,61 @@ def test_build_structured_help_scorecard_uses_member_name_for_bare_query(tmp_pat
         encoding="utf-8",
     )
     with patch(
+        "onec_help.knowledge.help_structured_scorecard.iter_help_topics_from_unpacked",
+        return_value=[],
+    ), patch(
         "onec_help.knowledge.help_structured_scorecard.iter_help_topics_from_index",
         return_value=[],
     ):
         scorecard = build_structured_help_scorecard(snapshot_dir=tmp_path, benchmark_path=bench)
     assert scorecard["benchmark"]["exact_top1_pct"] == 100.0
+
+
+def test_build_structured_help_scorecard_prefers_unpacked_paths(tmp_path: Path) -> None:
+    _write_jsonl(tmp_path / "api_objects.jsonl", [])
+    _write_jsonl(
+        tmp_path / "api_members.jsonl",
+        [
+            {
+                "id": 1,
+                "owner_name": "HTTPСоединение",
+                "member_name": "Получить",
+                "full_name": "HTTPСоединение.Получить",
+                "kind": "method",
+                "summary": "Получает ресурс.",
+                "syntax": "Получить()",
+                "params": [{"name": "x", "type": "Строка", "description": ""}],
+                "returns": "HTTPОтвет",
+                "availability": "Сервер",
+                "topic_path": "8.3.27/shcntx_ru/Get.html",
+                "title": "HTTPСоединение.Получить",
+            }
+        ],
+    )
+    _write_jsonl(tmp_path / "api_examples.jsonl", [])
+    _write_jsonl(tmp_path / "api_links.jsonl", [])
+    bench = tmp_path / "bench.json"
+    bench.write_text(
+        json.dumps(
+            [
+                {
+                    "query": "HTTPСоединение.Получить",
+                    "entity": "member",
+                    "expected_full_name": "HTTPСоединение.Получить",
+                    "expected_kind": "method",
+                }
+            ],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    with patch(
+        "onec_help.knowledge.help_structured_scorecard.iter_help_topics_from_unpacked",
+        return_value=[{"path": "8.3.27/shcntx_ru/Get.html", "entity_type": "topic"}],
+    ), patch(
+        "onec_help.knowledge.help_structured_scorecard.iter_help_topics_from_index",
+        return_value=[{"path": "Ignored.html", "entity_type": "topic"}],
+    ):
+        scorecard = build_structured_help_scorecard(snapshot_dir=tmp_path, benchmark_path=bench)
+    assert scorecard["path_coverage"]["source"] == "unpacked_html"
+    assert scorecard["path_coverage"]["path_coverage_pct"] == 100.0

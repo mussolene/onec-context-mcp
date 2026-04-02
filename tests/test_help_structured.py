@@ -347,7 +347,7 @@ def test_extract_structured_records_from_html_topic_uses_shared_legacy_v8sh_pars
     assert member["params"][0]["name"] == "<СтрокаСоединения> (обязательный)"
     assert member["params"][0]["type"] == "Строка"
     assert "Строка параметров соединения." in member["params"][0]["description"]
-    assert member["returns"] == "Тип: Булево .\nИстина при успехе."
+    assert member["returns"] == "Тип: Булево . Истина при успехе."
     assert "Интеграция" in member["availability"]
 
 

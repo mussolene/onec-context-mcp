@@ -267,7 +267,7 @@ def test_extract_v8sh_sections_handles_div_based_legacy_markup() -> None:
     assert sections["syntax"] == "Connect(<СтрокаСоединения>)"
     assert "**<СтрокаСоединения> (обязательный)** (Строка)" in sections["params"]
     assert "Строка параметров соединения." in sections["params"]
-    assert sections["returns"] == "Тип: Булево .\nИстина при успехе."
+    assert sections["returns"] == "Тип: Булево . Истина при успехе."
     assert sections["description"] == "Выполняет соединение."
     assert sections["availability"] == "Интеграция."
 
@@ -293,7 +293,7 @@ def test_html_to_md_content_uses_shared_v8sh_sections_for_div_markup(tmp_path: P
     assert "## Параметры" in md
     assert "**<СтрокаСоединения> (обязательный)** (Строка)" in md
     assert "## Возвращаемое значение" in md
-    assert "Истина при успехе." in md
+    assert "Тип: Булево . Истина при успехе." in md
 
 
 def test_build_docs_extensionless_html(tmp_path: Path) -> None:
