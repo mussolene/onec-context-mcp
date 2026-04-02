@@ -209,7 +209,7 @@ def _get_topic(
     topic_path: str,
     version: str | None = None,
     language: str | None = None,
-    prefer_index: bool = False,
+    prefer_index: bool = True,
 ) -> str:
     from ..search_store.indexer import get_topic_content
 
@@ -920,7 +920,7 @@ def _build_mcp_app(help_path: Path) -> Any:
             path = r.get("path", "")
             if not path:
                 continue
-            content = _get_topic(path, version=version, language=language, prefer_index=False)
+            content = _get_topic(path, version=version, language=language, prefer_index=True)
             if content:
                 max_chars = _max_topic_content_chars()
                 if len(content) > max_chars:
@@ -956,7 +956,7 @@ def _build_mcp_app(help_path: Path) -> Any:
                     str(best_item.get("topic_path")),
                     version=version,
                     language=language,
-                    prefer_index=False,
+                    prefer_index=True,
                 )
                 if content:
                     return content
@@ -996,7 +996,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         path = topic.get("path", "")
         if not path:
             return "Exact keyword hit has no topic path."
-        content = _get_topic(path, version=version, language=language, prefer_index=False)
+        content = _get_topic(path, version=version, language=language, prefer_index=True)
         if not content:
             return f"Topic content not found for {path}."
         if detail == "full":
@@ -1181,11 +1181,11 @@ def _build_mcp_app(help_path: Path) -> Any:
         path: str | None = None,
         version: str | None = None,
         language: str | None = None,
-        prefer_index: bool = False,
+        prefer_index: bool = True,
     ) -> str:
         """Get full help topic content in Markdown by path. Path from search results (e.g. 'zif3_CryptoManager.md').
         Pass the topic path as **topic_path** or **path** (both accepted).
-        Content is read from disk or from index if files were not persisted.
+        Content is read from index by default; can fall back to disk only if prefer_index=False.
         version, language: optional filters when reading from index.
         prefer_index: if True, read only from index (skip disk).
         Tip: get path from search_1c_help or search_1c_help_keyword first."""
@@ -1869,6 +1869,13 @@ def _build_mcp_app(help_path: Path) -> Any:
                         lines.append(
                             f"Structured API (**onec_help_api**): **{_api_count}** points"
                         )
+                elif coll.get("name") == "onec_help_examples":
+                    _examples_count = coll.get("points_count")
+                    if _examples_count is not None:
+                        lines.append("")
+                        lines.append(
+                            f"Official examples (**onec_help_examples**): **{_examples_count}** points"
+                        )
         except Exception:
             pass
         try:
@@ -2248,7 +2255,7 @@ def _build_mcp_app(help_path: Path) -> Any:
             p = (p or "").strip()
             if not p:
                 continue
-            content = _get_topic(p, version=version, language=language, prefer_index=False)
+            content = _get_topic(p, version=version, language=language, prefer_index=True)
             if content:
                 if max_chars_per_topic > 0 and len(content) > max_chars_per_topic:
                     content = content[:max_chars_per_topic] + "\n\n..."

@@ -526,7 +526,7 @@ def test_mcp_tool_get_1c_api_object_via_app(help_sample_dir: Path) -> None:
 
 
 def test_mcp_tool_search_1c_official_examples_via_app(help_sample_dir: Path) -> None:
-    """search_1c_official_examples reads only file-backed official examples."""
+    """search_1c_official_examples returns official examples from the dedicated examples layer."""
     app = mcp_server._build_mcp_app(help_sample_dir)
     with patch.object(
         mcp_server,

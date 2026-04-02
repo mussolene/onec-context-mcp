@@ -12,6 +12,7 @@ from ..shared import env_config
 API_OBJECTS_FILE = "api_objects.jsonl"
 API_EXAMPLES_FILE = "api_examples.jsonl"
 API_COLLECTION_NAME = "onec_help_api"
+API_EXAMPLES_COLLECTION_NAME = "onec_help_examples"
 
 _SECTION_ALIASES: dict[str, str] = {
     "Синтаксис": "syntax",
@@ -455,6 +456,87 @@ def index_structured_api_objects(
     return inserted
 
 
+def index_structured_api_examples(
+    snapshot_dir: Path | None = None,
+    *,
+    qdrant_host: str | None = None,
+    qdrant_port: int | None = None,
+    collection: str = API_EXAMPLES_COLLECTION_NAME,
+    recreate: bool = True,
+    batch_size: int = 200,
+) -> int:
+    """Index official examples into dedicated Qdrant collection."""
+    from qdrant_client import QdrantClient
+    from qdrant_client.models import Distance, PointStruct, VectorParams
+
+    items = load_api_examples(snapshot_dir)
+    if not items:
+        return 0
+    host = qdrant_host or env_config.get_qdrant_host()
+    port = qdrant_port or env_config.get_qdrant_port()
+    client = QdrantClient(
+        host=host,
+        port=port,
+        timeout=env_config.get_qdrant_timeout(),
+        check_compatibility=False,
+    )
+    dim = 1
+    if recreate:
+        client.recreate_collection(
+            collection_name=collection,
+            vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
+        )
+    elif not client.collection_exists(collection):
+        client.create_collection(
+            collection_name=collection,
+            vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
+        )
+
+    inserted = 0
+    for start in range(0, len(items), batch_size):
+        batch = items[start : start + batch_size]
+        points = []
+        for item in batch:
+            payload = {
+                "api_name": item.get("api_name") or "",
+                "title": item.get("title") or "",
+                "code": item.get("code") or "",
+                "description": item.get("description") or "",
+                "version": item.get("version") or "",
+                "language": item.get("language") or "",
+                "topic_path": item.get("topic_path") or "",
+                "path": item.get("topic_path") or "",
+                "entity_type": item.get("entity_type") or "example",
+                "text": "\n".join(
+                    part
+                    for part in (
+                        item.get("api_name") or "",
+                        item.get("title") or "",
+                        item.get("description") or "",
+                        item.get("code") or "",
+                    )
+                    if part
+                ),
+            }
+            points.append(
+                PointStruct(
+                    id=int(
+                        item.get("id")
+                        or _topic_point_id(
+                            f"{payload['path']}#example",
+                            payload["version"],
+                            payload["language"],
+                        )
+                    ),
+                    vector=[0.0],
+                    payload=payload,
+                )
+            )
+        client.upsert(collection_name=collection, points=points)
+        inserted += len(points)
+    return inserted
+
+
 def search_official_examples(
     query: str,
     *,
@@ -463,13 +545,42 @@ def search_official_examples(
     version: str | None = None,
     language: str | None = None,
 ) -> list[dict[str, Any]]:
-    """File-backed search over official examples extracted from help topics."""
+    """Qdrant-backed search over official examples extracted from help topics."""
+    from qdrant_client import QdrantClient
+
     q = (query or "").strip().lower()
     if not q:
         return []
+    host = env_config.get_qdrant_host()
+    port = env_config.get_qdrant_port()
+    client = QdrantClient(host=host, port=port, check_compatibility=False)
+    items: list[dict[str, Any]] = []
+    if client.collection_exists(API_EXAMPLES_COLLECTION_NAME):
+        offset = None
+        while True:
+            points, next_offset = client.scroll(
+                collection_name=API_EXAMPLES_COLLECTION_NAME,
+                limit=500,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+            if not points:
+                break
+            for point in points:
+                payload = getattr(point, "payload", None) or {}
+                items.append(payload)
+            if next_offset is None:
+                break
+            offset = next_offset
+    elif snapshot_dir is not None:
+        items = load_api_examples(snapshot_dir)
+    else:
+        return []
+
     tokens = [token.lower() for token in re.findall(r"[А-Яа-яA-Za-z0-9_.-]+", q) if len(token) >= 2]
     results: list[tuple[int, dict[str, Any]]] = []
-    for item in load_api_examples(snapshot_dir):
+    for item in items:
         if version and str(item.get("version") or "") != version:
             continue
         if language and str(item.get("language") or "") != language:

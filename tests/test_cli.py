@@ -207,10 +207,15 @@ def test_cmd_index_api_structured() -> None:
         "onec_help.knowledge.help_structured.index_structured_api_objects",
         return_value=3,
     ) as mock_index:
-        with patch("onec_help.search_store.indexer.add_bm25_to_collection", return_value=3) as mock_bm25:
-            args = make_args(snapshot_dir=None, recreate=True)
-            assert cmd_index_api_structured(args) == 0
+        with patch(
+            "onec_help.knowledge.help_structured.index_structured_api_examples",
+            return_value=2,
+        ) as mock_examples:
+            with patch("onec_help.search_store.indexer.add_bm25_to_collection", return_value=3) as mock_bm25:
+                args = make_args(snapshot_dir=None, recreate=True)
+                assert cmd_index_api_structured(args) == 0
     mock_index.assert_called_once()
+    mock_examples.assert_called_once()
     mock_bm25.assert_called_once()
 
 
