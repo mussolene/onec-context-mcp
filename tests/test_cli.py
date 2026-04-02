@@ -240,6 +240,7 @@ def test_run_api_structured_pipeline_stops_on_snapshot_error() -> None:
 @patch("onec_help.knowledge.kd2_metadata.crawl_kd2_xml")
 @patch("onec_help.knowledge.kd2_metadata.write_kd2_snapshot")
 @patch("onec_help.knowledge.metadata_graph.build_metadata_graph_from_crawl")
+@patch("onec_help.search_store.indexer.add_bm25_to_collection", return_value=1)
 @patch("onec_help.search_store.embedding.is_embedding_available", return_value=True)
 @patch("onec_help.runtime.redis_cache.require_runtime_redis")
 @patch("qdrant_client.QdrantClient")
@@ -247,6 +248,7 @@ def test_cmd_build_metadata_graph_kd2_xml(
     mock_client,
     _mock_redis,
     _mock_embed_available,
+    _mock_add_bm25,
     mock_build_graph,
     mock_write_snapshot,
     mock_crawl_kd2,
@@ -280,6 +282,7 @@ def test_cmd_build_metadata_graph_kd2_xml(
 
 @patch("onec_help.knowledge.kd2_metadata.write_kd2_snapshot")
 @patch("onec_help.knowledge.metadata_graph.build_metadata_graph_from_crawl")
+@patch("onec_help.search_store.indexer.add_bm25_to_collection", return_value=1)
 @patch("onec_help.search_store.embedding.is_embedding_available", return_value=True)
 @patch("onec_help.runtime.redis_cache.require_runtime_redis")
 @patch("qdrant_client.QdrantClient")
@@ -287,6 +290,7 @@ def test_cmd_build_metadata_graph_auto_merges_multiple_kd2_exports(
     mock_client,
     _mock_redis,
     _mock_embed_available,
+    _mock_add_bm25,
     mock_build_graph,
     mock_write_snapshot,
     tmp_path: Path,
@@ -336,6 +340,7 @@ def test_cmd_build_metadata_graph_auto_merges_multiple_kd2_exports(
 @patch("onec_help.knowledge.kd2_metadata.crawl_kd2_xml")
 @patch("onec_help.knowledge.kd2_metadata.write_kd2_snapshot")
 @patch("onec_help.knowledge.metadata_graph.build_metadata_graph_from_crawl")
+@patch("onec_help.search_store.indexer.add_bm25_to_collection", return_value=1)
 @patch("onec_help.search_store.embedding.is_embedding_available", return_value=True)
 @patch("onec_help.runtime.redis_cache.require_runtime_redis")
 @patch("qdrant_client.QdrantClient")
@@ -343,6 +348,7 @@ def test_cmd_build_metadata_graph_auto_refreshes_snapshot_from_workdir(
     mock_client,
     _mock_redis,
     _mock_embed_available,
+    _mock_add_bm25,
     mock_build_graph,
     mock_write_snapshot,
     mock_crawl_kd2,
