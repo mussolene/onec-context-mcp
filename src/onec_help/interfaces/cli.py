@@ -501,6 +501,65 @@ def cmd_build_docs(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_build_api_structured(args: argparse.Namespace) -> int:
+    """Build derived structured API snapshot from indexed help topics."""
+    from ..knowledge.help_structured import build_structured_api_snapshot
+
+    output_dir = getattr(args, "output_dir", None)
+    try:
+        manifest = build_structured_api_snapshot(
+            Path(output_dir).expanduser().resolve() if output_dir else None,
+            qdrant_host=env_config.get_qdrant_host(),
+            qdrant_port=env_config.get_qdrant_port(),
+            collection=env_config.get_qdrant_collection(),
+        )
+        print(
+            "Structured API snapshot written: "
+            f"{manifest['objects']} objects, {manifest['examples']} examples"
+        )
+        return 0
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_index_api_structured(args: argparse.Namespace) -> int:
+    """Index structured API objects into dedicated onec_help_api collection."""
+    from ..knowledge.help_structured import API_COLLECTION_NAME, index_structured_api_objects
+    from ..search_store.indexer import add_bm25_to_collection
+
+    snapshot_dir = getattr(args, "snapshot_dir", None)
+    recreate = bool(getattr(args, "recreate", False))
+    try:
+        inserted = index_structured_api_objects(
+            Path(snapshot_dir).expanduser().resolve() if snapshot_dir else None,
+            qdrant_host=env_config.get_qdrant_host(),
+            qdrant_port=env_config.get_qdrant_port(),
+            collection=API_COLLECTION_NAME,
+            recreate=recreate,
+        )
+        print(f"Indexed {inserted} structured API objects into {API_COLLECTION_NAME}")
+        if inserted > 0 and env_config.get_bm25_enabled():
+            add_bm25_to_collection(
+                qdrant_host=env_config.get_qdrant_host(),
+                qdrant_port=env_config.get_qdrant_port(),
+                collection=API_COLLECTION_NAME,
+                batch_size=200,
+                verbose=True,
+            )
+        return 0
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
+def _run_api_structured_pipeline(*, recreate: bool) -> int:
+    build_result = cmd_build_api_structured(_make_args(output_dir=None))
+    if build_result != 0:
+        return build_result
+    return cmd_index_api_structured(_make_args(snapshot_dir=None, recreate=recreate))
+
+
 def cmd_build_index(args: argparse.Namespace) -> int:
     """Build Qdrant index from Markdown (or HTML) in directory."""
     from ..search_store.indexer import build_index
@@ -518,6 +577,10 @@ def cmd_build_index(args: argparse.Namespace) -> int:
             bm25=not getattr(args, "no_bm25", False),
         )
         print(f"Indexed {count} chunks")
+        if not getattr(args, "skip_api_structured", False):
+            rc = _run_api_structured_pipeline(recreate=getattr(args, "incremental", False) is False)
+            if rc != 0:
+                return rc
         return 0
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -917,6 +980,10 @@ def cmd_ingest(args: argparse.Namespace) -> int:
                 embedding_workers=getattr(args, "embedding_workers", None),
             )
         print(f"Ingested and indexed {n} chunks")
+        if not getattr(args, "dry_run", False):
+            rc = _run_api_structured_pipeline(recreate=bool(getattr(args, "recreate", False)))
+            if rc != 0:
+                return rc
         return 0
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -952,6 +1019,9 @@ def cmd_ingest_from_unpacked(args: argparse.Namespace) -> int:
             bm25=bm25_val,
         )
         print(f"Ingested from unpacked: {n} points")
+        rc = _run_api_structured_pipeline(recreate=bool(getattr(args, "recreate", False)))
+        if rc != 0:
+            return rc
         return 0
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -1542,7 +1612,7 @@ def _clear_before_reinit(
         from qdrant_client import QdrantClient
 
         client = QdrantClient(host=qdrant_host, port=qdrant_port, check_compatibility=False)
-        for coll in (collection, "onec_help_memory"):
+        for coll in (collection, "onec_help_memory", "onec_help_api"):
             if client.collection_exists(coll):
                 client.delete_collection(coll)
                 print(f"Dropped Qdrant collection: {coll}", file=sys.stderr)
@@ -1949,7 +2019,41 @@ def main() -> int:
         action="store_true",
         help="Disable BM25 sparse vectors (default: BM25_ENABLED=1)",
     )
+    p_idx.add_argument(
+        "--skip-api-structured",
+        action="store_true",
+        help="Skip derived structured API snapshot/index refresh after help indexing",
+    )
     p_idx.set_defaults(func=cmd_build_index)
+
+    p_api_structured = sub.add_parser(
+        "build-api-structured",
+        help="Build derived structured API snapshot from indexed platform help",
+    )
+    p_api_structured.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="Output directory (default: DATA_DIR/help_structured)",
+    )
+    p_api_structured.set_defaults(func=cmd_build_api_structured)
+
+    p_api_index = sub.add_parser(
+        "index-api-structured",
+        help="Index structured API objects into onec_help_api",
+    )
+    p_api_index.add_argument(
+        "--snapshot-dir",
+        type=str,
+        default=None,
+        help="Structured snapshot directory (default: DATA_DIR/help_structured)",
+    )
+    p_api_index.add_argument(
+        "--recreate",
+        action="store_true",
+        help="Recreate onec_help_api before indexing",
+    )
+    p_api_index.set_defaults(func=cmd_index_api_structured)
 
     # add-bm25
     p_add_bm25 = sub.add_parser(

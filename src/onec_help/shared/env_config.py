@@ -37,6 +37,14 @@ def get_help_path() -> str:
     return v or get_data_dir()
 
 
+def get_help_structured_dir() -> str:
+    """Derived structured snapshot dir for platform help. Default: DATA_DIR/help_structured."""
+    v = (os.environ.get("HELP_STRUCTURED_DIR") or "").strip()
+    if v:
+        return v
+    return os.path.join(get_data_dir(), "help_structured")
+
+
 # --- Help sources ---
 HELP_SOURCE_BASE_DEFAULT = ""
 HELP_LANGUAGES_DEFAULT = "ru"

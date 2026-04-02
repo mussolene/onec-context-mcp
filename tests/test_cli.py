@@ -11,13 +11,16 @@ from onec_help.interfaces.cli import (
     _build_snippets_sources,
     _categorize_error,
     _env_path,
+    _run_api_structured_pipeline,
     _short_error,
     cmd_add_bm25,
+    cmd_build_api_structured,
     cmd_build_docs,
     cmd_build_index,
     cmd_build_kd2_snapshot,
     cmd_build_metadata_graph,
     cmd_dashboard,
+    cmd_index_api_structured,
     cmd_ingest,
     cmd_ingest_from_unpacked,
     cmd_init,
@@ -174,17 +177,49 @@ def test_cmd_unpack_success(mock_unpack, tmp_path: Path) -> None:
 @patch("onec_help.search_store.indexer.build_index")
 def test_cmd_build_index(mock_build, help_sample_dir: Path) -> None:
     mock_build.return_value = 5
-    args = make_args(directory=str(help_sample_dir), docs_dir=None)
+    args = make_args(directory=str(help_sample_dir), docs_dir=None, incremental=False, skip_api_structured=False)
     with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
-        assert cmd_build_index(args) == 0
+        with patch("onec_help.interfaces.cli._run_api_structured_pipeline", return_value=0) as mock_struct:
+            assert cmd_build_index(args) == 0
+    mock_struct.assert_called_once_with(recreate=True)
 
 
 @patch("onec_help.search_store.indexer.build_index")
 def test_cmd_build_index_error(mock_build, help_sample_dir: Path) -> None:
     mock_build.side_effect = RuntimeError("Qdrant unavailable")
-    args = make_args(directory=str(help_sample_dir), docs_dir=None)
+    args = make_args(directory=str(help_sample_dir), docs_dir=None, skip_api_structured=False)
     with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
         assert cmd_build_index(args) == 1
+
+
+def test_cmd_build_api_structured() -> None:
+    with patch(
+        "onec_help.knowledge.help_structured.build_structured_api_snapshot",
+        return_value={"objects": 3, "examples": 2},
+    ) as mock_build:
+        args = make_args(output_dir=None)
+        assert cmd_build_api_structured(args) == 0
+    mock_build.assert_called_once()
+
+
+def test_cmd_index_api_structured() -> None:
+    with patch(
+        "onec_help.knowledge.help_structured.index_structured_api_objects",
+        return_value=3,
+    ) as mock_index:
+        with patch("onec_help.search_store.indexer.add_bm25_to_collection", return_value=3) as mock_bm25:
+            args = make_args(snapshot_dir=None, recreate=True)
+            assert cmd_index_api_structured(args) == 0
+    mock_index.assert_called_once()
+    mock_bm25.assert_called_once()
+
+
+def test_run_api_structured_pipeline_stops_on_snapshot_error() -> None:
+    with patch("onec_help.interfaces.cli.cmd_build_api_structured", return_value=1) as mock_build:
+        with patch("onec_help.interfaces.cli.cmd_index_api_structured", return_value=0) as mock_index:
+            assert _run_api_structured_pipeline(recreate=False) == 1
+    mock_build.assert_called_once()
+    mock_index.assert_not_called()
 
 
 @patch("onec_help.knowledge.kd2_metadata.crawl_kd2_xml")
