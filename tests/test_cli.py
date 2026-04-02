@@ -1353,10 +1353,11 @@ def _minimal_dashboard_data(**overrides):
 
 
 @patch("onec_help.knowledge.metadata_graph.build_metadata_graph_from_crawl", return_value=1)
+@patch("onec_help.search_store.indexer.add_bm25_to_collection", return_value=1)
 @patch("onec_help.search_store.embedding.is_embedding_available", return_value=True)
 @patch("onec_help.knowledge.config_crawler.crawl_config")
 def test_cmd_build_metadata_graph_success(
-    mock_crawl, _mock_embed_avail, mock_build, tmp_path: Path
+    mock_crawl, _mock_embed_avail, mock_add_bm25, mock_build, tmp_path: Path
 ) -> None:
     """cmd_build_metadata_graph calls crawl_config and metadata_graph.build_metadata_graph_from_crawl."""
     from onec_help.knowledge.config_crawler import ConfigObject, CrawlResult
@@ -1389,6 +1390,7 @@ def test_cmd_build_metadata_graph_success(
             assert cmd_build_metadata_graph(args) == 0
     mock_crawl.assert_called_once()
     mock_build.assert_called_once()
+    mock_add_bm25.assert_called_once()
 
 
 def test_cmd_build_metadata_graph_no_source_dir_returns_error(

@@ -414,6 +414,27 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
         progress_done(
             f"metadata-graph-build │ ✓ {inserted} object(s) → onec_config_metadata (use config_version={cfg_ver!r} in search_1c_metadata / get_1c_context_bundle)"
         )
+        if inserted > 0 and env_config.get_bm25_enabled():
+            try:
+                from ..search_store.indexer import add_bm25_to_collection
+
+                progress_line("metadata-graph-build │ rebuilding BM25 for onec_config_metadata")
+                bm25_count = add_bm25_to_collection(
+                    qdrant_host=qhost,
+                    qdrant_port=qport,
+                    collection="onec_config_metadata",
+                    batch_size=200,
+                    verbose=True,
+                )
+                progress_done(
+                    f"metadata-graph-build │ BM25 ready for onec_config_metadata ({bm25_count} points)"
+                )
+            except Exception as e:
+                print(
+                    f"metadata-graph-build │ BM25 rebuild failed: {e}",
+                    file=sys.stderr,
+                    flush=True,
+                )
         # Записываем "last run" в Redis — дашборд покажет результат как у standards/snippets
         try:
             from ..runtime import redis_cache as _rc
