@@ -29,6 +29,7 @@ def test_render_dashboard_output_contains_tasks_and_errors() -> None:
     data = {
         "ingest": None,
         "ingest_last_run": {"total_tasks": 10, "done_tasks": 10, "failed_count": 0},
+        "ingest_last_run_stale": False,
         "failed_tasks": [],
         "index_status": {"exists": True, "points_count": 100},
         "collections": [{"name": "onec_help", "points_count": 100}],
@@ -58,6 +59,7 @@ def test_render_dashboard_shows_failed_tasks_table() -> None:
     data = {
         "ingest": None,
         "ingest_last_run": {"failed_count": 1},
+        "ingest_last_run_stale": False,
         "failed_tasks": [
             {"version": "8.3", "language": "ru", "path": "/x/y.md", "error": "timeout"}
         ],
@@ -88,6 +90,7 @@ def test_render_dashboard_ingest_in_progress_with_eta() -> None:
             "elapsed_sec": 10.0,
         },
         "ingest_last_run": None,
+        "ingest_last_run_stale": False,
         "failed_tasks": [],
         "index_status": {},
         "collections": [],
@@ -138,6 +141,7 @@ def test_render_dashboard_ingest_with_workers_eta_and_loading_pts() -> None:
             ],
         },
         "ingest_last_run": None,
+        "ingest_last_run_stale": False,
         "failed_tasks": [],
         "index_status": {},
         "collections": [],
@@ -166,6 +170,7 @@ def test_render_dashboard_standards_snippets_loading_workers_no_ingest() -> None
     data = {
         "ingest": None,
         "ingest_last_run": None,
+        "ingest_last_run_stale": False,
         "failed_tasks": [],
         "index_status": {},
         "collections": [],
@@ -199,6 +204,7 @@ def test_render_dashboard_ingest_in_progress_eta_zero_division_handled() -> None
             "elapsed_sec": 10.0,
         },
         "ingest_last_run": None,
+        "ingest_last_run_stale": False,
         "failed_tasks": [],
         "index_status": {},
         "collections": [],
@@ -215,6 +221,33 @@ def test_render_dashboard_ingest_in_progress_eta_zero_division_handled() -> None
         console.print(result)
     out = cap.get()
     assert "in progress" in out and "0/5" in out
+
+
+def test_render_dashboard_stale_ingest_last_run_not_shown_as_completed() -> None:
+    """Stale last run with status=in_progress should not render as a normal completed last run."""
+    from rich.console import Console
+
+    data = {
+        "ingest": None,
+        "ingest_last_run": {"status": "in_progress", "done_tasks": 0, "total_tasks": 24},
+        "ingest_last_run_stale": True,
+        "failed_tasks": [],
+        "index_status": {},
+        "collections": [],
+        "snippets": None,
+        "standards_loading": False,
+        "snippets_loading": False,
+        "storage_path_mb": None,
+        "mcp_metrics": {},
+        "metadata_loading": False,
+    }
+    result = render_dashboard(data)
+    console = Console(force_terminal=True, no_color=True)
+    with console.capture() as cap:
+        console.print(result)
+    out = cap.get()
+    assert "stale persisted state" in out
+    assert "last run 0/24 done" not in out
 
 
 def test_render_dashboard_mcp_per_tool_table() -> None:

@@ -31,6 +31,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
     tasks_parts: list[Any] = []
     ingest = data.get("ingest")
     ingest_last = data.get("ingest_last_run")
+    ingest_last_stale = bool(data.get("ingest_last_run_stale"))
     if ingest and ingest.get("status") == "in_progress":
         total = ingest.get("total_tasks") or 0
         done = ingest.get("done_tasks") or 0
@@ -215,7 +216,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
             tasks_parts.append(workers_table)
             if current_tasks and len(current_tasks) > 10:
                 tasks_parts.append(Text(f"  … +{len(current_tasks) - 10} more\n"))
-    elif ingest_last:
+    elif ingest_last and not ingest_last_stale:
         total = ingest_last.get("total_tasks") or 0
         done = ingest_last.get("done_tasks") or 0
         failed = ingest_last.get("failed_count") or 0
@@ -228,6 +229,15 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 + pts_str
                 + (f", {failed} failed" if failed else "")
                 + (f", {format_duration(elapsed)}" if elapsed is not None else "")
+            )
+        )
+    elif ingest_last_stale and ingest_last:
+        total = ingest_last.get("total_tasks") or 0
+        done = ingest_last.get("done_tasks") or 0
+        tasks_parts.append(
+            Text(
+                f"Ingest: no active run (stale persisted state {done}/{total}, not completed)",
+                style="yellow",
             )
         )
     else:

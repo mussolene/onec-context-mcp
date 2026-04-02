@@ -126,6 +126,13 @@ def get_dashboard_data(
     index_status and collections are always read from Qdrant API (no cache), independent of ingest/load processes."""
     ingest_current = read_ingest_status()
     ingest_last_run = read_last_ingest_run()
+    ingest_last_run_stale = False
+    if (
+        not ingest_current
+        and ingest_last_run
+        and (ingest_last_run.get("status") or "") != "completed"
+    ):
+        ingest_last_run_stale = True
     # Ошибки из накопительного лога в Redis (всегда доступны для дашборда); при пустом логе — последний run или файл
     failed_tasks = read_ingest_errors_log(limit=failed_tasks_limit)
     if not failed_tasks and (ingest_last_run or {}).get("failed_count", 0) > 0:
@@ -152,6 +159,7 @@ def get_dashboard_data(
     return {
         "ingest": ingest_current,
         "ingest_last_run": ingest_last_run,
+        "ingest_last_run_stale": ingest_last_run_stale,
         "failed_tasks": failed_tasks,
         "index_status": index_status,
         "collections": collections,
