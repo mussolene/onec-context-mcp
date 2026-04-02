@@ -207,6 +207,54 @@ def test_build_structured_help_scorecard_uses_member_name_for_bare_query(tmp_pat
     assert scorecard["benchmark"]["exact_top1_pct"] == 100.0
 
 
+def test_build_structured_help_scorecard_accepts_bare_builtin_expected_name(tmp_path: Path) -> None:
+    _write_jsonl(tmp_path / "api_objects.jsonl", [])
+    _write_jsonl(
+        tmp_path / "api_members.jsonl",
+        [
+            {
+                "full_name": "Встроенные функции языка.Формат",
+                "member_name": "Формат",
+                "owner_name": "Встроенные функции языка",
+                "kind": "function",
+                "summary": "Форматирует значение.",
+                "syntax": "Формат(<Значение>, <ФорматСтрока>)",
+                "params": [{"name": "<Значение>", "type": "Произвольный", "description": ""}],
+                "returns": "Строка",
+                "availability": "Сервер, толстый клиент, тонкий клиент.",
+                "topic_path": "8.3.27/shcntx_ru/objects/Script functions/methods/catalog994/Format971.html",
+            }
+        ],
+    )
+    _write_jsonl(tmp_path / "api_examples.jsonl", [])
+    _write_jsonl(tmp_path / "api_links.jsonl", [])
+    bench = tmp_path / "bench.json"
+    bench.write_text(
+        json.dumps(
+            [
+                {
+                    "query": "Формат",
+                    "entity": "member",
+                    "expected_full_name": "Формат",
+                    "expected_kind": "function",
+                }
+            ],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    with patch(
+        "onec_help.knowledge.help_structured_scorecard.iter_help_topics_from_unpacked",
+        return_value=[{"path": "8.3.27/shcntx_ru/objects/Script functions/methods/catalog994/Format971.html", "entity_type": "topic"}],
+    ), patch(
+        "onec_help.knowledge.help_structured_scorecard.iter_help_topics_from_index",
+        return_value=[],
+    ):
+        scorecard = build_structured_help_scorecard(snapshot_dir=tmp_path, benchmark_path=bench)
+    assert scorecard["benchmark"]["exact_top1_pct"] == 100.0
+    assert scorecard["cases"][0]["top_hit_full_name"] == "Встроенные функции языка.Формат"
+
+
 def test_build_structured_help_scorecard_prefers_unpacked_paths(tmp_path: Path) -> None:
     _write_jsonl(tmp_path / "api_objects.jsonl", [])
     _write_jsonl(

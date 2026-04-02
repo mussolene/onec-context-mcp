@@ -95,6 +95,24 @@ def _normalize_name(value: str) -> str:
     return " ".join((value or "").strip().split()).lower()
 
 
+def _matches_expected_name(expected: str, item: dict[str, Any]) -> bool:
+    expected_norm = _normalize_name(expected)
+    if not expected_norm:
+        return False
+    full_name = _normalize_name(str(item.get("full_name") or ""))
+    member_name = _normalize_name(str(item.get("member_name") or ""))
+    owner_name = _normalize_name(str(item.get("owner_name") or ""))
+    if full_name == expected_norm or member_name == expected_norm:
+        return True
+    if (
+        owner_name in {"глобальный контекст", "встроенные функции языка"}
+        and member_name == expected_norm
+        and full_name.endswith("." + expected_norm)
+    ):
+        return True
+    return False
+
+
 def _score_case(query: str, item: dict[str, Any]) -> int:
     query_norm = _normalize_name(query)
     full_name = _normalize_name(str(item.get("full_name") or ""))
@@ -230,10 +248,9 @@ def build_structured_help_scorecard(
     for case in benchmark:
         haystack = members if case["entity"] == "member" else objects
         hits = _rank_cases(case["query"], haystack, limit=3)
-        expected = _normalize_name(case["expected_full_name"])
         matched_index = -1
         for idx, hit in enumerate(hits):
-            if _normalize_name(str(hit.get("full_name") or "")) == expected:
+            if _matches_expected_name(case["expected_full_name"], hit):
                 matched_index = idx
                 break
         if matched_index == 0:
