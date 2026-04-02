@@ -397,7 +397,8 @@ def test_main_unpack_usage() -> None:
 
 
 @patch("onec_help.runtime.ingest.run_ingest")
-def test_cmd_ingest_with_sources_env(mock_run_ingest, tmp_path: Path) -> None:
+@patch("onec_help.interfaces.cli._run_api_structured_pipeline", return_value=0)
+def test_cmd_ingest_with_sources_env(_mock_structured, mock_run_ingest, tmp_path: Path) -> None:
     mock_run_ingest.return_value = 10
     (tmp_path / "ver").mkdir()
     args = make_args(
@@ -427,7 +428,8 @@ def test_cmd_ingest_with_sources_env(mock_run_ingest, tmp_path: Path) -> None:
 
 
 @patch("onec_help.runtime.ingest.run_ingest")
-def test_cmd_ingest_sources_arg(mock_run_ingest) -> None:
+@patch("onec_help.interfaces.cli._run_api_structured_pipeline", return_value=0)
+def test_cmd_ingest_sources_arg(_mock_structured, mock_run_ingest) -> None:
     mock_run_ingest.return_value = 5
     args = make_args(
         sources=["/path/to/1cv8:8.3"],
@@ -576,7 +578,10 @@ def test_cmd_unpack_sync_no_sources_error(mock_run) -> None:
 
 
 @patch("onec_help.search_store.indexer.build_index")
-def test_cmd_build_index_incremental_no_bm25(mock_build, help_sample_dir: Path) -> None:
+@patch("onec_help.interfaces.cli._run_api_structured_pipeline", return_value=0)
+def test_cmd_build_index_incremental_no_bm25(
+    _mock_structured, mock_build, help_sample_dir: Path
+) -> None:
     """cmd_build_index passes incremental and no_bm25 to build_index."""
     mock_build.return_value = 3
     args = make_args(
@@ -699,7 +704,8 @@ def test_cmd_mcp_runtime_error_fastmcp(mock_run_mcp, capsys: pytest.CaptureFixtu
 
 
 @patch("onec_help.runtime.ingest.run_ingest_from_unpacked")
-def test_cmd_ingest_from_unpacked_success(mock_run, tmp_path: Path) -> None:
+@patch("onec_help.interfaces.cli._run_api_structured_pipeline", return_value=0)
+def test_cmd_ingest_from_unpacked_success(_mock_structured, mock_run, tmp_path: Path) -> None:
     """cmd_ingest_from_unpacked calls run_ingest_from_unpacked with correct dir."""
     mock_run.return_value = 10
     (tmp_path / "8.3").mkdir()
@@ -729,7 +735,8 @@ def test_cmd_ingest_from_unpacked_dir_missing(mock_run) -> None:
 
 
 @patch("onec_help.runtime.ingest.run_ingest")
-def test_cmd_ingest_sources_file(mock_run, tmp_path: Path) -> None:
+@patch("onec_help.interfaces.cli._run_api_structured_pipeline", return_value=0)
+def test_cmd_ingest_sources_file(_mock_structured, mock_run, tmp_path: Path) -> None:
     mock_run.return_value = 3
     sf = tmp_path / "sources.txt"
     sf.write_text("/path/1:ver1\n/path/2:ver2\n", encoding="utf-8")
@@ -755,7 +762,8 @@ def test_cmd_ingest_sources_file(mock_run, tmp_path: Path) -> None:
 
 
 @patch("onec_help.runtime.ingest.run_ingest")
-def test_cmd_ingest_sources_file_path_only(mock_run, tmp_path: Path) -> None:
+@patch("onec_help.interfaces.cli._run_api_structured_pipeline", return_value=0)
+def test_cmd_ingest_sources_file_path_only(_mock_structured, mock_run, tmp_path: Path) -> None:
     """sources_file with lines without colon uses path name as version."""
     mock_run.return_value = 1
     sf = tmp_path / "list.txt"
@@ -784,7 +792,10 @@ def test_cmd_ingest_sources_file_path_only(mock_run, tmp_path: Path) -> None:
 
 @patch("onec_help.runtime.ingest.run_ingest_from_unpacked")
 @patch("onec_help.runtime.ingest.run_unpack_sync")
-def test_cmd_ingest_default_unpacked(mock_unpack, mock_from_unpacked, tmp_path: Path) -> None:
+@patch("onec_help.interfaces.cli._run_api_structured_pipeline", return_value=0)
+def test_cmd_ingest_default_unpacked(
+    _mock_structured, mock_unpack, mock_from_unpacked, tmp_path: Path
+) -> None:
     """By default cmd_ingest runs unpack-sync to data/unpacked + ingest-from-unpacked."""
     mock_unpack.return_value = 1
     mock_from_unpacked.return_value = 10
@@ -817,7 +828,8 @@ def test_cmd_ingest_default_unpacked(mock_unpack, mock_from_unpacked, tmp_path: 
 
 
 @patch("onec_help.runtime.ingest.run_ingest")
-def test_cmd_ingest_use_temp(mock_run_ingest, tmp_path: Path) -> None:
+@patch("onec_help.interfaces.cli._run_api_structured_pipeline", return_value=0)
+def test_cmd_ingest_use_temp(_mock_structured, mock_run_ingest, tmp_path: Path) -> None:
     """When INGEST_USE_TEMP=1, cmd_ingest uses temp dir and run_ingest (no unpack_sync)."""
     mock_run_ingest.return_value = 5
     (tmp_path / "v").mkdir()
