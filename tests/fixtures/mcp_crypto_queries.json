@@ -7,15 +7,15 @@
   },
   {
     "id": "crypto_sign",
-    "tool": "search_1c_help_keyword",
-    "args": {"query": "КриптоГраф.Подписать", "limit": 5},
-    "expected_markers": ["Подписать", "Криптограф", "подпис"]
+    "tool": "get_1c_api_answer",
+    "args": {"name": "МенеджерКриптографии.Подписать"},
+    "expected_markers": ["МенеджерКриптографии.Подписать", "CryptoManager.Sign", "Подписать"]
   },
   {
     "id": "hash",
-    "tool": "search_1c_help",
-    "args": {"query": "как получить хеш данных в 1С", "limit": 3},
-    "expected_markers": ["Хеш", "хеш", "Хеширование", "данн"]
+    "tool": "search_1c_help_keyword",
+    "args": {"query": "ХешированиеДанных", "limit": 3},
+    "expected_markers": ["ХешированиеДанных", "DataHashing", "ХешФункция", "ХешСумма"]
   },
   {
     "id": "certificates",
