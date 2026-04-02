@@ -182,7 +182,7 @@ def test_main_unpack_usage() -> None:
         assert exc.value.code == 0
 
 
-@patch("onec_help.ingest.run_ingest")
+@patch("onec_help.runtime.ingest.run_ingest")
 def test_cmd_ingest_with_sources_env(mock_run_ingest, tmp_path: Path) -> None:
     mock_run_ingest.return_value = 10
     (tmp_path / "ver").mkdir()
@@ -206,13 +206,13 @@ def test_cmd_ingest_with_sources_env(mock_run_ingest, tmp_path: Path) -> None:
             "INGEST_USE_TEMP": "1",
         },
     ):
-        with patch("onec_help.ingest.discover_version_dirs") as mock_disc:
+        with patch("onec_help.runtime.ingest.discover_version_dirs") as mock_disc:
             mock_disc.return_value = [(tmp_path / "ver", "ver")]
             assert cmd_ingest(args) == 0
     mock_run_ingest.assert_called_once()
 
 
-@patch("onec_help.ingest.run_ingest")
+@patch("onec_help.runtime.ingest.run_ingest")
 def test_cmd_ingest_sources_arg(mock_run_ingest) -> None:
     mock_run_ingest.return_value = 5
     args = make_args(
@@ -262,7 +262,7 @@ def test_cmd_ingest_no_sources_returns_error() -> None:
         assert cmd_ingest(args) == 1
 
 
-@patch("onec_help.ingest.run_unpack_only")
+@patch("onec_help.runtime.ingest.run_unpack_only")
 def test_cmd_unpack_dir_sources_path_version(mock_run, tmp_path: Path) -> None:
     """cmd_unpack_dir parses sources as path:version."""
     mock_run.return_value = 1
@@ -280,7 +280,7 @@ def test_cmd_unpack_dir_sources_path_version(mock_run, tmp_path: Path) -> None:
     assert call_kw["source_dirs_with_versions"] == [("/path/to/1cv8", "8.3")]
 
 
-@patch("onec_help.ingest.run_unpack_only")
+@patch("onec_help.runtime.ingest.run_unpack_only")
 def test_cmd_unpack_dir_sources_path_only(mock_run, tmp_path: Path) -> None:
     """cmd_unpack_dir with single path (no colon) uses path name as version."""
     mock_run.return_value = 1
@@ -312,7 +312,7 @@ def test_cmd_unpack_dir_no_sources_error(tmp_path: Path) -> None:
         assert cmd_unpack_dir(args) == 1
 
 
-@patch("onec_help.ingest.run_unpack_only")
+@patch("onec_help.runtime.ingest.run_unpack_only")
 def test_cmd_unpack_dir_success(mock_run, tmp_path: Path) -> None:
     mock_run.return_value = 2
     args = make_args(
@@ -327,7 +327,7 @@ def test_cmd_unpack_dir_success(mock_run, tmp_path: Path) -> None:
     mock_run.assert_called_once()
 
 
-@patch("onec_help.ingest.run_unpack_sync")
+@patch("onec_help.runtime.ingest.run_unpack_sync")
 def test_cmd_unpack_sync_success(mock_run, tmp_path: Path) -> None:
     """cmd_unpack_sync calls run_unpack_sync with correct output dir."""
     mock_run.return_value = 1
@@ -345,7 +345,7 @@ def test_cmd_unpack_sync_success(mock_run, tmp_path: Path) -> None:
     assert mock_run.call_args[1]["output_dir"] == out
 
 
-@patch("onec_help.ingest.run_unpack_sync")
+@patch("onec_help.runtime.ingest.run_unpack_sync")
 def test_cmd_unpack_sync_no_sources_error(mock_run) -> None:
     """cmd_unpack_sync returns 1 when no sources."""
     args = make_args(
@@ -484,7 +484,7 @@ def test_cmd_mcp_runtime_error_fastmcp(mock_run_mcp, capsys: pytest.CaptureFixtu
     assert "fastmcp" in capsys.readouterr().err.lower()
 
 
-@patch("onec_help.ingest.run_ingest_from_unpacked")
+@patch("onec_help.runtime.ingest.run_ingest_from_unpacked")
 def test_cmd_ingest_from_unpacked_success(mock_run, tmp_path: Path) -> None:
     """cmd_ingest_from_unpacked calls run_ingest_from_unpacked with correct dir."""
     mock_run.return_value = 10
@@ -505,7 +505,7 @@ def test_cmd_ingest_from_unpacked_success(mock_run, tmp_path: Path) -> None:
     assert mock_run.call_args[1]["unpacked_base"] == tmp_path.resolve()
 
 
-@patch("onec_help.ingest.run_ingest_from_unpacked")
+@patch("onec_help.runtime.ingest.run_ingest_from_unpacked")
 def test_cmd_ingest_from_unpacked_dir_missing(mock_run) -> None:
     """cmd_ingest_from_unpacked returns 1 when unpacked dir does not exist."""
     args = make_args(dir="/nonexistent/unpacked", recreate=False, quiet=True)
@@ -514,7 +514,7 @@ def test_cmd_ingest_from_unpacked_dir_missing(mock_run) -> None:
     mock_run.assert_not_called()
 
 
-@patch("onec_help.ingest.run_ingest")
+@patch("onec_help.runtime.ingest.run_ingest")
 def test_cmd_ingest_sources_file(mock_run, tmp_path: Path) -> None:
     mock_run.return_value = 3
     sf = tmp_path / "sources.txt"
@@ -540,7 +540,7 @@ def test_cmd_ingest_sources_file(mock_run, tmp_path: Path) -> None:
     assert len(call_kw["source_dirs_with_versions"]) == 2
 
 
-@patch("onec_help.ingest.run_ingest")
+@patch("onec_help.runtime.ingest.run_ingest")
 def test_cmd_ingest_sources_file_path_only(mock_run, tmp_path: Path) -> None:
     """sources_file with lines without colon uses path name as version."""
     mock_run.return_value = 1
@@ -568,8 +568,8 @@ def test_cmd_ingest_sources_file_path_only(mock_run, tmp_path: Path) -> None:
     assert call_kw["source_dirs_with_versions"][0][0] == "/only/path"
 
 
-@patch("onec_help.ingest.run_ingest_from_unpacked")
-@patch("onec_help.ingest.run_unpack_sync")
+@patch("onec_help.runtime.ingest.run_ingest_from_unpacked")
+@patch("onec_help.runtime.ingest.run_unpack_sync")
 def test_cmd_ingest_default_unpacked(mock_unpack, mock_from_unpacked, tmp_path: Path) -> None:
     """By default cmd_ingest runs unpack-sync to data/unpacked + ingest-from-unpacked."""
     mock_unpack.return_value = 1
@@ -602,7 +602,7 @@ def test_cmd_ingest_default_unpacked(mock_unpack, mock_from_unpacked, tmp_path: 
     assert mock_from_unpacked.call_args[1]["unpacked_base"] == (tmp_path / "unpacked").resolve()
 
 
-@patch("onec_help.ingest.run_ingest")
+@patch("onec_help.runtime.ingest.run_ingest")
 def test_cmd_ingest_use_temp(mock_run_ingest, tmp_path: Path) -> None:
     """When INGEST_USE_TEMP=1, cmd_ingest uses temp dir and run_ingest (no unpack_sync)."""
     mock_run_ingest.return_value = 5
@@ -632,7 +632,7 @@ def test_cmd_ingest_use_temp(mock_run_ingest, tmp_path: Path) -> None:
     mock_run_ingest.assert_called_once()
 
 
-@patch("onec_help.ingest.run_ingest")
+@patch("onec_help.runtime.ingest.run_ingest")
 def test_cmd_ingest_exception(mock_run) -> None:
     mock_run.side_effect = RuntimeError("Qdrant down")
     args = make_args(

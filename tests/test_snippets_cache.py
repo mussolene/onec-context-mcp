@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from unittest.mock import patch
 
-from onec_help.snippets_cache import (
+from onec_help.runtime.snippets_cache import (
     _file_signature,
     _folder_signature,
     get_cached_items_total,

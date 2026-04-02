@@ -22,9 +22,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
-from .runtime import redis_cache
-from .shared import env_config
-from .shared._utils import mask_path_for_log, safe_error_message
+from ..shared import env_config
+from ..shared._utils import mask_path_for_log, safe_error_message
+from . import redis_cache
 
 # How often to write status to Redis while ingest runs (seconds); env INDEX_STATUS_INTERVAL_SEC
 STATUS_UPDATE_INTERVAL_SEC = 2.0
@@ -684,9 +684,9 @@ def run_ingest(
     from qdrant_client import QdrantClient
     from qdrant_client.models import Distance, VectorParams
 
-    from .help_core.html2md import build_docs
-    from .help_core.unpack import unpack_hbk
-    from .search_store.indexer import build_index, get_embedding_dimension
+    from ..help_core.html2md import build_docs
+    from ..help_core.unpack import unpack_hbk
+    from ..search_store.indexer import build_index, get_embedding_dimension
 
     redis_cache.require_runtime_redis("ingest")
 
@@ -1169,7 +1169,7 @@ def run_unpack_sync(
     Structure: output_dir / version / stem / (unpacked + .hbk_info.json). Skips if hash matches.
     Returns number of .hbk archives unpacked (excludes cached).
     """
-    from .help_core.unpack import unpack_hbk
+    from ..help_core.unpack import unpack_hbk
 
     out_raw = output_dir or env_config.get_data_unpacked_dir()
     output_base = Path(out_raw).resolve()
@@ -1394,7 +1394,7 @@ def run_ingest_from_unpacked(
     from qdrant_client import QdrantClient
     from qdrant_client.models import Distance, VectorParams
 
-    from .search_store.indexer import build_index, get_embedding_dimension
+    from ..search_store.indexer import build_index, get_embedding_dimension
 
     redis_cache.require_runtime_redis("ingest-from-unpacked")
 
@@ -1626,7 +1626,7 @@ def run_unpack_only(
     Structure: output_dir / version / language / safe_stem / (unpacked files).
     Returns number of .hbk archives unpacked.
     """
-    from .help_core.unpack import unpack_hbk
+    from ..help_core.unpack import unpack_hbk
 
     output_base = Path(output_dir).resolve()
     pairs = [(Path(p).resolve(), v) for p, v in source_dirs_with_versions]

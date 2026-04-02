@@ -401,7 +401,7 @@ def test_mcp_tool_get_1c_help_index_status_ingest_in_progress(help_sample_dir: P
         ],
         "failed_tasks": [{"path": "bad.hbk", "error": "7z failed"}],
     }
-    with patch("onec_help.ingest.read_ingest_status", return_value=ingest_in_progress):
+    with patch("onec_help.runtime.ingest.read_ingest_status", return_value=ingest_in_progress):
         with patch(
             "onec_help.search_store.indexer.get_index_status",
             return_value={"exists": True, "points_count": 55, "collection": "onec_help"},

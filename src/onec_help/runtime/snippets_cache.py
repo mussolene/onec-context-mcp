@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .runtime import redis_cache
+from . import redis_cache
 
 
 def _file_signature(path: Path) -> str | None:

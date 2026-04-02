@@ -81,7 +81,7 @@
 | test_indexer.py | `onec_help.indexer.QdrantClient` | Нет реального Qdrant |
 | test_indexer.py | `onec_help.embedding.get_embedding`, `get_embedding_batch` (часть тестов) | Нет вызовов API эмбеддингов |
 | test_ingest.py | `onec_help.indexer.build_index`, `_unpack_build_and_index`, `qdrant_client.QdrantClient` | Нет реального индекса и распаковки |
-| test_cli.py | `onec_help.indexer.build_index`, `onec_help.ingest.run_ingest`, `run_ingest_from_unpacked`, `onec_help.memory.get_memory_store` | Нет реального ингеста и memory |
+| test_cli.py | `onec_help.indexer.build_index`, `onec_help.runtime.ingest.run_ingest`, `run_ingest_from_unpacked`, `onec_help.memory.get_memory_store` | Нет реального ингеста и memory |
 | test_memory.py | `qdrant_client.QdrantClient`, `onec_help.embedding.*` | Нет реального Qdrant и embedding API |
 | test_mcp_server.py | `onec_help.memory.get_memory_store`, `onec_help.indexer.*` (где нужно) | Нет реального memory/indexer при вызове инструментов |
 | conftest.py | `EMBEDDING_BACKEND=none` + reload для test_indexer/test_embedding; `DATA_DIR` → tmp_path для test_indexer; `INGEST_CACHE_FILE` → temp для всех; `get_redis` → fakeredis для test_ingest, test_watchdog, snippets_cache | Изоляция окружения и кэша, без сети и без записи в прод-каталоги |

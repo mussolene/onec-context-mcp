@@ -6,7 +6,11 @@ import os
 from pathlib import Path
 from typing import Any
 
-from ..ingest import (
+from ..search_store.indexer import get_all_collections_status, get_index_status
+from ..search_store.sparse_bm25 import bm25_vocab_path
+from ..shared import env_config
+from . import redis_cache
+from .ingest import (
     _ingest_cache_path,
     read_ingest_errors_log,
     read_ingest_failed_log,
@@ -14,12 +18,8 @@ from ..ingest import (
     read_last_ingest_failed,
     read_last_ingest_run,
 )
-from ..search_store.indexer import get_all_collections_status, get_index_status
-from ..search_store.sparse_bm25 import bm25_vocab_path
-from ..shared import env_config
-from ..snippets_cache import read_last_snippets_run
-from . import redis_cache
 from .mcp_metrics import get_metrics as get_mcp_metrics
+from .snippets_cache import read_last_snippets_run
 
 # Markers older than this (seconds) are treated as stale (crashed process); don't show "loading"
 _LOAD_MARKER_STALE_SEC = 600  # 10 min

@@ -11,10 +11,10 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from ..ingest import _ingest_cache_path, collect_hbk_tasks, discover_version_dirs
 from ..shared import env_config
 from ..shared._utils import safe_error_message
 from . import redis_cache
+from .ingest import _ingest_cache_path, collect_hbk_tasks, discover_version_dirs
 
 _STANDARDS_EXT = frozenset({".md"})
 _SNIPPETS_EXT = frozenset({".json", ".bsl", ".1c", ".md"})
@@ -556,7 +556,7 @@ def _run_build_metadata_graph(config_dir: str) -> bool:
     try:
         import time as _time
 
-        from ..ingest import _ingest_cache_path
+        from .ingest import _ingest_cache_path
         marker = Path(_ingest_cache_path()).parent / "load_metadata.running"
         if marker.exists():
             age = _time.time() - marker.stat().st_mtime

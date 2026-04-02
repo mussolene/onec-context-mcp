@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from onec_help.ingest import (
+from onec_help.runtime.ingest import (
     _append_failed_to_cache,
     _collect_unpacked_tasks,
     _create_ingest_run,
@@ -141,13 +141,13 @@ def test_safe_stem() -> None:
 
 def test_clear_ingest_cache_remove_raises() -> None:
     """clear_ingest_cache returns False when Redis clear_all raises."""
-    with patch("onec_help.ingest.redis_cache.clear_all", side_effect=RuntimeError("redis down")):
+    with patch("onec_help.runtime.ingest.redis_cache.clear_all", side_effect=RuntimeError("redis down")):
         assert clear_ingest_cache() is False
 
 
 def test_clear_ingest_cache() -> None:
     """clear_ingest_cache calls Redis clear_all and returns True."""
-    with patch("onec_help.ingest.redis_cache.clear_all", return_value=True) as m:
+    with patch("onec_help.runtime.ingest.redis_cache.clear_all", return_value=True) as m:
         assert clear_ingest_cache() is True
         assert m.called
         assert clear_ingest_cache() is True
@@ -155,21 +155,21 @@ def test_clear_ingest_cache() -> None:
 
 def test_load_ingest_cache_error_returns_empty() -> None:
     """When Redis get_all raises, _load_ingest_cache returns empty dict."""
-    with patch("onec_help.ingest.redis_cache.ingest_cache_get_all", side_effect=RuntimeError()):
+    with patch("onec_help.runtime.ingest.redis_cache.ingest_cache_get_all", side_effect=RuntimeError()):
         c = _load_ingest_cache()
     assert c == {}
 
 
 def test_update_ingest_cache_entry_write_error() -> None:
     """When Redis set_entry raises, _update_ingest_cache_entry does not raise."""
-    with patch("onec_help.ingest.redis_cache.ingest_cache_set_entry", side_effect=RuntimeError()):
+    with patch("onec_help.runtime.ingest.redis_cache.ingest_cache_set_entry", side_effect=RuntimeError()):
         _update_ingest_cache_entry("v/ru/file.hbk", "hash123", 1)
 
 
 def test_read_ingest_cache_entries_key_fewer_than_three_parts() -> None:
     """read_ingest_cache_entries handles cache keys with fewer than 3 parts (version/lang/path)."""
     with patch(
-        "onec_help.ingest.redis_cache.ingest_cache_entries",
+        "onec_help.runtime.ingest.redis_cache.ingest_cache_entries",
         return_value=[
             {"path": "8.3/ru", "version": "8.3", "language": "ru", "points": 5, "status": "cached"},
             {"path": "only", "version": "", "language": "", "points": 10, "status": "cached"},
@@ -181,7 +181,7 @@ def test_read_ingest_cache_entries_key_fewer_than_three_parts() -> None:
 
 def test_load_ingest_cache_connect_raises_returns_empty() -> None:
     """_load_ingest_cache returns {} when Redis get_all raises."""
-    with patch("onec_help.ingest.redis_cache.ingest_cache_get_all", side_effect=RuntimeError()):
+    with patch("onec_help.runtime.ingest.redis_cache.ingest_cache_get_all", side_effect=RuntimeError()):
         entries = _load_ingest_cache()
     assert entries == {}
 
@@ -484,7 +484,7 @@ def test_run_ingest_dry_run_many_tasks(tmp_path: Path) -> None:
     assert n == 0
 
 
-@patch("onec_help.ingest._unpack_build_and_index")
+@patch("onec_help.runtime.ingest._unpack_build_and_index")
 @patch("qdrant_client.QdrantClient")
 def test_run_ingest_max_tasks(mock_qdrant: MagicMock, mock_task: MagicMock, tmp_path: Path) -> None:
     """max_tasks limits how many .hbk are processed."""

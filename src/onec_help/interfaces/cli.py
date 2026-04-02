@@ -29,7 +29,7 @@ def _env_path(name: str, default=None):
 
 def _load_operation_running_path(name: str) -> Path:
     """Path to marker file so dashboard can show 'Standards/Snippets: loading…'."""
-    from ..ingest import _ingest_cache_path
+    from ..runtime.ingest import _ingest_cache_path
 
     return Path(_ingest_cache_path()).parent / f"load_{name}.running"
 
@@ -497,7 +497,7 @@ def cmd_unpack_dir(args: argparse.Namespace) -> int:
     """Unpack all .hbk from source dir(s) into output_dir (no indexing)."""
     from pathlib import Path
 
-    from ..ingest import (
+    from ..runtime.ingest import (
         discover_version_dirs,
         parse_languages_env,
         parse_source_dirs_env,
@@ -555,7 +555,7 @@ def cmd_unpack_sync(args: argparse.Namespace) -> int:
     """Unpack .hbk to data/unpacked with .hbk_info.json, skip unchanged by hash."""
     from pathlib import Path
 
-    from ..ingest import (
+    from ..runtime.ingest import (
         discover_version_dirs,
         parse_languages_env,
         parse_source_dirs_env,
@@ -674,13 +674,13 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     """Ingest .hbk from multiple read-only source dirs: unpack to temp, build docs, index, cleanup."""
     from pathlib import Path
 
-    from ..ingest import (
+    from ..runtime import redis_cache
+    from ..runtime.ingest import (
         discover_version_dirs,
         parse_languages_env,
         parse_source_dirs_env,
         run_ingest,
     )
-    from ..runtime import redis_cache
 
     sources: list[tuple[str, str]] = []
     if getattr(args, "sources", None):
@@ -732,7 +732,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         # INGEST_USE_TEMP=1 — старый режим: временная папка с удалением после индексации.
         use_temp = env_config.get_ingest_use_temp()
         if not use_temp and not getattr(args, "dry_run", False):
-            from ..ingest import run_ingest_from_unpacked, run_unpack_sync
+            from ..runtime.ingest import run_ingest_from_unpacked, run_unpack_sync
 
             unpacked_dir = env_config.get_data_unpacked_dir()
             unpacked_base = Path(unpacked_dir).resolve()
@@ -784,7 +784,7 @@ def cmd_ingest_from_unpacked(args: argparse.Namespace) -> int:
     """Index help from unpacked dir (data/unpacked structure: version/stem)."""
     from pathlib import Path
 
-    from ..ingest import run_ingest_from_unpacked
+    from ..runtime.ingest import run_ingest_from_unpacked
 
     unpacked_dir = getattr(args, "dir", None) or env_config.get_data_unpacked_dir()
     base = Path(unpacked_dir).resolve()
@@ -865,14 +865,14 @@ def cmd_load_snippets(args: argparse.Namespace) -> int:
     import time
 
     from ..runtime import redis_cache
-    from ..shared._utils import progress_done, progress_line
-    from ..snippets_cache import (
+    from ..runtime.snippets_cache import (
         _file_signature,
         _folder_signature,
         get_snippets_sources_to_load,
         record_snippets_run,
         update_snippets_cache,
     )
+    from ..shared._utils import progress_done, progress_line
 
     # Explicit run: default force load. Use cache only when --use-cache or init passes use_cache=True.
     use_cache = getattr(args, "use_cache", False)
@@ -1405,7 +1405,7 @@ def _clear_before_reinit(
                 print(f"Dropped Qdrant collection: {coll}", file=sys.stderr)
     except Exception as e:
         print(f"Warning: could not drop Qdrant collections: {e}", file=sys.stderr)
-    from ..ingest import clear_ingest_cache
+    from ..runtime.ingest import clear_ingest_cache
 
     if clear_ingest_cache():
         print("Cleared ingest cache.", file=sys.stderr)

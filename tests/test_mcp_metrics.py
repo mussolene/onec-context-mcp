@@ -106,7 +106,7 @@ def test_metrics_db_path_fallback_when_ingest_raises() -> None:
 
     from onec_help.runtime.mcp_metrics import _metrics_db_path
 
-    ingest_mod = sys.modules["onec_help.ingest"]
+    ingest_mod = sys.modules["onec_help.runtime.ingest"]
     with (
         patch("onec_help.shared.env_config.get_mcp_metrics_db", return_value=""),
         patch.object(ingest_mod, "_ingest_cache_path", side_effect=RuntimeError("no cache path")),

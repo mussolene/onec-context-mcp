@@ -1698,7 +1698,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         # Ingest status: current run or last completed
         ingest = None
         try:
-            from ..ingest import read_ingest_status, read_last_ingest_run
+            from ..runtime.ingest import read_ingest_status, read_last_ingest_run
 
             ingest = read_ingest_status()
             if not ingest:

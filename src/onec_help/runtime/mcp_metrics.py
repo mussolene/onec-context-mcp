@@ -50,7 +50,7 @@ def _metrics_db_path() -> str:
     if path:
         return path
     try:
-        from ..ingest import _ingest_cache_path
+        from .ingest import _ingest_cache_path
 
         parent = os.path.dirname(_ingest_cache_path())
         return os.path.join(parent, _DEFAULT_DB)
