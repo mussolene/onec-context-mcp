@@ -135,11 +135,10 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
             source_format = "kd2-xml"
             snapshot_output_dir = base.parent
         elif base.is_dir() and selected_kd2_xmls:
-            if _snapshot_is_fresh(base, selected_kd2_xmls):
-                source_format = "kd2-snapshot"
-            else:
-                source_format = "kd2-xml"
-                snapshot_output_dir = base
+            # One-folder primary route: when KD2 XML files are present in the directory,
+            # always treat them as the source of truth and refresh snapshot from XML.
+            source_format = "kd2-xml"
+            snapshot_output_dir = base
         elif is_kd2_snapshot_dir(base):
             source_format = "kd2-snapshot"
         else:
