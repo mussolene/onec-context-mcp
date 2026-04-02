@@ -199,10 +199,10 @@ def _index_status() -> dict[str, Any]:
 
 
 def _api_index_status() -> dict[str, Any]:
-    from ..knowledge.help_structured import API_COLLECTION_NAME
+    from ..knowledge.help_structured import API_MEMBERS_COLLECTION_NAME
     from ..search_store.indexer import get_index_status
 
-    return get_index_status(collection=API_COLLECTION_NAME)
+    return get_index_status(collection=API_MEMBERS_COLLECTION_NAME)
 
 
 def _get_topic(
@@ -234,6 +234,17 @@ def _search_api_objects(
     return search_api_objects(query, limit=limit, version=version, language=language)
 
 
+def _search_api_members(
+    query: str,
+    limit: int = 10,
+    version: str | None = None,
+    language: str | None = None,
+) -> list[dict[str, Any]]:
+    from ..knowledge.help_structured import search_api_members
+
+    return search_api_members(query, limit=limit, version=version, language=language)
+
+
 def _get_api_object(
     name: str,
     version: str | None = None,
@@ -242,6 +253,16 @@ def _get_api_object(
     from ..knowledge.help_structured import get_api_object
 
     return get_api_object(name, version=version, language=language)
+
+
+def _get_api_member(
+    name: str,
+    version: str | None = None,
+    language: str | None = None,
+) -> list[dict[str, Any]]:
+    from ..knowledge.help_structured import get_api_member
+
+    return get_api_member(name, version=version, language=language)
 
 
 def _search_official_examples(
@@ -253,6 +274,16 @@ def _search_official_examples(
     from ..knowledge.help_structured import search_official_examples
 
     return search_official_examples(query, limit=limit, version=version, language=language)
+
+
+def _get_api_related(
+    name: str,
+    version: str | None = None,
+    language: str | None = None,
+) -> list[dict[str, Any]]:
+    from ..knowledge.help_structured import get_api_related
+
+    return get_api_related(name, version=version, language=language)
 
 
 def _write_snippet_to_file(
@@ -845,7 +876,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         q, err = _truncate_if_needed(q_raw, MAX_QUERY_CHARS, "query")
         if err:
             return err
-        structured_hits = _get_api_object(q, version=version, language=language)
+        structured_hits = _get_api_member(q, version=version, language=language)
         structured_hits = sorted(structured_hits, key=lambda item: _structured_api_sort_key(q, item))
         results = _search_keyword(
             q,
@@ -947,7 +978,7 @@ def _build_mcp_app(help_path: Path) -> Any:
             return err
         if not name_clean:
             return "Provide API name, for example HTTPСоединение.Получить."
-        structured = _get_api_object(name_clean, version=version, language=language)
+        structured = _get_api_member(name_clean, version=version, language=language)
         structured = sorted(structured, key=lambda item: _structured_api_sort_key(name_clean, item))
         if structured:
             best_item = structured[0]
@@ -1010,7 +1041,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         version: str | None = None,
         language: str | None = None,
     ) -> str:
-        """Structured exact-first truth-source for one API object from onec_help_api."""
+        """Structured exact-first truth-source for one API object/type from onec_help_api_objects."""
         err = _check_rate_limit()
         if err:
             return err
@@ -1024,6 +1055,33 @@ def _build_mcp_app(help_path: Path) -> Any:
         if not structured:
             return f"No structured API object found for «{name_clean}»."
         return _format_structured_api_object(structured[0])
+
+    @mcp.tool()
+    @_record_mcp_tool
+    def get_1c_api_related(
+        name: str,
+        version: str | None = None,
+        language: str | None = None,
+    ) -> str:
+        """Get related API names (currently see-also links) for one API member or object."""
+        err = _check_rate_limit()
+        if err:
+            return err
+        name_clean, err = _truncate_if_needed((name or "").strip(), MAX_QUERY_CHARS, "name")
+        if err:
+            return err
+        if not name_clean:
+            return "Provide API name, for example HTTPСоединение.Получить."
+        related = _get_api_related(name_clean, version=version, language=language)
+        if not related:
+            return f"No related API links found for «{name_clean}»."
+        lines = [f"Related API for **{name_clean}**:"]
+        for idx, item in enumerate(related, 1):
+            target = item.get("target_name") or "—"
+            kind = item.get("link_kind") or "related"
+            path = item.get("topic_path") or ""
+            lines.append(f"{idx}. **{target}** [{kind}] (path: {path})")
+        return "\n".join(lines)
 
     @mcp.tool()
     @_record_mcp_tool
@@ -1862,12 +1920,19 @@ def _build_mcp_app(help_path: Path) -> Any:
                         lines.append(
                             f"Metadata (**onec_config_metadata**): **{_meta_count}** points"
                         )
-                elif coll.get("name") == "onec_help_api":
+                elif coll.get("name") == "onec_help_api_members":
                     _api_count = coll.get("points_count")
                     if _api_count is not None:
                         lines.append("")
                         lines.append(
-                            f"Structured API (**onec_help_api**): **{_api_count}** points"
+                            f"Structured API members (**onec_help_api_members**): **{_api_count}** points"
+                        )
+                elif coll.get("name") == "onec_help_api_objects":
+                    _obj_count = coll.get("points_count")
+                    if _obj_count is not None:
+                        lines.append("")
+                        lines.append(
+                            f"Structured API objects (**onec_help_api_objects**): **{_obj_count}** points"
                         )
                 elif coll.get("name") == "onec_help_examples":
                     _examples_count = coll.get("points_count")
@@ -1875,6 +1940,13 @@ def _build_mcp_app(help_path: Path) -> Any:
                         lines.append("")
                         lines.append(
                             f"Official examples (**onec_help_examples**): **{_examples_count}** points"
+                        )
+                elif coll.get("name") == "onec_help_api_links":
+                    _links_count = coll.get("points_count")
+                    if _links_count is not None:
+                        lines.append("")
+                        lines.append(
+                            f"API links (**onec_help_api_links**): **{_links_count}** points"
                         )
         except Exception:
             pass
@@ -2277,7 +2349,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         This tool is designed for autonomous AI invocation (unlike the prompt version which targets user invocation)."""
         _guide_develop = (
             "1C-HELP DEVELOP WORKFLOW:\n"
-            "1. Exact API (Тип.Метод) → get_1c_api_answer(name). Structured truth-source → get_1c_api_object(name).\n"
+            "1. Exact API (Тип.Метод) → get_1c_api_answer(name). Structured object/type → get_1c_api_object(name). Related API → get_1c_api_related(name).\n"
             "2. Official examples from platform help → search_1c_official_examples(query). Full topic only if needed → get_1c_help_topic(topic_path=<path>).\n"
             "3. General platform topic → search_1c_help_keyword('Тип.Метод') or search_1c_help(query) → get_1c_help_topic(topic_path=<path>).\n"
             "4. Local task context → get_1c_task_context(query, file_uri=..., symbol_name=...).\n"
