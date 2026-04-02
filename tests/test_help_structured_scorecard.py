@@ -255,3 +255,31 @@ def test_build_structured_help_scorecard_prefers_unpacked_paths(tmp_path: Path) 
         scorecard = build_structured_help_scorecard(snapshot_dir=tmp_path, benchmark_path=bench)
     assert scorecard["path_coverage"]["source"] == "unpacked_html"
     assert scorecard["path_coverage"]["path_coverage_pct"] == 100.0
+
+
+def test_build_structured_help_scorecard_classifies_help_only_buckets(tmp_path: Path) -> None:
+    _write_jsonl(tmp_path / "api_objects.jsonl", [])
+    _write_jsonl(tmp_path / "api_members.jsonl", [])
+    _write_jsonl(tmp_path / "api_examples.jsonl", [])
+    _write_jsonl(tmp_path / "api_links.jsonl", [])
+    bench = tmp_path / "bench.json"
+    bench.write_text("[]", encoding="utf-8")
+    with patch(
+        "onec_help.knowledge.help_structured_scorecard.iter_help_topics_from_unpacked",
+        return_value=[
+            {"path": "8.3.27/shclang_ru/source_format.html", "entity_type": "topic"},
+            {"path": "8.3.27/shcntx_ru/tables/table5.html", "entity_type": "topic"},
+            {"path": "8.3.27/shcntx_ru/objects/catalog56.html", "entity_type": "topic"},
+            {"path": "8.3.27/shcntx_ru/forms/SomeForm.html", "entity_type": "topic"},
+        ],
+    ), patch(
+        "onec_help.knowledge.help_structured_scorecard.iter_help_topics_from_index",
+        return_value=[],
+    ):
+        scorecard = build_structured_help_scorecard(snapshot_dir=tmp_path, benchmark_path=bench)
+    assert scorecard["path_coverage"]["help_only_buckets"] == {
+        "language": 1,
+        "tables": 1,
+        "object_overview": 1,
+        "forms": 1,
+    }

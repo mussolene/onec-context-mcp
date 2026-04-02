@@ -249,11 +249,13 @@ def test_extract_structured_records_from_topic_parses_property_type_from_descrip
     _obj, member, _examples, _links = extract_structured_records_from_topic(topic)
     assert member is not None
     assert member["returns"] == "Булево"
+    assert member["syntax"] == "Automation сервер.Visible"
     assert member["summary"] == "Тип: Булево . Показывает или скрывает UI."
     assert member["description"] == "Тип: Булево . Показывает или скрывает UI."
     assert member["notes"] == "Истина - показан, Ложь - скрыт."
     assert "Интеграция" in member["restrictions"]
     assert member["availability"] == "Интеграция."
+    assert member["source_sections"]["syntax_fallback"] == "Automation сервер.Visible"
 
 
 def test_extract_structured_records_from_topic_keeps_source_sections() -> None:

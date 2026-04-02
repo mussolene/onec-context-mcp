@@ -30,6 +30,25 @@ _DEFAULT_TARGETS: dict[str, float] = {
 }
 
 
+def _classify_help_only_topic(path: str) -> str:
+    normalized = (path or "").replace("\\", "/").lower()
+    if "/shclang_" in normalized or "/embedlang" in normalized:
+        return "language"
+    if "/tables/" in normalized:
+        return "tables"
+    if "/forms/" in normalized:
+        return "forms"
+    if "/objects/" in normalized and all(
+        marker not in normalized for marker in ("/methods/", "/properties/", "/events/", "/ctors/")
+    ):
+        return "object_overview"
+    if "/query/" in normalized or "queries" in normalized:
+        return "query"
+    if "/lang/" in normalized:
+        return "language"
+    return "other_topic"
+
+
 def get_default_benchmark_path() -> Path:
     """Return packaged benchmark fixture path for structured help scorecard."""
     return Path(__file__).with_name("help_structured_benchmark.json")
@@ -202,6 +221,7 @@ def build_structured_help_scorecard(
     }
     help_only = [item for item in help_topics if str(item.get("path") or "") not in structured_paths]
     help_only_types = Counter(str(item.get("entity_type") or "topic") for item in help_only)
+    help_only_buckets = Counter(_classify_help_only_topic(str(item.get("path") or "")) for item in help_only)
 
     cases: list[dict[str, Any]] = []
     top1 = 0
@@ -258,6 +278,7 @@ def build_structured_help_scorecard(
         "path_coverage_pct": round(len(structured_paths) * 100.0 / len(help_paths), 1) if help_paths else 0.0,
         "help_only_total": len(help_only),
         "help_only_entity_types": dict(help_only_types.most_common(10)),
+        "help_only_buckets": dict(help_only_buckets.most_common(10)),
         "source": "unpacked_html" if unpacked_topics else "indexed_topics",
     }
     targets = {

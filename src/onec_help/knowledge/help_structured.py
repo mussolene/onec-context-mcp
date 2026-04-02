@@ -505,6 +505,12 @@ def _build_structured_records(
             )
         if member_kind == "property" and not member_record["returns"]:
             member_record["returns"] = _returns_from_description(sections.get("description", "")) or _returns_from_description(summary)
+        if member_kind == "property" and not member_record["syntax"]:
+            member_record["syntax"] = full_name
+            member_record["source_sections"] = {
+                **member_record["source_sections"],
+                "syntax_fallback": full_name,
+            }
     elif _should_index_object_topic(
         path,
         title,
