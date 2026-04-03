@@ -71,6 +71,7 @@ def _get_default_qdrant_client(host: str, port: int) -> "QdrantClient":
             _default_qdrant_client_key = key
         return _default_qdrant_client
 
+
 # Regex for CamelCase and Cyrillic identifiers (min 3 chars) for keyword extraction
 _KEYWORDS_PATTERN = re.compile(r"[А-Яа-яA-Za-z][А-Яа-яA-Za-z0-9]{2,}")
 
@@ -564,9 +565,7 @@ def build_index(
                         sparse_vectors_config=sparse_config,
                     )
             else:
-                if client.collection_exists(collection):
-                    client.delete_collection(collection_name=collection)
-                client.create_collection(
+                client.recreate_collection(
                     collection_name=collection,
                     vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
                     sparse_vectors_config=sparse_config,
@@ -772,7 +771,12 @@ def _bm25_text_from_payload(collection: str, payload: dict[str, Any]) -> str:
                 None, [payload.get("config_name"), payload.get("name"), payload.get("full_name")]
             )
         )
-    if collection in ("onec_help_api", "onec_help_api_members", "onec_help_api_objects", "onec_help_examples"):
+    if collection in (
+        "onec_help_api",
+        "onec_help_api_members",
+        "onec_help_api_objects",
+        "onec_help_examples",
+    ):
         fn = payload.get("full_name") or payload.get("name") or ""
         title = payload.get("title") or ""
         summary = payload.get("summary") or ""
@@ -838,7 +842,10 @@ def add_bm25_to_collection(
 
     if _collection_has_sparse(client, collection) and force_rebuild:
         if verbose:
-            print(f"[add-bm25] {collection}: force_rebuild — removing existing BM25 first", file=sys.stderr)
+            print(
+                f"[add-bm25] {collection}: force_rebuild — removing existing BM25 first",
+                file=sys.stderr,
+            )
         _remove_bm25_from_collection(client, collection, batch_size, verbose)
 
     if _collection_has_sparse(client, collection):
@@ -956,7 +963,7 @@ def add_bm25_to_collection(
 
     # id → doc-length map so Phase 2 can compute BM25 without re-tokenising twice.
     # Both lists are O(N ints), small compared to token lists.
-    id_to_dl: dict[Any, int] = {pid: dl for pid, dl in zip(meta_ids, doc_lens)}
+    id_to_dl: dict[Any, int] = {pid: dl for pid, dl in zip(meta_ids, doc_lens, strict=True)}
     del meta_ids, doc_lens  # free before dense-vector pass
 
     # Determine dense vector dimension from a single point sample.
@@ -1651,8 +1658,12 @@ def search_index_keyword(
                 snippet = (payload.get("text") or "")[:SNIPPET_MAX_CHARS]
                 links = payload.get("outgoing_links") or []
                 if links:
-                    titles = [lnk.get("target_title") or lnk.get("link_text", "") for lnk in links[:5]]
-                    snippet = (snippet + "\nСвязанные: " + ", ".join(t for t in titles if t)).strip()
+                    titles = [
+                        lnk.get("target_title") or lnk.get("link_text", "") for lnk in links[:5]
+                    ]
+                    snippet = (
+                        snippet + "\nСвязанные: " + ", ".join(t for t in titles if t)
+                    ).strip()
                 rec = {
                     "path": path,
                     "title": payload.get("title", ""),
@@ -2030,11 +2041,27 @@ def _path_without_version_prefix(path: str) -> str:
     return _VERSION_PREFIX_RE.sub("", path, count=1).lstrip("/") or path
 
 
-def _pick_best_path_for_compare(results: list[dict[str, Any]]) -> str | None:
-    """From search results, pick path of a topic with a meaningful title (not Untitled). Prefer path with .html/.md."""
+def _pick_best_path_for_compare(
+    results: list[dict[str, Any]], query: str | None = None
+) -> str | None:
+    """From search results, pick path of a topic with a meaningful title (not Untitled). Prefer exact name matches, then .html/.md."""
     if not results:
         return None
     untitled_lower = "untitled"
+    query_lower = (query or "").strip().lower()
+
+    # First priority: exact name match
+    if query_lower:
+        for r in results:
+            name = (r.get("name") or "").strip().lower()
+            if name == query_lower:
+                p = (r.get("path") or "").strip()
+                if p and ".html" in p or ".md" in p:
+                    title = (r.get("title") or "").strip()
+                    if title.lower() != untitled_lower:
+                        return p
+
+    # Second: any name match with .html/.md and meaningful title
     for r in results:
         p = (r.get("path") or "").strip()
         if not p:
@@ -2044,6 +2071,8 @@ def _pick_best_path_for_compare(results: list[dict[str, Any]]) -> str | None:
             continue
         if ".html" in p or ".md" in p:
             return p
+
+    # Third: any with meaningful title
     for r in results:
         p = (r.get("path") or "").strip()
         if not p:
@@ -2051,6 +2080,8 @@ def _pick_best_path_for_compare(results: list[dict[str, Any]]) -> str | None:
         title = (r.get("title") or "").strip()
         if title.lower() != untitled_lower:
             return p
+
+    # Last resort: first result
     return (results[0].get("path") or "").strip() or None
 
 
@@ -2066,76 +2097,74 @@ def compare_1c_help(
 ) -> str:
     """Compare topic content between two versions. Returns formatted comparison or diff."""
     path = topic_path_or_query.strip()
-    if ".md" not in path and ".html" not in path:
-        # Prefer keyword search: matches path/title (e.g. "CryptoManager" -> CryptoManager.html), avoids semantic "Untitled"
+    is_query = ".md" not in path and ".html" not in path
+
+    def find_topic_path(version: str) -> str | None:
+        if not is_query:
+            # User provided exact path, use it directly for this version
+            rel_path = _path_without_version_prefix(path)
+            return f"{version}/{rel_path}" if rel_path else path
+
+        # Search for topic in this specific version
         results = search_index_keyword(
             path,
             qdrant_host=qdrant_host,
             qdrant_port=qdrant_port,
             collection=collection,
             limit=5,
-            version=version_left,
+            version=version,
             language=language,
         )
         if not results:
-            results = search_index_keyword(
-                path,
-                qdrant_host=qdrant_host,
-                qdrant_port=qdrant_port,
-                collection=collection,
-                limit=5,
-                language=language,
-            )
-        chosen = _pick_best_path_for_compare(results) if results else None
-        if not chosen:
             results = search_index(
                 path,
                 qdrant_host=qdrant_host,
                 qdrant_port=qdrant_port,
                 collection=collection,
                 limit=5,
-                version=version_left,
+                version=version,
                 language=language,
             )
-            if not results:
-                results = search_index(
-                    path,
-                    qdrant_host=qdrant_host,
-                    qdrant_port=qdrant_port,
-                    collection=collection,
-                    limit=5,
-                    language=language,
-                )
-            chosen = _pick_best_path_for_compare(results) if results else None
-        if not chosen:
-            return f"Topic not found for query: {path}"
-        path = chosen
-    # In index, path is stored with version prefix (e.g. 8.2.19.130/shcntx_ru/...). If user passed path from search (8.3.13/...), strip version and prepend requested version so both versions are found.
-    rel_path = _path_without_version_prefix(path)
-    path_left = f"{version_left}/{rel_path}" if rel_path else path
-    path_right = f"{version_right}/{rel_path}" if rel_path else path
-    content_left = get_topic_content(
-        "",
-        path_left,
-        qdrant_host=qdrant_host,
-        qdrant_port=qdrant_port,
-        collection=collection,
-        version=version_left,
-        language=language,
-        prefer_index=True,
+        return _pick_best_path_for_compare(results, path) if results else None
+
+    path_left = find_topic_path(version_left)
+    path_right = find_topic_path(version_right)
+
+    if not path_left and not path_right:
+        return f"Topic not found for query: {path}"
+
+    content_left = (
+        get_topic_content(
+            "",
+            path_left,
+            qdrant_host=qdrant_host,
+            qdrant_port=qdrant_port,
+            collection=collection,
+            version=version_left,
+            language=language,
+            prefer_index=True,
+        )
+        if path_left
+        else ""
     )
-    content_right = get_topic_content(
-        "",
-        path_right,
-        qdrant_host=qdrant_host,
-        qdrant_port=qdrant_port,
-        collection=collection,
-        version=version_right,
-        language=language,
-        prefer_index=True,
+
+    content_right = (
+        get_topic_content(
+            "",
+            path_right,
+            qdrant_host=qdrant_host,
+            qdrant_port=qdrant_port,
+            collection=collection,
+            version=version_right,
+            language=language,
+            prefer_index=True,
+        )
+        if path_right
+        else ""
     )
+
     if not content_left and not content_right:
-        return f"Topic not found in either version for path: {rel_path!r} (versions {version_left}, {version_right})"
+        return f"Topic not found in either version for query: {path} (versions {version_left}, {version_right})"
     out = f"## Версия {version_left}\n\n{content_left or '(нет контента)'}\n\n---\n\n## Версия {version_right}\n\n{content_right or '(нет контента)'}"
     if include_diff and content_left and content_right:
         import difflib

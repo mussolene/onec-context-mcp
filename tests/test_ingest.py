@@ -141,7 +141,9 @@ def test_safe_stem() -> None:
 
 def test_clear_ingest_cache_remove_raises() -> None:
     """clear_ingest_cache returns False when Redis clear_all raises."""
-    with patch("onec_help.runtime.ingest.redis_cache.clear_all", side_effect=RuntimeError("redis down")):
+    with patch(
+        "onec_help.runtime.ingest.redis_cache.clear_all", side_effect=RuntimeError("redis down")
+    ):
         assert clear_ingest_cache() is False
 
 
@@ -155,14 +157,18 @@ def test_clear_ingest_cache() -> None:
 
 def test_load_ingest_cache_error_returns_empty() -> None:
     """When Redis get_all raises, _load_ingest_cache returns empty dict."""
-    with patch("onec_help.runtime.ingest.redis_cache.ingest_cache_get_all", side_effect=RuntimeError()):
+    with patch(
+        "onec_help.runtime.ingest.redis_cache.ingest_cache_get_all", side_effect=RuntimeError()
+    ):
         c = _load_ingest_cache()
     assert c == {}
 
 
 def test_update_ingest_cache_entry_write_error() -> None:
     """When Redis set_entry raises, _update_ingest_cache_entry does not raise."""
-    with patch("onec_help.runtime.ingest.redis_cache.ingest_cache_set_entry", side_effect=RuntimeError()):
+    with patch(
+        "onec_help.runtime.ingest.redis_cache.ingest_cache_set_entry", side_effect=RuntimeError()
+    ):
         _update_ingest_cache_entry("v/ru/file.hbk", "hash123", 1)
 
 
@@ -181,7 +187,9 @@ def test_read_ingest_cache_entries_key_fewer_than_three_parts() -> None:
 
 def test_load_ingest_cache_connect_raises_returns_empty() -> None:
     """_load_ingest_cache returns {} when Redis get_all raises."""
-    with patch("onec_help.runtime.ingest.redis_cache.ingest_cache_get_all", side_effect=RuntimeError()):
+    with patch(
+        "onec_help.runtime.ingest.redis_cache.ingest_cache_get_all", side_effect=RuntimeError()
+    ):
         entries = _load_ingest_cache()
     assert entries == {}
 
@@ -486,7 +494,9 @@ def test_run_ingest_dry_run_many_tasks(tmp_path: Path) -> None:
 
 @patch("onec_help.runtime.ingest.run_ingest_from_unpacked")
 @patch("onec_help.runtime.ingest._unpack_one_sync")
-def test_run_ingest_max_tasks(mock_unpack_one: MagicMock, mock_from_unpacked: MagicMock, tmp_path: Path) -> None:
+def test_run_ingest_max_tasks(
+    mock_unpack_one: MagicMock, mock_from_unpacked: MagicMock, tmp_path: Path
+) -> None:
     """max_tasks limits how many .hbk are unpacked into the structured rebuild."""
     (tmp_path / "v").mkdir()
     # Names must match LANG_PATTERN (*_ru.hbk) so collect_hbk_tasks returns them
@@ -609,8 +619,12 @@ def test_run_ingest_integration_mock(
     (tmp_path / "v").mkdir()
     hbk = tmp_path / "v" / "1cv8_ru.hbk"
     hbk.write_bytes(b"x")
+
     def _write_html(_src, out):
-        (out / "Query.html").write_text("<html><body><h1 class='V8SH_pagetitle'>Query</h1></body></html>", encoding="utf-8")
+        (out / "Query.html").write_text(
+            "<html><body><h1 class='V8SH_pagetitle'>Query</h1></body></html>", encoding="utf-8"
+        )
+
     mock_unpack.side_effect = _write_html
     mock_from_unpacked.return_value = 11
 
@@ -876,7 +890,10 @@ def test_run_ingest_from_unpacked_one(
     mock_index_snapshot.assert_called_once()
 
 
-@patch("onec_help.knowledge.help_structured.index_structured_help_snapshot", side_effect=RuntimeError("boom"))
+@patch(
+    "onec_help.knowledge.help_structured.index_structured_help_snapshot",
+    side_effect=RuntimeError("boom"),
+)
 @patch("onec_help.knowledge.help_structured.build_structured_api_snapshot")
 def test_run_ingest_from_unpacked_marks_failed_status(
     mock_build_snapshot: MagicMock, mock_index_snapshot: MagicMock, tmp_path: Path

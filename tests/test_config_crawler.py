@@ -124,7 +124,9 @@ def test_find_config_roots_returns_all_export_subdirs(tmp_path: Path) -> None:
     """find_config_roots returns all subdirs that look like config exports, not only the first."""
     (tmp_path / "AccountingCorp30_latest" / "Documents").mkdir(parents=True)
     (tmp_path / "Enterprise20_latest").mkdir(parents=True)
-    (tmp_path / "Enterprise20_latest" / "Configuration.xml").write_text("<Configuration/>", encoding="utf-8")
+    (tmp_path / "Enterprise20_latest" / "Configuration.xml").write_text(
+        "<Configuration/>", encoding="utf-8"
+    )
     (tmp_path / "EmptyConfig").mkdir()
     roots = find_config_roots(tmp_path)
     assert len(roots) == 2

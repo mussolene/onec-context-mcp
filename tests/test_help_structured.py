@@ -28,7 +28,7 @@ def test_extract_api_records_from_topic_with_sections() -> None:
             "## Синтаксис\n\nHTTPСоединение.Получить(<Адрес>)\n\n"
             "## Параметры\n\n- **Адрес** (Строка)\n\n"
             "## Возвращаемое значение\n\nHTTPОтвет\n\n"
-            "## Пример\n\n```bsl\nОтвет = Соединение.Получить(\"/\");\n```\n"
+            '## Пример\n\n```bsl\nОтвет = Соединение.Получить("/");\n```\n'
         ),
         "version": "8.3.27.1859",
         "language": "ru",
@@ -130,12 +130,16 @@ def test_index_structured_api_objects_uses_dense_vectors(tmp_path: Path) -> None
     )
     client = MagicMock()
     client.collection_exists.return_value = False
-    with patch("qdrant_client.QdrantClient", return_value=client), patch(
-        "onec_help.search_store.embedding.get_embedding_batch",
-        return_value=[[0.1, 0.2, 0.3]],
-    ), patch(
-        "onec_help.search_store.embedding.get_embedding_dimension",
-        return_value=3,
+    with (
+        patch("qdrant_client.QdrantClient", return_value=client),
+        patch(
+            "onec_help.search_store.embedding.get_embedding_batch",
+            return_value=[[0.1, 0.2, 0.3]],
+        ),
+        patch(
+            "onec_help.search_store.embedding.get_embedding_dimension",
+            return_value=3,
+        ),
     ):
         inserted = index_structured_api_objects(tmp_path, recreate=True)
     assert inserted == 1
@@ -153,12 +157,16 @@ def test_index_structured_api_members_uses_dense_vectors(tmp_path: Path) -> None
     )
     client = MagicMock()
     client.collection_exists.return_value = False
-    with patch("qdrant_client.QdrantClient", return_value=client), patch(
-        "onec_help.search_store.embedding.get_embedding_batch",
-        return_value=[[0.4, 0.5, 0.6]],
-    ), patch(
-        "onec_help.search_store.embedding.get_embedding_dimension",
-        return_value=3,
+    with (
+        patch("qdrant_client.QdrantClient", return_value=client),
+        patch(
+            "onec_help.search_store.embedding.get_embedding_batch",
+            return_value=[[0.4, 0.5, 0.6]],
+        ),
+        patch(
+            "onec_help.search_store.embedding.get_embedding_dimension",
+            return_value=3,
+        ),
     ):
         inserted = index_structured_api_members(tmp_path, recreate=True)
     assert inserted == 1
@@ -193,14 +201,21 @@ def test_index_structured_help_snapshot_reports_progress(tmp_path: Path) -> None
         kwargs["progress_callback"](1, 1)
         return 1
 
-    with patch("onec_help.knowledge.help_structured.index_structured_api_objects", side_effect=_index_objects), patch(
-        "onec_help.knowledge.help_structured.index_structured_api_members", side_effect=_index_members
-    ), patch(
-        "onec_help.knowledge.help_structured.index_structured_api_examples", return_value=0
-    ), patch(
-        "onec_help.knowledge.help_structured.index_structured_api_links", return_value=0
+    with (
+        patch(
+            "onec_help.knowledge.help_structured.index_structured_api_objects",
+            side_effect=_index_objects,
+        ),
+        patch(
+            "onec_help.knowledge.help_structured.index_structured_api_members",
+            side_effect=_index_members,
+        ),
+        patch("onec_help.knowledge.help_structured.index_structured_api_examples", return_value=0),
+        patch("onec_help.knowledge.help_structured.index_structured_api_links", return_value=0),
     ):
-        result = index_structured_help_snapshot(tmp_path, bm25_enabled=False, progress_callback=_progress)
+        result = index_structured_help_snapshot(
+            tmp_path, bm25_enabled=False, progress_callback=_progress
+        )
     assert result["objects"] == 1
     assert result["members"] == 1
     assert progress
@@ -435,7 +450,9 @@ def test_extract_structured_records_from_html_topic_indexes_table_topic(tmp_path
     assert "Номер (Number)" in obj["source_sections"]["fields"]
 
 
-def test_extract_structured_records_from_html_topic_indexes_table_field_topic(tmp_path: Path) -> None:
+def test_extract_structured_records_from_html_topic_indexes_table_field_topic(
+    tmp_path: Path,
+) -> None:
     table_dir = tmp_path / "tables" / "table10"
     fields_dir = table_dir / "fields"
     fields_dir.mkdir(parents=True, exist_ok=True)
@@ -524,7 +541,15 @@ def test_extract_structured_records_from_html_topic_indexes_object_overview(tmp_
 def test_build_structured_api_snapshot_prefers_unpacked_html(tmp_path: Path) -> None:
     unpacked_dir = tmp_path / "unpacked"
     stem_dir = unpacked_dir / "8.3.27.1859" / "shcntx_ru"
-    html_dir = stem_dir / "objects" / "catalog63" / "catalog578" / "catalog2125" / "HTTPConnection" / "methods"
+    html_dir = (
+        stem_dir
+        / "objects"
+        / "catalog63"
+        / "catalog578"
+        / "catalog2125"
+        / "HTTPConnection"
+        / "methods"
+    )
     html_dir.mkdir(parents=True, exist_ok=True)
     (stem_dir / ".hbk_info.json").write_text(
         '{"version":"8.3.27.1859","language":"ru","label":"Синтаксис"}',

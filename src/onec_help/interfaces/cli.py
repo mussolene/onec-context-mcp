@@ -176,7 +176,9 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
         if not roots and _looks_like_config_root(base):
             roots = [base]
         try:
-            subdirs = [p.name for p in sorted(base.iterdir()) if p.is_dir() and not p.name.startswith(".")]
+            subdirs = [
+                p.name for p in sorted(base.iterdir()) if p.is_dir() and not p.name.startswith(".")
+            ]
         except OSError:
             subdirs = []
         print(
@@ -333,7 +335,11 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
                     flush=True,
                 )
             elif len(roots) == 1:
-                print(f"metadata-graph-build │ Loading configuration from {roots[0]}", file=sys.stderr, flush=True)
+                print(
+                    f"metadata-graph-build │ Loading configuration from {roots[0]}",
+                    file=sys.stderr,
+                    flush=True,
+                )
                 crawl = crawl_config(roots[0])
             else:
                 print(
@@ -427,7 +433,9 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
             # Главный индикатор прогресса для дашборда: сколько объектов уже записано в Qdrant.
             # Вызывается после каждого батча embed → upsert (как в build_index для справки).
             def _upsert_progress(written: int, tot: int) -> None:
-                progress_line(f"metadata-graph-build │ {written}/{tot} indexed into onec_config_metadata")
+                progress_line(
+                    f"metadata-graph-build │ {written}/{tot} indexed into onec_config_metadata"
+                )
                 try:
                     status_path.write_text(
                         json.dumps(
@@ -1041,6 +1049,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         return 0
     except Exception as e:
         import traceback
+
         print(f"Error: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return 1
@@ -1490,9 +1499,7 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
                     f"load-standards │ ITS from disk: {len(its_from_disk)} items ← {its_dir}"
                 )
             else:
-                progress_done(
-                    f"load-standards │ ITS from disk: skip (no folder {its_dir})"
-                )
+                progress_done(f"load-standards │ ITS from disk: skip (no folder {its_dir})")
 
         if not items:
             print("No .md files found.", file=sys.stderr)
@@ -1822,10 +1829,7 @@ def cmd_qdrant_backup(args: argparse.Namespace) -> int:
         req_list = urllib.request.Request(f"{base}/collections")
         with urllib.request.urlopen(req_list, timeout=30) as resp:
             data_list = json.loads(resp.read().decode())
-        collections = [
-            c["name"]
-            for c in (data_list.get("result", {}).get("collections") or [])
-        ]
+        collections = [c["name"] for c in (data_list.get("result", {}).get("collections") or [])]
         if not collections:
             print("No collections found in Qdrant", file=sys.stderr)
             return 1

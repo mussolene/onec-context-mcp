@@ -12,6 +12,7 @@ pytestmark = pytest.mark.skipif(
     reason="Set MCP_INTEGRATION=1 to run (requires MCP + Qdrant)",
 )
 
+
 @pytest.fixture(scope="module")
 def mcp_client() -> StreamableHttpMcpClient:
     return StreamableHttpMcpClient.from_env_or_skip()

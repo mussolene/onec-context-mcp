@@ -53,7 +53,9 @@ def _attr_type_data(attr: Element) -> dict:
                 if sub is el:
                     continue
                 if _strip_ns(sub.tag) in ("Name", "name"):
-                    defined_name = _text(sub) or (sub.get("value") or sub.get("Value") or "").strip()
+                    defined_name = (
+                        _text(sub) or (sub.get("value") or sub.get("Value") or "").strip()
+                    )
                     if defined_name:
                         break
             if not defined_name and _text(el):

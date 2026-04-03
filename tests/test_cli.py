@@ -116,7 +116,10 @@ def test_cmd_unpack_diag_error(tmp_path: Path) -> None:
 
 
 def test_cmd_add_bm25_success() -> None:
-    with patch("onec_help.search_store.indexer.add_bm25_to_all_collections", return_value={"onec_help": 100}):
+    with patch(
+        "onec_help.search_store.indexer.add_bm25_to_all_collections",
+        return_value={"onec_help": 100},
+    ):
         args = make_args()
         with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
             assert cmd_add_bm25(args) == 0
@@ -178,7 +181,9 @@ def test_cmd_unpack_success(mock_unpack, tmp_path: Path) -> None:
 def test_cmd_build_index(help_sample_dir: Path) -> None:
     args = make_args(directory=str(help_sample_dir), docs_dir=None, incremental=False)
     with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
-        with patch("onec_help.interfaces.cli._run_api_structured_pipeline", return_value=0) as mock_struct:
+        with patch(
+            "onec_help.interfaces.cli._run_api_structured_pipeline", return_value=0
+        ) as mock_struct:
             assert cmd_build_index(args) == 0
     mock_struct.assert_called_once_with(recreate=True, unpacked_dir=str(help_sample_dir.resolve()))
 
@@ -186,7 +191,10 @@ def test_cmd_build_index(help_sample_dir: Path) -> None:
 def test_cmd_build_index_error(help_sample_dir: Path) -> None:
     args = make_args(directory=str(help_sample_dir), docs_dir=None)
     with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
-        with patch("onec_help.interfaces.cli._run_api_structured_pipeline", side_effect=RuntimeError("Qdrant unavailable")):
+        with patch(
+            "onec_help.interfaces.cli._run_api_structured_pipeline",
+            side_effect=RuntimeError("Qdrant unavailable"),
+        ):
             assert cmd_build_index(args) == 1
 
 
@@ -212,7 +220,9 @@ def test_cmd_index_api_structured() -> None:
 
 def test_run_api_structured_pipeline_stops_on_snapshot_error() -> None:
     with patch("onec_help.interfaces.cli.cmd_build_api_structured", return_value=1) as mock_build:
-        with patch("onec_help.interfaces.cli.cmd_index_api_structured", return_value=0) as mock_index:
+        with patch(
+            "onec_help.interfaces.cli.cmd_index_api_structured", return_value=0
+        ) as mock_index:
             assert _run_api_structured_pipeline(recreate=False) == 1
     mock_build.assert_called_once()
     mock_index.assert_not_called()
@@ -273,7 +283,9 @@ def test_cmd_build_metadata_graph_kd2_xml(
         config_name="Cfg",
         config_version="1.0.0.1",
         platform_version=None,
-        objects=[ConfigObject(id="Document/Sales", object_type="Document", name="Sales", attributes={})],
+        objects=[
+            ConfigObject(id="Document/Sales", object_type="Document", name="Sales", attributes={})
+        ],
         relations=[],
     )
     mock_build_graph.return_value = 1
@@ -321,7 +333,14 @@ def test_cmd_build_metadata_graph_auto_merges_multiple_kd2_exports(
                 config_name="Cfg1",
                 config_version="1.0",
                 platform_version=None,
-                objects=[ConfigObject(id="Document/A", object_type="Document", name="A", attributes={"config_version": "1.0"})],
+                objects=[
+                    ConfigObject(
+                        id="Document/A",
+                        object_type="Document",
+                        name="A",
+                        attributes={"config_version": "1.0"},
+                    )
+                ],
                 relations=[],
             ),
             CrawlResult(
@@ -329,7 +348,14 @@ def test_cmd_build_metadata_graph_auto_merges_multiple_kd2_exports(
                 config_name="Cfg2",
                 config_version="2.0",
                 platform_version=None,
-                objects=[ConfigObject(id="Document/B", object_type="Document", name="B", attributes={"config_version": "2.0"})],
+                objects=[
+                    ConfigObject(
+                        id="Document/B",
+                        object_type="Document",
+                        name="B",
+                        attributes={"config_version": "2.0"},
+                    )
+                ],
                 relations=[],
             ),
         ],
@@ -375,7 +401,9 @@ def test_cmd_build_metadata_graph_auto_refreshes_snapshot_from_workdir(
         config_name="Cfg",
         config_version="1.0.0.1",
         platform_version=None,
-        objects=[ConfigObject(id="Document/Sales", object_type="Document", name="Sales", attributes={})],
+        objects=[
+            ConfigObject(id="Document/Sales", object_type="Document", name="Sales", attributes={})
+        ],
         relations=[],
     )
     mock_build_graph.return_value = 1
@@ -588,9 +616,7 @@ def test_cmd_unpack_sync_no_sources_error(mock_run) -> None:
 
 
 @patch("onec_help.interfaces.cli._run_api_structured_pipeline", return_value=0)
-def test_cmd_build_index_incremental_no_bm25(
-    mock_structured, help_sample_dir: Path
-) -> None:
+def test_cmd_build_index_incremental_no_bm25(mock_structured, help_sample_dir: Path) -> None:
     """cmd_build_index forwards unpacked dir into structured pipeline."""
     args = make_args(
         directory=str(help_sample_dir),
@@ -984,7 +1010,9 @@ def test_cmd_load_snippets_not_array(tmp_path: Path) -> None:
 @patch("onec_help.search_store.embedding.is_embedding_available", return_value=True)
 @patch("onec_help.search_store.indexer.add_bm25_to_collection", return_value=1)
 @patch("onec_help.interfaces.cli._get_memory_store")
-def test_cmd_load_snippets_success(mock_get_store, _mock_add_bm25, _mock_embed_avail, tmp_path: Path) -> None:
+def test_cmd_load_snippets_success(
+    mock_get_store, _mock_add_bm25, _mock_embed_avail, tmp_path: Path
+) -> None:
     """cmd_load_snippets loads snippets and prints count."""
     snippet_file = tmp_path / "snippets.json"
     snippet_file.write_text(
@@ -1031,7 +1059,9 @@ def test_cmd_load_snippets_exception(tmp_path: Path) -> None:
 @patch("onec_help.search_store.embedding.is_embedding_available", return_value=True)
 @patch("onec_help.search_store.indexer.add_bm25_to_collection", return_value=1)
 @patch("onec_help.interfaces.cli._get_memory_store")
-def test_cmd_load_snippets_from_folder(mock_get_store, _mock_add_bm25, _mock_embed_avail, tmp_path: Path) -> None:
+def test_cmd_load_snippets_from_folder(
+    mock_get_store, _mock_add_bm25, _mock_embed_avail, tmp_path: Path
+) -> None:
     """cmd_load_snippets loads from folder (*.bsl, *.1c, *.json) when path is directory."""
     (tmp_path / "example.bsl").write_text("Сообщить(1);", encoding="utf-8")
     (tmp_path / "other.1c").write_text("Возврат Истина;", encoding="utf-8")
@@ -1053,7 +1083,9 @@ def test_cmd_load_snippets_from_folder(mock_get_store, _mock_add_bm25, _mock_emb
 @patch("onec_help.search_store.embedding.is_embedding_available", return_value=True)
 @patch("onec_help.search_store.indexer.add_bm25_to_collection", return_value=1)
 @patch("onec_help.interfaces.cli._get_memory_store")
-def test_cmd_load_snippets_type_split(mock_get_store, _mock_add_bm25, _mock_embed_avail, tmp_path: Path) -> None:
+def test_cmd_load_snippets_type_split(
+    mock_get_store, _mock_add_bm25, _mock_embed_avail, tmp_path: Path
+) -> None:
     """cmd_load_snippets splits items by type into snippets and community_help domains."""
     mixed = tmp_path / "mixed.json"
     mixed.write_text(
@@ -1282,7 +1314,9 @@ def test_cmd_load_standards_no_source(capsys) -> None:
 @patch("onec_help.search_store.embedding.is_embedding_available", return_value=True)
 @patch("onec_help.search_store.indexer.add_bm25_to_collection", return_value=1)
 @patch("onec_help.interfaces.cli._get_memory_store")
-def test_cmd_load_standards_success(mock_get_store, _mock_add_bm25, _mock_embed_avail, tmp_path: Path) -> None:
+def test_cmd_load_standards_success(
+    mock_get_store, _mock_add_bm25, _mock_embed_avail, tmp_path: Path
+) -> None:
     """cmd_load_standards loads markdown and upserts with domain=standards."""
     (tmp_path / "rule.md").write_text("# Проверка\n\nОписание правила.", encoding="utf-8")
     mock_store = MagicMock()
@@ -1295,7 +1329,10 @@ def test_cmd_load_standards_success(mock_get_store, _mock_add_bm25, _mock_embed_
     assert call_kw.get("domain") == "standards"
 
 
-@patch("onec_help.runtime.redis_cache.metadata_cache_get", return_value={"signature": "sig", "objects_indexed": 10})
+@patch(
+    "onec_help.runtime.redis_cache.metadata_cache_get",
+    return_value={"signature": "sig", "objects_indexed": 10},
+)
 @patch("onec_help.interfaces.cli._metadata_collection_has_points", return_value=True)
 @patch("onec_help.runtime.redis_cache.require_runtime_redis")
 def test_cmd_build_metadata_graph_skips_unchanged_cached_source(

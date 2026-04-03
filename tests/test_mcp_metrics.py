@@ -65,7 +65,10 @@ def test_get_metrics_empty_when_no_db() -> None:
     """get_metrics returns total=0, last_hour=0 when DB does not exist."""
     with (
         _use_sqlite,
-        patch("onec_help.runtime.mcp_metrics._metrics_db_path", return_value="/nonexistent/mcp_metrics.db"),
+        patch(
+            "onec_help.runtime.mcp_metrics._metrics_db_path",
+            return_value="/nonexistent/mcp_metrics.db",
+        ),
     ):
         m = get_metrics()
     assert m["total"] == 0
@@ -119,7 +122,9 @@ def test_record_request_sqlite_handles_connect_error() -> None:
     """When sqlite3.connect raises, record_request does not crash."""
     with (
         _use_sqlite,
-        patch("onec_help.runtime.mcp_metrics._metrics_db_path", return_value="/nonexistent/dir/mcp.db"),
+        patch(
+            "onec_help.runtime.mcp_metrics._metrics_db_path", return_value="/nonexistent/dir/mcp.db"
+        ),
         patch("onec_help.runtime.mcp_metrics.sqlite3.connect", side_effect=OSError("readonly")),
     ):
         record_request("x", True)
@@ -143,7 +148,8 @@ def test_get_metrics_handles_conn_error() -> None:
         patch("onec_help.runtime.mcp_metrics._metrics_db_path", return_value="/tmp/mcp_metrics.db"),
         patch("onec_help.runtime.mcp_metrics.os.path.isfile", return_value=True),
         patch(
-            "onec_help.runtime.mcp_metrics.sqlite3.connect", side_effect=sqlite3.OperationalError("locked")
+            "onec_help.runtime.mcp_metrics.sqlite3.connect",
+            side_effect=sqlite3.OperationalError("locked"),
         ),
     ):
         m = get_metrics()

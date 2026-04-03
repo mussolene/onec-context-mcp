@@ -224,7 +224,9 @@ def test_scan_metadata_source_stable_xml_file(tmp_path: Path) -> None:
 def test_scan_metadata_source_stable_kd2_snapshot_dir(tmp_path: Path) -> None:
     snapshot_dir = tmp_path / "snapshot"
     snapshot_dir.mkdir()
-    (snapshot_dir / "manifest.json").write_text('{"format":"onec_kd2_snapshot_v1"}', encoding="utf-8")
+    (snapshot_dir / "manifest.json").write_text(
+        '{"format":"onec_kd2_snapshot_v1"}', encoding="utf-8"
+    )
     (snapshot_dir / "objects.jsonl").write_text("{}", encoding="utf-8")
     (snapshot_dir / "fields.jsonl").write_text("{}", encoding="utf-8")
     out = _scan_metadata_source_stable(snapshot_dir)
@@ -265,7 +267,9 @@ def test_run_watchdog_supports_metadata_xml_file(tmp_path: Path) -> None:
             patch("onec_help.runtime.watchdog._process_pending_memory"),
         ):
             try:
-                run_watchdog(help_source_base=tmp_path, poll_interval_sec=60, pending_interval_sec=60)
+                run_watchdog(
+                    help_source_base=tmp_path, poll_interval_sec=60, pending_interval_sec=60
+                )
             except StopIteration:
                 pass
     assert metadata_called == [str(xml_file.resolve())]

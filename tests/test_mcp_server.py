@@ -300,7 +300,9 @@ def test_mcp_tool_search_1c_api_via_app(help_sample_dir: Path) -> None:
     with patch.object(
         mcp_server,
         "_search_api_members",
-        return_value=[{"name": "Test.Method", "summary": "snippet", "entity_type": "method", "breadcrumb": []}],
+        return_value=[
+            {"name": "Test.Method", "summary": "snippet", "entity_type": "method", "breadcrumb": []}
+        ],
     ):
         with patch.object(mcp_server, "_search_api_objects", return_value=[]):
             with patch.object(mcp_server, "_search_official_examples", return_value=[]):
@@ -320,7 +322,9 @@ def test_mcp_tool_search_1c_api_renders_examples(help_sample_dir: Path) -> None:
                 "_search_official_examples",
                 return_value=[{"title": "HTTP GET", "description": "GET example"}],
             ):
-                result = asyncio.run(app.call_tool("search_1c_api", {"query": "HTTP GET", "limit": 3}))
+                result = asyncio.run(
+                    app.call_tool("search_1c_api", {"query": "HTTP GET", "limit": 3})
+                )
     text = result.content[0].text if result.content else ""
     assert "Official examples" in text
     assert "HTTP GET" in text
@@ -332,7 +336,9 @@ def test_mcp_tool_search_1c_api_no_results(help_sample_dir: Path) -> None:
     with patch.object(mcp_server, "_search_api_members", return_value=[]):
         with patch.object(mcp_server, "_search_api_objects", return_value=[]):
             with patch.object(mcp_server, "_search_official_examples", return_value=[]):
-                result = asyncio.run(app.call_tool("search_1c_api", {"query": "nonexistent", "limit": 2}))
+                result = asyncio.run(
+                    app.call_tool("search_1c_api", {"query": "nonexistent", "limit": 2})
+                )
     text = result.content[0].text if result.content else ""
     assert "No structured API results" in text
 
@@ -437,7 +443,9 @@ def test_mcp_tool_get_1c_api_answer_via_app(help_sample_dir: Path) -> None:
             }
         ],
     ):
-        result = asyncio.run(app.call_tool("get_1c_api_answer", {"name": "HTTPСоединение.Получить"}))
+        result = asyncio.run(
+            app.call_tool("get_1c_api_answer", {"name": "HTTPСоединение.Получить"})
+        )
     text = result.content[0].text if result.content else ""
     assert "HTTPСоединение.Получить" in text
     assert "Описание" in text
@@ -485,7 +493,9 @@ def test_mcp_tool_get_1c_api_related_via_app(help_sample_dir: Path) -> None:
             }
         ],
     ):
-        result = asyncio.run(app.call_tool("get_1c_api_related", {"name": "HTTPСоединение.Получить"}))
+        result = asyncio.run(
+            app.call_tool("get_1c_api_related", {"name": "HTTPСоединение.Получить"})
+        )
     text = result.content[0].text if result.content else ""
     assert "ПолучитьЗаголовки" in text
 
@@ -501,7 +511,7 @@ def test_mcp_tool_search_1c_official_examples_via_app(help_sample_dir: Path) -> 
                 "api_name": "HTTPСоединение.Получить",
                 "title": "HTTPСоединение.Получить — пример 1",
                 "description": "GET",
-                "code": "Ответ = Соединение.Получить(\"/\");",
+                "code": 'Ответ = Соединение.Получить("/");',
                 "topic_path": "Get.md",
             }
         ],
@@ -514,7 +524,9 @@ def test_mcp_tool_search_1c_official_examples_via_app(help_sample_dir: Path) -> 
     assert "Соединение.Получить" in text
 
 
-def test_mcp_tool_answer_1c_help_question_uses_structured_availability(help_sample_dir: Path) -> None:
+def test_mcp_tool_answer_1c_help_question_uses_structured_availability(
+    help_sample_dir: Path,
+) -> None:
     """Natural-language factual question should answer from structured availability when possible."""
     app = mcp_server._build_mcp_app(help_sample_dir)
     with patch.object(
@@ -697,7 +709,11 @@ def test_mcp_tool_get_module_info_extended_types(help_sample_dir: Path) -> None:
     """get_module_info recognises RecordSetModule, ManagerModule, and other extended module types."""
     app = mcp_server._build_mcp_app(help_sample_dir)
     cases = [
-        ("file:///projects/App/InformationRegisters/Prices/RecordSetModule.bsl", "RecordSetModule", "Prices"),
+        (
+            "file:///projects/App/InformationRegisters/Prices/RecordSetModule.bsl",
+            "RecordSetModule",
+            "Prices",
+        ),
         ("file:///projects/App/Catalogs/Товары/ManagerModule.bsl", "ManagerModule", "Товары"),
         ("file:///projects/App/Documents/Накладная/ObjectModule.bsl", "ObjectModule", "Накладная"),
     ]
@@ -750,8 +766,21 @@ def test_mcp_tool_search_1c_memory(help_sample_dir: Path) -> None:
     """search_1c_memory returns formatted blocks from memory (snippets/standards)."""
     app = mcp_server._build_mcp_app(help_sample_dir)
     memory_results = [
-        {"payload": {"title": "Стандарт именования", "domain": "standards", "description": "Правила именования"}},
-        {"payload": {"title": "Пример запроса", "domain": "snippets", "code_snippet": "ВЫБРАТЬ 1", "description": "Пример"}},
+        {
+            "payload": {
+                "title": "Стандарт именования",
+                "domain": "standards",
+                "description": "Правила именования",
+            }
+        },
+        {
+            "payload": {
+                "title": "Пример запроса",
+                "domain": "snippets",
+                "code_snippet": "ВЫБРАТЬ 1",
+                "description": "Пример",
+            }
+        },
     ]
     with patch("onec_help.knowledge.memory.get_memory_store") as mock_get_store:
         mock_store = mock_get_store.return_value
@@ -775,7 +804,15 @@ def test_mcp_tool_search_1c_memory_with_domains(help_sample_dir: Path) -> None:
         mock_store = mock_get_store.return_value
         mock_store.search_long.side_effect = [
             [{"payload": {"title": "Стандарт", "domain": "standards"}}],
-            [{"payload": {"title": "Сниппет", "domain": "snippets", "code_snippet": "Сообщить(1);"}}],
+            [
+                {
+                    "payload": {
+                        "title": "Сниппет",
+                        "domain": "snippets",
+                        "code_snippet": "Сообщить(1);",
+                    }
+                }
+            ],
         ]
         result = asyncio.run(
             app.call_tool(
@@ -850,7 +887,9 @@ def test_mcp_tool_search_1c_metadata_exact_via_app(mock_search_meta, help_sample
 
 
 @patch("onec_help.knowledge.metadata_graph.search_metadata_semantic")
-def test_mcp_tool_search_1c_metadata_semantic_via_app(mock_search_meta, help_sample_dir: Path) -> None:
+def test_mcp_tool_search_1c_metadata_semantic_via_app(
+    mock_search_meta, help_sample_dir: Path
+) -> None:
     """Call search_1c_metadata_semantic tool via app."""
     app = mcp_server._build_mcp_app(help_sample_dir)
     mock_search_meta.return_value = [
@@ -867,7 +906,12 @@ def test_mcp_tool_search_1c_metadata_semantic_via_app(mock_search_meta, help_sam
     result = asyncio.run(
         app.call_tool(
             "search_1c_metadata_semantic",
-            {"query": "документ продажи", "config_version": "1.0.0.0", "object_type": None, "limit": 5},
+            {
+                "query": "документ продажи",
+                "config_version": "1.0.0.0",
+                "object_type": None,
+                "limit": 5,
+            },
         )
     )
     text = result.content[0].text if result.content else ""
@@ -875,7 +919,9 @@ def test_mcp_tool_search_1c_metadata_semantic_via_app(mock_search_meta, help_sam
 
 
 @patch("onec_help.knowledge.metadata_graph.search_metadata_fields")
-def test_mcp_tool_search_1c_metadata_fields_via_app(mock_search_fields, help_sample_dir: Path) -> None:
+def test_mcp_tool_search_1c_metadata_fields_via_app(
+    mock_search_fields, help_sample_dir: Path
+) -> None:
     """Call search_1c_metadata_fields tool via app."""
     app = mcp_server._build_mcp_app(help_sample_dir)
     mock_search_fields.return_value = [
@@ -974,8 +1020,18 @@ def test_mcp_tool_get_1c_task_context_via_app(mock_build_ctx, help_sample_dir: P
             "form_name": "",
             "symbol_name": "ОбработкаПроведения",
         },
-        "help_topics": [{"title": "Проведение", "path": "post.md", "text": "Описание проведения документа"}],
-        "memory": [{"payload": {"title": "Стандарт", "domain": "standards", "description": "Проверяйте движения"}}],
+        "help_topics": [
+            {"title": "Проведение", "path": "post.md", "text": "Описание проведения документа"}
+        ],
+        "memory": [
+            {
+                "payload": {
+                    "title": "Стандарт",
+                    "domain": "standards",
+                    "description": "Проверяйте движения",
+                }
+            }
+        ],
         "metadata_objects": [{"id": "Document/Sales", "object_type": "Document", "name": "Sales"}],
     }
     result = asyncio.run(

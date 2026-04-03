@@ -19,6 +19,7 @@ pytestmark = pytest.mark.skipif(
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 QUERIES_JSON = FIXTURES_DIR / "mcp_crypto_queries.json"
 
+
 def _load_crypto_queries() -> list[dict]:
     if not QUERIES_JSON.exists():
         return []
@@ -61,7 +62,9 @@ def test_search_1c_api_crypto_manager(mcp_client: StreamableHttpMcpClient) -> No
         "search_1c_api",
         {"query": "МенеджерКриптографии", "limit": 5},
     )
-    assert "МенеджерКриптографии" in out or "Криптограф" in out or "No structured API results" in out
+    assert (
+        "МенеджерКриптографии" in out or "Криптограф" in out or "No structured API results" in out
+    )
 
 
 def test_answer_1c_help_question_crypto_version(mcp_client: StreamableHttpMcpClient) -> None:

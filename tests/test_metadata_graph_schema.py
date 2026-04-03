@@ -115,20 +115,31 @@ def test_node_payload_form_has_parent_id_document_has_form_ids() -> None:
 def test_format_type_readable_russian_and_ref_types() -> None:
     """format_type_readable converts cfg:/xs: types to readable Russian (СправочникСсылка, Строка, etc.)."""
     assert format_type_readable("cfg:CatalogRef.Организации") == "СправочникСсылка.Организации"
-    assert format_type_readable("cfg:DocumentRef.СчетНаОплатуПокупателю") == "ДокументСсылка.СчетНаОплатуПокупателю"
-    assert format_type_readable("cfg:EnumRef.ВидыОперацийРеализацияТоваров") == "ПеречислениеСсылка.ВидыОперацийРеализацияТоваров"
+    assert (
+        format_type_readable("cfg:DocumentRef.СчетНаОплатуПокупателю")
+        == "ДокументСсылка.СчетНаОплатуПокупателю"
+    )
+    assert (
+        format_type_readable("cfg:EnumRef.ВидыОперацийРеализацияТоваров")
+        == "ПеречислениеСсылка.ВидыОперацийРеализацияТоваров"
+    )
     assert format_type_readable("xs:string") == "Строка"
     assert format_type_readable("xs:string", length=150) == "Строка(150)"
     assert format_type_readable("xs:decimal") == "Число"
     assert format_type_readable("xs:boolean") == "Булево"
     assert format_type_readable("xs:dateTime") == "Дата и время"
-    assert format_type_readable("cfg:CatalogRef.Организации", append_raw_in_brackets=True) == "СправочникСсылка.Организации (cfg:CatalogRef.Организации)"
+    assert (
+        format_type_readable("cfg:CatalogRef.Организации", append_raw_in_brackets=True)
+        == "СправочникСсылка.Организации (cfg:CatalogRef.Организации)"
+    )
 
 
 def test_format_requisite_type_display_multiple_and_defined_type() -> None:
     """format_requisite_type_display handles union types and ОпределяемыйТип."""
     # Single type
-    assert "Строка(100)" in format_requisite_type_display({"name": "X", "type": "xs:string", "length": 100})
+    assert "Строка(100)" in format_requisite_type_display(
+        {"name": "X", "type": "xs:string", "length": 100}
+    )
     # Multiple types (union)
     out = format_requisite_type_display(
         {"type": "xs:string", "types": ["xs:string", "xs:integer"]},
@@ -137,10 +148,16 @@ def test_format_requisite_type_display_multiple_and_defined_type() -> None:
     assert "Строка" in out and "Целое число" in out and " или " in out
     # Defined type with contained types
     out2 = format_requisite_type_display(
-        {"type": "cfg:CatalogRef.Орг", "types": ["cfg:CatalogRef.Орг"], "defined_type": "СсылкаНаОрганизацию"},
+        {
+            "type": "cfg:CatalogRef.Орг",
+            "types": ["cfg:CatalogRef.Орг"],
+            "defined_type": "СсылкаНаОрганизацию",
+        },
         append_raw_in_brackets=False,
     )
-    assert "Определяемый тип" in out2 and "СсылкаНаОрганизацию" in out2 and "СправочникСсылка" in out2
+    assert (
+        "Определяемый тип" in out2 and "СсылкаНаОрганизацию" in out2 and "СправочникСсылка" in out2
+    )
 
 
 def test_edge_payload_includes_versions_and_endpoints() -> None:

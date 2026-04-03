@@ -582,7 +582,9 @@ def run_ingest(
     if max_workers is None:
         max_workers = _default_workers()
     if verbose:
-        _log(f"[ingest] Rebuilding structured help from {len(tasks)} .hbk task(s); workers={max_workers}")
+        _log(
+            f"[ingest] Rebuilding structured help from {len(tasks)} .hbk task(s); workers={max_workers}"
+        )
 
     failed: list[tuple[Path, str, str, str]] = []
     unpacked_count = 0
@@ -597,7 +599,9 @@ def run_ingest(
         else:
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futs = {
-                    executor.submit(_unpack_one_sync, path, version, lang, base, unpack_hbk, verbose): (path, version, lang)
+                    executor.submit(
+                        _unpack_one_sync, path, version, lang, base, unpack_hbk, verbose
+                    ): (path, version, lang)
                     for path, version, lang in tasks
                 }
                 for fut in as_completed(futs):
@@ -1037,7 +1041,14 @@ def run_ingest_from_unpacked(
     started_at = time.time()
     run_id = _create_ingest_run(started_at, embedding_backend, len(tasks))
     folders = [
-        {"version": v, "language": lang, "hbk_count": 1, "tasks_done": 0, "points": 0, "status": "pending"}
+        {
+            "version": v,
+            "language": lang,
+            "hbk_count": 1,
+            "tasks_done": 0,
+            "points": 0,
+            "status": "pending",
+        }
         for _, v, _, lang in tasks
     ]
     state_lock = threading.Lock()
@@ -1083,7 +1094,9 @@ def run_ingest_from_unpacked(
     try:
         snapshot_dir = get_help_structured_dir()
         manifest = build_structured_api_snapshot(output_dir=Path(snapshot_dir), unpacked_dir=base)
-        estimated_total = sum(int(manifest.get(name, 0) or 0) for name in ("objects", "members", "examples", "links"))
+        estimated_total = sum(
+            int(manifest.get(name, 0) or 0) for name in ("objects", "members", "examples", "links")
+        )
         with state_lock:
             state["current"] = [
                 {
@@ -1123,7 +1136,9 @@ def run_ingest_from_unpacked(
                         "stage": phase or "index_structured",
                         "collection": collection,
                         "points": collection_loaded if collection_loaded is not None else loaded,
-                        "estimated_total": collection_total if collection_total is not None else total_expected,
+                        "estimated_total": collection_total
+                        if collection_total is not None
+                        else total_expected,
                     }
                 # Expose all active collections as "current" list for the dashboard.
                 if _collection_progress:

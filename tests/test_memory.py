@@ -208,7 +208,10 @@ def test_write_long_or_pending_embedding_fails_appends_pending(tmp_path: Path) -
     """When get_embedding raises, _write_long_or_pending appends to pending."""
     with patch.dict("os.environ", {"MEMORY_ENABLED": "1"}, clear=False):
         with patch("onec_help.search_store.embedding.is_embedding_available", return_value=True):
-            with patch("onec_help.search_store.embedding.get_embedding", side_effect=RuntimeError("API down")):
+            with patch(
+                "onec_help.search_store.embedding.get_embedding",
+                side_effect=RuntimeError("API down"),
+            ):
                 store = MemoryStore(tmp_path, short_limit=5, medium_limit=100, medium_ttl_days=7)
                 store._write_long_or_pending("get_topic", {"topic_path": "a.md"}, 1.0)
                 assert store.pending_path.exists()
@@ -307,7 +310,10 @@ def test_search_long(tmp_path: Path) -> None:
     """search_long queries Qdrant and returns results with RRF score."""
     with patch("onec_help.search_store.embedding.get_embedding", return_value=[0.1] * 768):
         with patch("qdrant_client.QdrantClient") as mock_qc:
-            with patch("onec_help.search_store.sparse_bm25.bm25_vocab_path", return_value=tmp_path / "no_vocab"):
+            with patch(
+                "onec_help.search_store.sparse_bm25.bm25_vocab_path",
+                return_value=tmp_path / "no_vocab",
+            ):
                 mock_client = MagicMock()
                 mock_client.collection_exists.return_value = True
                 mock_point = MagicMock()

@@ -125,7 +125,9 @@ def build_context(req: ContextRequest) -> dict[str, Any]:
 
     help_query = (req.symbol_name or q).strip()
     metadata_query = (local_context.get("object_name") or q).strip()
-    need_metadata = query_type in {"metadata", "mixed", "review"} or bool(local_context.get("object_name"))
+    need_metadata = query_type in {"metadata", "mixed", "review"} or bool(
+        local_context.get("object_name")
+    )
     cfg_ver = _auto_config_version(req.config_version, need_metadata)
 
     help_limit = 1 if query_type == "api" else 2 if query_type in {"mixed", "review"} else 0
@@ -159,7 +161,9 @@ def build_context(req: ContextRequest) -> dict[str, Any]:
         try:
             from .memory import get_memory_store
 
-            memory_items = get_memory_store().search_long(q, limit=min(per_source_limit, memory_limit))
+            memory_items = get_memory_store().search_long(
+                q, limit=min(per_source_limit, memory_limit)
+            )
         except Exception:
             memory_items = []
 
@@ -170,7 +174,9 @@ def build_context(req: ContextRequest) -> dict[str, Any]:
 
             metadata_limit_effective = min(per_source_limit, metadata_limit)
             object_type = local_context.get("object_type") or None
-            prefer_exact = bool(local_context.get("object_name")) or (" " not in metadata_query.strip())
+            prefer_exact = bool(local_context.get("object_name")) or (
+                " " not in metadata_query.strip()
+            )
 
             if prefer_exact:
                 metadata_objects = search_metadata_exact(

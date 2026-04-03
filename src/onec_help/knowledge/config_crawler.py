@@ -159,7 +159,10 @@ def _attr_type_data(el: Any, local: Any) -> dict[str, Any]:
                 if sub is c:
                     continue
                 if local(sub.tag) in ("Name", "name"):
-                    defined_name = _text_el(sub).strip() or (sub.get("value") or sub.get("Value") or "").strip()
+                    defined_name = (
+                        _text_el(sub).strip()
+                        or (sub.get("value") or sub.get("Value") or "").strip()
+                    )
                     if defined_name:
                         break
             if not defined_name and (c.text or "").strip():
@@ -372,7 +375,10 @@ def _parse_object_metadata_root(root: Any) -> dict[str, Any]:
                                     break
                     if aname:
                         type_data = _attr_type_data(attr_el, local)
-                        req: dict[str, Any] = {"name": aname.strip(), "type": type_data.get("type") or ""}
+                        req: dict[str, Any] = {
+                            "name": aname.strip(),
+                            "type": type_data.get("type") or "",
+                        }
                         if type_data.get("types") and len(type_data["types"]) > 1:
                             req["types"] = type_data["types"]
                         if type_data.get("defined_type"):
@@ -552,7 +558,9 @@ def _read_config_dump_info(root_dir: Path) -> dict[str, dict[str, Any]]:
                 attr_name = parts[5]
                 if not attr_name:
                     continue
-                ts_entry = next((t for t in tabs if isinstance(t, dict) and t.get("name") == ts_name), None)
+                ts_entry = next(
+                    (t for t in tabs if isinstance(t, dict) and t.get("name") == ts_name), None
+                )
                 if ts_entry is None:
                     ts_entry = {"name": ts_name, "requisites": []}
                     tabs.append(ts_entry)
@@ -710,7 +718,7 @@ def crawl_config(root_dir: Path) -> CrawlResult:
         "AccountingRegisters": "AccountingRegister",
         "CalculationRegisters": "CalculationRegister",
         "RegistersAccumulation": "RegisterAccumulation",  # old-style export
-        "RegistersInformation": "RegisterInformation",    # old-style export
+        "RegistersInformation": "RegisterInformation",  # old-style export
         "ExchangePlans": "ExchangePlan",
         "BusinessProcesses": "BusinessProcess",
         "Tasks": "Task",
@@ -763,12 +771,20 @@ def crawl_config(root_dir: Path) -> CrawlResult:
                     attrs["tabular_sections"] = di["tabular_sections"]
                 elif attrs.get("tabular_sections") and di.get("tabular_sections"):
                     # Дополнить реквизиты ТЧ из dump, если в XML секция без реквизитов
-                    dump_tabs = {t["name"]: t for t in di["tabular_sections"] if isinstance(t, dict) and t.get("name")}
+                    dump_tabs = {
+                        t["name"]: t
+                        for t in di["tabular_sections"]
+                        if isinstance(t, dict) and t.get("name")
+                    }
                     for tab in attrs["tabular_sections"]:
                         if not isinstance(tab, dict) or tab.get("requisites"):
                             continue
                         name_ts = tab.get("name")
-                        if name_ts and name_ts in dump_tabs and dump_tabs[name_ts].get("requisites"):
+                        if (
+                            name_ts
+                            and name_ts in dump_tabs
+                            and dump_tabs[name_ts].get("requisites")
+                        ):
                             tab["requisites"] = list(dump_tabs[name_ts]["requisites"])
             attrs["config_name"] = config_name
             attrs["config_version"] = config_version

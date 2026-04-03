@@ -78,8 +78,8 @@ def _bm25_idf(df: int, N: int) -> float:
 
 
 def bm25_build_stats(
-    texts_iter: "Iterable[str]",
-) -> "tuple[dict[str, int], dict[str, int], list[int], float, int]":
+    texts_iter: Iterable[str],
+) -> tuple[dict[str, int], dict[str, int], list[int], float, int]:
     """Single-pass stats builder — does NOT store tokenised lists.
 
     Returns (vocab, doc_freq, doc_lens, avgdl, N).
@@ -114,7 +114,7 @@ def bm25_doc_vector(
     avgdl: float,
     k1: float = _BM25_K1,
     b: float = _BM25_B,
-) -> "dict[str, Any]":
+) -> dict[str, Any]:
     """Compute BM25 doc-side sparse vector for a single text.
 
     ``dl`` must be the pre-computed token length of *this* text (from the same

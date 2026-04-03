@@ -588,6 +588,7 @@ def _run_build_metadata_graph(config_dir: str) -> bool:
         import time as _time
 
         from .ingest import _ingest_cache_path
+
         marker = Path(_ingest_cache_path()).parent / "load_metadata.running"
         if marker.exists():
             age = _time.time() - marker.stat().st_mtime

@@ -51,7 +51,10 @@ def test_progress_line_non_tty_no_overwrite() -> None:
 
 def test_progress_done_writes_newline() -> None:
     """progress_done writes message with newline (fallback path when Rich disabled)."""
-    with patch("onec_help.shared._utils._rich_console", return_value=None), patch("sys.stderr") as stderr:
+    with (
+        patch("onec_help.shared._utils._rich_console", return_value=None),
+        patch("sys.stderr") as stderr,
+    ):
         progress_done("done")
         stderr.write.assert_called_once()
         assert stderr.write.call_args[0][0].endswith("\n")

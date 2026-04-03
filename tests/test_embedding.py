@@ -433,13 +433,19 @@ def test_get_embedding_dimension_openai_api_invalid_dimension() -> None:
         clear=False,
     ):
         importlib.reload(embedding_mod)
-        with patch("onec_help.search_store.embedding._check_embedding_api_available", return_value=False):
-            with patch("onec_help.search_store.embedding._get_fallback_dim_from_qdrant", return_value=None):
+        with patch(
+            "onec_help.search_store.embedding._check_embedding_api_available", return_value=False
+        ):
+            with patch(
+                "onec_help.search_store.embedding._get_fallback_dim_from_qdrant", return_value=None
+            ):
                 dim = embedding_mod.get_embedding_dimension()
             assert dim == embedding_mod._DIMENSION_LAST_RESORT
             embedding_mod._cached_api_dimension = None
             embedding_mod._cached_qdrant_dimension = None
-            with patch("onec_help.search_store.embedding._get_fallback_dim_from_qdrant", return_value=768):
+            with patch(
+                "onec_help.search_store.embedding._get_fallback_dim_from_qdrant", return_value=768
+            ):
                 dim = embedding_mod.get_embedding_dimension()
             assert dim == 768
     importlib.reload(embedding_mod)

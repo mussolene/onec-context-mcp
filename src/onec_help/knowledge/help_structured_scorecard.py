@@ -233,13 +233,15 @@ def build_structured_help_scorecard(
         collection=collection,
     )
     help_paths = {
-        str(item.get("path") or "")
-        for item in help_topics
-        if str(item.get("path") or "").strip()
+        str(item.get("path") or "") for item in help_topics if str(item.get("path") or "").strip()
     }
-    help_only = [item for item in help_topics if str(item.get("path") or "") not in structured_paths]
+    help_only = [
+        item for item in help_topics if str(item.get("path") or "") not in structured_paths
+    ]
     help_only_types = Counter(str(item.get("entity_type") or "topic") for item in help_only)
-    help_only_buckets = Counter(_classify_help_only_topic(str(item.get("path") or "")) for item in help_only)
+    help_only_buckets = Counter(
+        _classify_help_only_topic(str(item.get("path") or "")) for item in help_only
+    )
 
     cases: list[dict[str, Any]] = []
     top1 = 0
@@ -264,7 +266,8 @@ def build_structured_help_scorecard(
                 **case,
                 "top1": matched_index == 0,
                 "top3": matched_index >= 0,
-                "structured_sufficient": matched_index >= 0 and _is_structured_sufficient(hits[matched_index], case["entity"]),
+                "structured_sufficient": matched_index >= 0
+                and _is_structured_sufficient(hits[matched_index], case["entity"]),
                 "top_hit_full_name": str(hits[0].get("full_name") or "") if hits else "",
                 "top_hit_kind": str(hits[0].get("kind") or "") if hits else "",
                 "top_hit_path": str(hits[0].get("topic_path") or "") if hits else "",
@@ -281,7 +284,9 @@ def build_structured_help_scorecard(
         "owner_name_pct": _field_pct(members, "owner_name"),
         "method_like_params_pct": _field_pct(method_like, "params"),
         "method_like_returns_pct": _field_pct(method_like, "returns"),
-        "kind_topic_pct": round(member_kinds.get("topic", 0) * 100.0 / len(members), 3) if members else 0.0,
+        "kind_topic_pct": round(member_kinds.get("topic", 0) * 100.0 / len(members), 3)
+        if members
+        else 0.0,
     }
     benchmark_metrics = {
         "total": len(benchmark),
@@ -292,7 +297,9 @@ def build_structured_help_scorecard(
     path_metrics = {
         "help_topics_total": len(help_paths),
         "structured_paths_total": len(structured_paths),
-        "path_coverage_pct": round(len(structured_paths) * 100.0 / len(help_paths), 1) if help_paths else 0.0,
+        "path_coverage_pct": round(len(structured_paths) * 100.0 / len(help_paths), 1)
+        if help_paths
+        else 0.0,
         "help_only_total": len(help_only),
         "help_only_entity_types": dict(help_only_types.most_common(10)),
         "help_only_buckets": dict(help_only_buckets.most_common(10)),
@@ -309,7 +316,9 @@ def build_structured_help_scorecard(
     return {
         "format": "onec_help_structured_scorecard_v1",
         "snapshot_dir": str(base),
-        "benchmark_path": str((benchmark_path or get_default_benchmark_path()).expanduser().resolve()),
+        "benchmark_path": str(
+            (benchmark_path or get_default_benchmark_path()).expanduser().resolve()
+        ),
         "counts": {
             "objects": len(objects),
             "members": len(members),

@@ -503,7 +503,9 @@ def _compact_code(value: str, max_chars: int) -> str:
     return text[: max_chars - 3].rstrip() + "..."
 
 
-def _format_memory_block(payload: dict[str, Any], *, compact: bool = False, include_code: bool = True) -> str:
+def _format_memory_block(
+    payload: dict[str, Any], *, compact: bool = False, include_code: bool = True
+) -> str:
     """Format one memory item as markdown block; compact mode trims prose and omits code by default."""
     code = payload.get("code_snippet", "")
     instruction = payload.get("instruction", "")
@@ -556,7 +558,9 @@ def _memory_matches_query(payload: dict[str, Any], query: str) -> bool:
     return any(token in haystack for token in tokens)
 
 
-def _select_memory_for_code_answer(items: list[dict[str, Any]], query: str, has_help_results: bool) -> list[dict[str, Any]]:
+def _select_memory_for_code_answer(
+    items: list[dict[str, Any]], query: str, has_help_results: bool
+) -> list[dict[str, Any]]:
     ordered = _order_memory_for_display(
         items,
         max_standards=1 if has_help_results else 2,
@@ -622,10 +626,12 @@ def _structured_api_sort_key(query: str, item: dict[str, Any]) -> tuple[int, int
         if fn_match:
             content_no_match = 0
         else:
-            rest = " ".join([
-                str(item.get("summary") or ""),
-                str(item.get("text") or ""),
-            ]).lower()
+            rest = " ".join(
+                [
+                    str(item.get("summary") or ""),
+                    str(item.get("text") or ""),
+                ]
+            ).lower()
             if query_lower in rest:
                 content_no_match = 1
     return (
@@ -777,7 +783,11 @@ def _question_structured_sort_key(
     item: dict[str, Any],
 ) -> tuple[int, int, int, bool, str]:
     query = (question or "").strip()
-    has_fact = bool(item.get("availability")) if intent in {"version", "restriction"} else bool(item.get("summary"))
+    has_fact = (
+        bool(item.get("availability"))
+        if intent in {"version", "restriction"}
+        else bool(item.get("summary"))
+    )
     # Try both full question and individual API name tokens — use the best (lowest) match.
     # Only use tokens that start with an uppercase letter (proper API names, not common words).
     api_tokens = [t for t in _extract_question_api_names(query) if t and t[0].isupper()]
@@ -795,11 +805,13 @@ def _question_structured_sort_key(
             if any(w in fn_lower for w in words):
                 content_no_match = 0
             else:
-                rest = " ".join([
-                    str(item.get("summary") or ""),
-                    str(item.get("description") or ""),
-                    str(item.get("text") or ""),
-                ]).lower()
+                rest = " ".join(
+                    [
+                        str(item.get("summary") or ""),
+                        str(item.get("description") or ""),
+                        str(item.get("text") or ""),
+                    ]
+                ).lower()
                 if any(w in rest for w in words):
                     content_no_match = 1
     return (
@@ -831,9 +843,7 @@ def _extract_markdown_heading_section(content: str, headings: tuple[str, ...]) -
     if not content:
         return ""
     heading_pattern = "|".join(re.escape(h) for h in headings)
-    pattern = re.compile(
-        rf"(?ms)^#+\s*(?:{heading_pattern})\s*:?\s*$\n(.*?)(?=^#+\s|\Z)"
-    )
+    pattern = re.compile(rf"(?ms)^#+\s*(?:{heading_pattern})\s*:?\s*$\n(.*?)(?=^#+\s|\Z)")
     chunks = [m.group(1).strip() for m in pattern.finditer(content) if m.group(1).strip()]
     if not chunks:
         return ""
@@ -841,7 +851,9 @@ def _extract_markdown_heading_section(content: str, headings: tuple[str, ...]) -
 
 
 def _extract_fact_from_topic(content: str, intent: str) -> str:
-    section = _extract_markdown_heading_section(content, _QUESTION_HEADINGS.get(intent, _QUESTION_HEADINGS["general"]))
+    section = _extract_markdown_heading_section(
+        content, _QUESTION_HEADINGS.get(intent, _QUESTION_HEADINGS["general"])
+    )
     if section:
         return section[:1600]
     compact = " ".join((content or "").split())
@@ -850,7 +862,9 @@ def _extract_fact_from_topic(content: str, intent: str) -> str:
     return compact[:1200]
 
 
-def _extract_fact_from_structured(item: dict[str, Any], intent: str, *, detail: str = "compact") -> str:
+def _extract_fact_from_structured(
+    item: dict[str, Any], intent: str, *, detail: str = "compact"
+) -> str:
     source_sections = item.get("source_sections") or {}
     if intent == "example":
         return ""
@@ -920,7 +934,13 @@ def _summarize_diagnostics_json(diagnostics_json: str | None) -> str:
         payload = json.loads(diagnostics_json)
     except Exception:
         return ""
-    items = payload if isinstance(payload, list) else payload.get("diagnostics", []) if isinstance(payload, dict) else []
+    items = (
+        payload
+        if isinstance(payload, list)
+        else payload.get("diagnostics", [])
+        if isinstance(payload, dict)
+        else []
+    )
     if not isinstance(items, list):
         return ""
     errors = 0
@@ -1104,7 +1124,9 @@ def _build_mcp_app(help_path: Path) -> Any:
             key=lambda item: _structured_api_sort_key(q, item),
         )
         examples = (
-            _search_official_examples(q, limit=max(2, min(limit, 4)), version=version, language=language)
+            _search_official_examples(
+                q, limit=max(2, min(limit, 4)), version=version, language=language
+            )
             if include_examples
             else []
         )
@@ -1114,7 +1136,10 @@ def _build_mcp_app(help_path: Path) -> Any:
             lines = []
             for idx, item in enumerate(members[:limit], 1):
                 meta = _format_result_meta(
-                    {"entity_type": item.get("entity_type") or item.get("kind"), "breadcrumb": item.get("breadcrumb") or []}
+                    {
+                        "entity_type": item.get("entity_type") or item.get("kind"),
+                        "breadcrumb": item.get("breadcrumb") or [],
+                    }
                 )
                 lines.append(
                     f"{idx}. **{item.get('full_name') or item.get('name') or item.get('title') or ''}**{meta}"
@@ -1127,7 +1152,10 @@ def _build_mcp_app(help_path: Path) -> Any:
             lines = []
             for idx, item in enumerate(objects[: max(3, min(limit, 6))], 1):
                 meta = _format_result_meta(
-                    {"entity_type": item.get("entity_type") or item.get("kind"), "breadcrumb": item.get("breadcrumb") or []}
+                    {
+                        "entity_type": item.get("entity_type") or item.get("kind"),
+                        "breadcrumb": item.get("breadcrumb") or [],
+                    }
                 )
                 lines.append(f"{idx}. **{item.get('name') or item.get('title') or ''}**{meta}")
                 summary = str(item.get("summary") or item.get("description") or "").strip()
@@ -1271,7 +1299,9 @@ def _build_mcp_app(help_path: Path) -> Any:
         err = _check_rate_limit()
         if err:
             return err
-        question_clean, err = _truncate_if_needed((question or "").strip(), MAX_QUERY_CHARS, "question")
+        question_clean, err = _truncate_if_needed(
+            (question or "").strip(), MAX_QUERY_CHARS, "question"
+        )
         if err:
             return err
         if not question_clean:
@@ -1294,7 +1324,9 @@ def _build_mcp_app(help_path: Path) -> Any:
                     question_clean,
                     answer=f"{answer}\n\n```bsl\n{code}\n```",
                     candidate={
-                        "full_name": best.get("full_name") or best.get("api_name") or best.get("title"),
+                        "full_name": best.get("full_name")
+                        or best.get("api_name")
+                        or best.get("title"),
                         "version": best.get("version"),
                         "topic_path": best.get("topic_path"),
                     },
@@ -1565,13 +1597,30 @@ def _build_mcp_app(help_path: Path) -> Any:
             if module_type == "Unknown":
                 module_type = "FormModule"
         _OBJ_TYPES = (
-            "Catalogs", "Documents", "DataProcessors", "Reports",
-            "CommonModules", "ExchangePlans", "InformationRegisters",
-            "AccumulationRegisters", "AccountingRegisters", "CalculationRegisters",
-            "BusinessProcesses", "Tasks", "ChartsOfCharacteristicTypes",
-            "ChartsOfAccounts", "ChartsOfCalculationTypes", "Constants",
-            "Enumerations", "SettingsStorages", "Subsystems", "Sequences",
-            "ScheduledJobs", "WebServices", "HTTPServices", "ExternalDataSources",
+            "Catalogs",
+            "Documents",
+            "DataProcessors",
+            "Reports",
+            "CommonModules",
+            "ExchangePlans",
+            "InformationRegisters",
+            "AccumulationRegisters",
+            "AccountingRegisters",
+            "CalculationRegisters",
+            "BusinessProcesses",
+            "Tasks",
+            "ChartsOfCharacteristicTypes",
+            "ChartsOfAccounts",
+            "ChartsOfCalculationTypes",
+            "Constants",
+            "Enumerations",
+            "SettingsStorages",
+            "Subsystems",
+            "Sequences",
+            "ScheduledJobs",
+            "WebServices",
+            "HTTPServices",
+            "ExternalDataSources",
         )
         for obj_type in _OBJ_TYPES:
             if obj_type in parts:
@@ -1620,7 +1669,10 @@ def _build_mcp_app(help_path: Path) -> Any:
         per_ver = max(1, (limit + len(versions) - 1) // len(versions))
         items: list[dict[str, Any]] = []
         query_vector: list[float] | None = None
-        if getattr(search_fn, "__name__", "") == "search_metadata_semantic" and (query or "").strip():
+        if (
+            getattr(search_fn, "__name__", "") == "search_metadata_semantic"
+            and (query or "").strip()
+        ):
             try:
                 from ..search_store import embedding
                 from ..search_store.indexer import get_collection_vector_size
@@ -1649,7 +1701,9 @@ def _build_mcp_app(help_path: Path) -> Any:
             items.extend(search_fn(query, **kwargs))
         return items[:limit], None
 
-    def _format_metadata_results(items: list[dict[str, Any]], *, default_version: str | None = None) -> str:
+    def _format_metadata_results(
+        items: list[dict[str, Any]], *, default_version: str | None = None
+    ) -> str:
         lines: list[str] = []
         for i, obj in enumerate(items, 1):
             ot = obj.get("object_type", "")
@@ -1906,7 +1960,8 @@ def _build_mcp_app(help_path: Path) -> Any:
                             rname = r.get("name") or ""
                             disp = (
                                 format_requisite_type_display(r, append_raw_in_brackets=True)
-                                if isinstance(r, dict) else ""
+                                if isinstance(r, dict)
+                                else ""
                             )
                             if disp:
                                 lines.append(f"  - {rname}: {disp}")
@@ -2289,7 +2344,9 @@ def _build_mcp_app(help_path: Path) -> Any:
         if local_context.get("module_type") and local_context.get("module_type") != "Unknown":
             context_lines.append(f"module: {local_context.get('module_type')}")
         if local_context.get("object_type") and local_context.get("object_name"):
-            context_lines.append(f"object: {local_context.get('object_type')} {local_context.get('object_name')}")
+            context_lines.append(
+                f"object: {local_context.get('object_type')} {local_context.get('object_name')}"
+            )
         if local_context.get("form_name"):
             context_lines.append(f"form: {local_context.get('form_name')}")
         if local_context.get("symbol_name"):
@@ -2356,7 +2413,9 @@ def _build_mcp_app(help_path: Path) -> Any:
         if structured:
             best = structured
             if choose_index is not None and 1 <= choose_index <= len(best):
-                return _format_structured_api_object(best[choose_index - 1], include_rich_sections=True)
+                return _format_structured_api_object(
+                    best[choose_index - 1], include_rich_sections=True
+                )
             if len(best) > 1:
                 lines = [
                     f"Several structured matches for «{name_clean}». Use choose_index (1–{len(best)}) to select:",

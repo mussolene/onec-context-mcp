@@ -10,7 +10,8 @@ from onec_help.runtime.dashboard_data import get_dashboard_data
 
 @patch("onec_help.runtime.dashboard_data.get_all_collections_status", return_value=[])
 @patch(
-    "onec_help.runtime.dashboard_data.get_index_status", return_value={"exists": True, "points_count": 0}
+    "onec_help.runtime.dashboard_data.get_index_status",
+    return_value={"exists": True, "points_count": 0},
 )
 def test_get_dashboard_data_returns_expected_keys(
     mock_index: object, mock_collections: object
@@ -87,7 +88,8 @@ def test_load_marker_stat_oserror_returns_false(tmp_path: Path) -> None:
         patch("onec_help.runtime.dashboard_data.read_last_ingest_failed", return_value=[]),
         patch("onec_help.runtime.dashboard_data.read_last_snippets_run", return_value=None),
         patch(
-            "onec_help.runtime.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0}
+            "onec_help.runtime.dashboard_data.get_mcp_metrics",
+            return_value={"total": 0, "last_hour": 0},
         ),
     ):
         data = get_dashboard_data()
@@ -134,14 +136,17 @@ def test_load_marker_exists_not_stale_loading(tmp_path: Path) -> None:
         patch("onec_help.runtime.dashboard_data.read_last_ingest_failed", return_value=[]),
         patch("onec_help.runtime.dashboard_data.read_last_snippets_run", return_value=None),
         patch(
-            "onec_help.runtime.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0}
+            "onec_help.runtime.dashboard_data.get_mcp_metrics",
+            return_value={"total": 0, "last_hour": 0},
         ),
     ):
         data = get_dashboard_data()
     assert data["standards_loading"] is True
 
 
-@patch("onec_help.runtime.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0})
+@patch(
+    "onec_help.runtime.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0}
+)
 @patch("onec_help.runtime.dashboard_data.read_last_snippets_run", return_value=None)
 @patch("onec_help.runtime.dashboard_data.read_last_ingest_failed", return_value=[])
 @patch("onec_help.runtime.dashboard_data.read_ingest_status", return_value=None)
@@ -175,7 +180,9 @@ def test_get_dashboard_data_fallback_ingest_failed_log(
     assert data["failed_tasks"][0]["error"] == "7z failed"
 
 
-@patch("onec_help.runtime.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0})
+@patch(
+    "onec_help.runtime.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0}
+)
 @patch("onec_help.runtime.dashboard_data.read_last_snippets_run", return_value=None)
 @patch("onec_help.runtime.dashboard_data.read_last_ingest_failed", return_value=[])
 @patch("onec_help.runtime.dashboard_data.read_ingest_status", return_value=None)
@@ -203,7 +210,9 @@ def test_load_marker_exists_returns_false_when_cache_path_raises(
     assert data["snippets_loading"] is False
 
 
-@patch("onec_help.runtime.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0})
+@patch(
+    "onec_help.runtime.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0}
+)
 @patch("onec_help.runtime.dashboard_data.read_last_snippets_run", return_value=None)
 @patch("onec_help.runtime.dashboard_data.read_last_ingest_failed", return_value=[])
 @patch("onec_help.runtime.dashboard_data.read_ingest_status", return_value=None)
@@ -236,7 +245,9 @@ def test_read_load_status_none_when_status_file_not_dict_or_no_loaded_total(
     assert data["standards_loading_pts"] is None
 
 
-@patch("onec_help.runtime.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0})
+@patch(
+    "onec_help.runtime.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0}
+)
 @patch("onec_help.runtime.dashboard_data.read_last_snippets_run", return_value=None)
 @patch("onec_help.runtime.dashboard_data.read_last_ingest_failed", return_value=[])
 @patch("onec_help.runtime.dashboard_data.read_ingest_status", return_value=None)
@@ -270,7 +281,9 @@ def test_storage_path_mb_from_env(
     assert data["storage_path_mb"] == 2.0
 
 
-@patch("onec_help.runtime.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0})
+@patch(
+    "onec_help.runtime.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0}
+)
 @patch("onec_help.runtime.dashboard_data.read_last_snippets_run", return_value=None)
 @patch("onec_help.runtime.dashboard_data.read_last_ingest_failed", return_value=[])
 @patch("onec_help.runtime.dashboard_data.read_ingest_status", return_value=None)
@@ -306,7 +319,8 @@ def test_read_load_status_with_phase(
         patch("onec_help.runtime.dashboard_data.read_last_ingest_failed", return_value=[]),
         patch("onec_help.runtime.dashboard_data.read_last_snippets_run", return_value=None),
         patch(
-            "onec_help.runtime.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0}
+            "onec_help.runtime.dashboard_data.get_mcp_metrics",
+            return_value={"total": 0, "last_hour": 0},
         ),
     ):
         data = get_dashboard_data()
@@ -314,7 +328,9 @@ def test_read_load_status_with_phase(
     assert data["standards_loading_pts"] == {"loaded": 10, "total": 100, "phase": "embedding"}
 
 
-@patch("onec_help.runtime.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0})
+@patch(
+    "onec_help.runtime.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0}
+)
 @patch("onec_help.runtime.dashboard_data.read_last_snippets_run", return_value=None)
 @patch("onec_help.runtime.dashboard_data.read_last_ingest_failed", return_value=[])
 @patch("onec_help.runtime.dashboard_data.read_ingest_status", return_value=None)
@@ -348,7 +364,8 @@ def test_read_load_status_invalid_json_returns_none(
         patch("onec_help.runtime.dashboard_data.read_last_ingest_failed", return_value=[]),
         patch("onec_help.runtime.dashboard_data.read_last_snippets_run", return_value=None),
         patch(
-            "onec_help.runtime.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0}
+            "onec_help.runtime.dashboard_data.get_mcp_metrics",
+            return_value={"total": 0, "last_hour": 0},
         ),
     ):
         data = get_dashboard_data()
@@ -356,7 +373,9 @@ def test_read_load_status_invalid_json_returns_none(
     assert data["snippets_loading_pts"] is None
 
 
-@patch("onec_help.runtime.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0})
+@patch(
+    "onec_help.runtime.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0}
+)
 @patch("onec_help.runtime.dashboard_data.read_last_snippets_run", return_value=None)
 @patch("onec_help.runtime.dashboard_data.read_last_ingest_failed", return_value=[])
 @patch("onec_help.runtime.dashboard_data.read_ingest_status", return_value=None)
@@ -381,7 +400,9 @@ def test_read_last_standards_run_exception_returns_none(
     assert data["standards_last_run"] is None
 
 
-@patch("onec_help.runtime.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0})
+@patch(
+    "onec_help.runtime.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0}
+)
 @patch("onec_help.runtime.dashboard_data.read_last_snippets_run", return_value=None)
 @patch("onec_help.runtime.dashboard_data.read_last_ingest_failed", return_value=[])
 @patch("onec_help.runtime.dashboard_data.read_ingest_status", return_value=None)
@@ -417,13 +438,18 @@ def test_bm25_vocab_stats_skips_bad_file(
     assert data["bm25_vocab"] == {}
 
 
-@patch("onec_help.runtime.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0})
+@patch(
+    "onec_help.runtime.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0}
+)
 @patch("onec_help.runtime.dashboard_data.read_last_snippets_run", return_value=None)
 @patch("onec_help.runtime.dashboard_data.read_last_ingest_failed", return_value=[])
 @patch("onec_help.runtime.dashboard_data.read_ingest_status", return_value=None)
 @patch("onec_help.runtime.dashboard_data.read_last_ingest_run", return_value=None)
 @patch("onec_help.runtime.dashboard_data.get_index_status", return_value={"exists": True})
-@patch("onec_help.runtime.dashboard_data.get_all_collections_status", return_value=[{"name": "missing"}])
+@patch(
+    "onec_help.runtime.dashboard_data.get_all_collections_status",
+    return_value=[{"name": "missing"}],
+)
 def test_bm25_vocab_stats_skips_missing_file(
     mock_collections,
     mock_index,
@@ -452,7 +478,9 @@ def test_bm25_vocab_stats_skips_missing_file(
     assert data["bm25_vocab"] == {}
 
 
-@patch("onec_help.runtime.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0})
+@patch(
+    "onec_help.runtime.dashboard_data.get_mcp_metrics", return_value={"total": 0, "last_hour": 0}
+)
 @patch("onec_help.runtime.dashboard_data.read_last_snippets_run", return_value=None)
 @patch("onec_help.runtime.dashboard_data.read_last_ingest_failed", return_value=[])
 @patch("onec_help.runtime.dashboard_data.read_ingest_status", return_value=None)

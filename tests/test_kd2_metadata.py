@@ -129,9 +129,9 @@ def test_merge_kd2_crawls_merges_multiple_files(tmp_path: Path) -> None:
     xml_two = tmp_path / "two.xml"
     xml_one.write_text(KD2_XML.replace("3.0.1.1", "3.0.1.1"), encoding="utf-8")
     xml_two.write_text(
-        KD2_XML.replace("ТестоваяКонфигурация", "ВтораяКонфигурация").replace("3.0.1.1", "5.0.0.2").replace(
-            "РеализацияТоваровУслуг", "ЗаказПокупателя"
-        ),
+        KD2_XML.replace("ТестоваяКонфигурация", "ВтораяКонфигурация")
+        .replace("3.0.1.1", "5.0.0.2")
+        .replace("РеализацияТоваровУслуг", "ЗаказПокупателя"),
         encoding="utf-8",
     )
 

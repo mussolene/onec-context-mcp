@@ -76,16 +76,16 @@ def _is_kd2_xml(path: Path) -> bool:
 
 def is_kd2_snapshot_dir(path: Path) -> bool:
     return (
-        path.is_dir()
-        and (path / "manifest.json").is_file()
-        and (path / "objects.jsonl").is_file()
+        path.is_dir() and (path / "manifest.json").is_file() and (path / "objects.jsonl").is_file()
     )
 
 
 def is_kd2_snapshot_root(path: Path) -> bool:
     snapshots_dir = path / "snapshots"
-    return path.is_dir() and snapshots_dir.is_dir() and any(
-        is_kd2_snapshot_dir(child) for child in snapshots_dir.iterdir() if child.is_dir()
+    return (
+        path.is_dir()
+        and snapshots_dir.is_dir()
+        and any(is_kd2_snapshot_dir(child) for child in snapshots_dir.iterdir() if child.is_dir())
     )
 
 
@@ -354,7 +354,8 @@ def crawl_kd2_xml(path: str | Path) -> CrawlResult:
                 "name": _normalize_object_name(record),
                 "synonym": record.get("Синоним", "").strip(),
                 "comment": record.get("Комментарий", "").strip(),
-                "predefined": record.get("Предопределенное", "").strip().lower() in {"true", "1", "yes"},
+                "predefined": record.get("Предопределенное", "").strip().lower()
+                in {"true", "1", "yes"},
             }
             if owner_ref:
                 values_by_owner[owner_ref].append(entry)
@@ -386,9 +387,10 @@ def write_kd2_snapshot(crawl: CrawlResult, output_dir: str | Path) -> dict[str, 
     manifest_path = out / "manifest.json"
 
     field_count = 0
-    with objects_path.open("w", encoding="utf-8") as objects_fp, fields_path.open(
-        "w", encoding="utf-8"
-    ) as fields_fp:
+    with (
+        objects_path.open("w", encoding="utf-8") as objects_fp,
+        fields_path.open("w", encoding="utf-8") as fields_fp,
+    ):
         for obj in crawl.objects:
             payload = {
                 "id": obj.id,

@@ -1297,7 +1297,10 @@ def test_search_index_keyword_empty_query_returns_empty(mock_client: MagicMock) 
     assert search_index_keyword("   ", qdrant_host="localhost", qdrant_port=6333) == []
 
 
-@patch("onec_help.search_store.sparse_bm25.query_vector", return_value={"indices": [1], "values": [1.0]})
+@patch(
+    "onec_help.search_store.sparse_bm25.query_vector",
+    return_value={"indices": [1], "values": [1.0]},
+)
 @patch("onec_help.search_store.sparse_bm25.load_vocab", return_value=({"word": 0}, {0: 1}, 1))
 @patch("onec_help.search_store.sparse_bm25.bm25_vocab_path", return_value=MagicMock(exists=True))
 @patch("onec_help.search_store.indexer._collection_has_sparse", return_value=True)

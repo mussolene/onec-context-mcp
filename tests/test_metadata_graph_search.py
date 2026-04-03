@@ -40,9 +40,16 @@ def test_search_metadata_substring_prefers_exact_then_startswith() -> None:
     client = _DummyClient(
         [
             [
-                _point("1", object_type="Document", name="SalesOrder", full_name="Документ.ЗаказПокупателя"),
+                _point(
+                    "1",
+                    object_type="Document",
+                    name="SalesOrder",
+                    full_name="Документ.ЗаказПокупателя",
+                ),
                 _point("2", object_type="Document", name="Sales", full_name="Document.Sales"),
-                _point("3", object_type="Document", name="MySalesArchive", full_name="ArchiveSales"),
+                _point(
+                    "3", object_type="Document", name="MySalesArchive", full_name="ArchiveSales"
+                ),
             ]
         ]
     )
@@ -60,17 +67,19 @@ def test_search_metadata_substring_prefers_exact_then_startswith() -> None:
 
 def test_search_metadata_exact_matches_name_without_broad_scan() -> None:
     client = _DummyClient(
-        [[
-            _point(
-                "Catalog/Items",
-                config_version="3.0.184.16",
-                object_type="Catalog",
-                id="Catalog/Items",
-                name="Items",
-                full_name="Номенклатура",
-                path="Catalogs/Items",
-            )
-        ]]
+        [
+            [
+                _point(
+                    "Catalog/Items",
+                    config_version="3.0.184.16",
+                    object_type="Catalog",
+                    id="Catalog/Items",
+                    name="Items",
+                    full_name="Номенклатура",
+                    path="Catalogs/Items",
+                )
+            ]
+        ]
     )
     results = metadata_graph.search_metadata_exact(
         "Items",
@@ -85,26 +94,30 @@ def test_search_metadata_exact_matches_name_without_broad_scan() -> None:
 def test_search_metadata_fields_finds_requisite_in_exact_object() -> None:
     class _FieldsClient(_DummyClient):
         def __init__(self):
-            super().__init__([[
-                _point(
-                    "Document/РеализацияТоваровУслуг",
-                    config_version="3.0.184.16",
-                    object_type="Document",
-                    id="Document/РеализацияТоваровУслуг",
-                    name="РеализацияТоваровУслуг",
-                    full_name="Документ.РеализацияТоваровУслуг",
-                    path="Documents/РеализацияТоваровУслуг",
-                    attributes={
-                        "requisites": [
-                            {
-                                "name": "Организация",
-                                "synonym": "Организация",
-                                "type": "cfg:CatalogRef.Организации",
-                            }
-                        ]
-                    },
-                )
-            ]])
+            super().__init__(
+                [
+                    [
+                        _point(
+                            "Document/РеализацияТоваровУслуг",
+                            config_version="3.0.184.16",
+                            object_type="Document",
+                            id="Document/РеализацияТоваровУслуг",
+                            name="РеализацияТоваровУслуг",
+                            full_name="Документ.РеализацияТоваровУслуг",
+                            path="Documents/РеализацияТоваровУслуг",
+                            attributes={
+                                "requisites": [
+                                    {
+                                        "name": "Организация",
+                                        "synonym": "Организация",
+                                        "type": "cfg:CatalogRef.Организации",
+                                    }
+                                ]
+                            },
+                        )
+                    ]
+                ]
+            )
 
     results = metadata_graph.search_metadata_fields(
         "РеализацияТоваровУслуг",

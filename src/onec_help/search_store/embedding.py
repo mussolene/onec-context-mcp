@@ -46,6 +46,7 @@ def _get_http_client() -> Any:
                 )
     return _http_client
 
+
 from ..shared import env_config as _env_config  # noqa: E402
 
 
@@ -749,9 +750,7 @@ def _get_embedding_api_batch_parallel(
         return results
     batch_results: list[list[list[float]]] = [None] * len(batches)  # type: ignore[list-item]
     with ThreadPoolExecutor(max_workers=min(workers, len(batches))) as executor:
-        future_to_idx = {
-            executor.submit(_call_and_report, b): i for i, b in enumerate(batches)
-        }
+        future_to_idx = {executor.submit(_call_and_report, b): i for i, b in enumerate(batches)}
         for future in as_completed(future_to_idx):
             idx = future_to_idx[future]
             batch_results[idx] = future.result()
@@ -830,7 +829,9 @@ def get_embedding_batch(
         out = [_get_embedding_deterministic(t) for t in texts]
         if target_dimension is not None:
             out = [
-                vec if len(vec) == target_dimension else _get_embedding_placeholder(text, target_dimension)
+                vec
+                if len(vec) == target_dimension
+                else _get_embedding_placeholder(text, target_dimension)
                 for text, vec in zip(texts, out, strict=True)
             ]
         _report(total_count, total_count)
@@ -845,7 +846,9 @@ def get_embedding_batch(
             result = [list(cached[i]) for i in range(len(texts))]
             if target_dimension is not None:
                 return [
-                    vec if len(vec) == target_dimension else _get_embedding_placeholder(text, target_dimension)
+                    vec
+                    if len(vec) == target_dimension
+                    else _get_embedding_placeholder(text, target_dimension)
                     for text, vec in zip(texts, result, strict=True)
                 ]
             return result
@@ -859,7 +862,9 @@ def get_embedding_batch(
 
     if _EMBEDDING_BACKEND == "openai_api":
         uncached_vecs = _get_embedding_api_batch_parallel(
-            uncached_texts, size, w,
+            uncached_texts,
+            size,
+            w,
             on_batch_done=lambda done, total: _report(done, total),
         )
         _report(embed_total, embed_total)
@@ -883,13 +888,17 @@ def get_embedding_batch(
                 j += 1
         if target_dimension is not None:
             return [
-                vec if len(vec) == target_dimension else _get_embedding_placeholder(text, target_dimension)
+                vec
+                if len(vec) == target_dimension
+                else _get_embedding_placeholder(text, target_dimension)
                 for text, vec in zip(texts, result, strict=True)
             ]
         return result
     if target_dimension is not None:
         return [
-            vec if len(vec) == target_dimension else _get_embedding_placeholder(text, target_dimension)
+            vec
+            if len(vec) == target_dimension
+            else _get_embedding_placeholder(text, target_dimension)
             for text, vec in zip(texts, uncached_vecs, strict=True)
         ]
     return uncached_vecs

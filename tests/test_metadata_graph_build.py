@@ -9,12 +9,22 @@ class FakeQdrantClient:
     # Minimal subset of QdrantClient API we rely on
     def __init__(self) -> None:
         self.recreated: list[dict[str, Any]] = []
+        self.created: list[dict[str, Any]] = []
         self.upserts: list[dict[str, Any]] = []
         self.payload_indexes: list[dict[str, Any]] = []
         self._scroll_data: list[Any] = []
 
     def recreate_collection(self, collection_name: str, vectors_config: Any, **kwargs: Any) -> None:
         self.recreated.append(
+            {
+                "collection_name": collection_name,
+                "vectors_config": vectors_config,
+                "kwargs": kwargs,
+            }
+        )
+
+    def create_collection(self, collection_name: str, vectors_config: Any, **kwargs: Any) -> None:
+        self.created.append(
             {
                 "collection_name": collection_name,
                 "vectors_config": vectors_config,
@@ -145,7 +155,7 @@ def test_build_metadata_graph_from_crawl_no_bm25_single_vector() -> None:
     for p in points:
         v = getattr(p, "vector", None)
         assert isinstance(v, list), "vector should be list when use_bm25=False"
-    recreated = client.recreated[0]
+    recreated = client.created[0]
     assert "sparse_vectors_config" not in recreated.get("kwargs", {})
 
 
@@ -231,11 +241,13 @@ def test_get_metadata_config_summaries_returns_pairs() -> None:
             self.payload = payload
             self.id = pid
 
-    client.set_scroll_data([
-        P({"config_name": "MyCfg", "config_version": "1.0.0.1"}, 1),
-        P({"config_name": "MyCfg", "config_version": "1.0.0.1"}, 2),
-        P({"config_name": "OtherCfg", "config_version": "2.0.0.5"}, 3),
-    ])
+    client.set_scroll_data(
+        [
+            P({"config_name": "MyCfg", "config_version": "1.0.0.1"}, 1),
+            P({"config_name": "MyCfg", "config_version": "1.0.0.1"}, 2),
+            P({"config_name": "OtherCfg", "config_version": "2.0.0.5"}, 3),
+        ]
+    )
 
     summaries = metadata_graph.get_metadata_config_summaries(
         client=client, collection_name="onec_config_metadata"

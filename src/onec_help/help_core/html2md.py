@@ -305,7 +305,11 @@ def _v8sh_compact_prose(text: str) -> str:
     lines = [line.strip() for line in value.splitlines() if line.strip()]
     compact: list[str] = []
     for line in lines:
-        if compact and not compact[-1].endswith((".", ":", ";", "!", "?", ",")) and not line.startswith("-"):
+        if (
+            compact
+            and not compact[-1].endswith((".", ":", ";", "!", "?", ","))
+            and not line.startswith("-")
+        ):
             compact[-1] = f"{compact[-1]} {line}".strip()
         else:
             compact.append(line)
@@ -393,7 +397,9 @@ def extract_v8sh_sections(soup: BeautifulSoup) -> dict[str, str]:
     if params_chapter is not None:
         params_nodes = _iter_v8sh_chapter_nodes(params_chapter)
         rubric_params = _v8sh_rubric_params(params_nodes)
-        sections["params"] = "\n".join(rubric_params) if rubric_params else _v8sh_nodes_text(params_nodes)
+        sections["params"] = (
+            "\n".join(rubric_params) if rubric_params else _v8sh_nodes_text(params_nodes)
+        )
 
     example_chapter = _find_v8sh_chapter(soup, "Пример")
     if example_chapter is not None:
@@ -432,7 +438,11 @@ def extract_v8sh_sections(soup: BeautifulSoup) -> dict[str, str]:
                     text = link.get_text(strip=True)
                     if text:
                         names.append(text)
-        sections["see_also"] = "\n".join(names) if names else _v8sh_nodes_text(_iter_v8sh_chapter_nodes(see_also_chapter))
+        sections["see_also"] = (
+            "\n".join(names)
+            if names
+            else _v8sh_nodes_text(_iter_v8sh_chapter_nodes(see_also_chapter))
+        )
 
     version_heading = None
     for tag in soup.find_all(class_="V8SH_chapter"):

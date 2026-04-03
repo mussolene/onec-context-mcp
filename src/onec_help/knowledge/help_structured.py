@@ -56,7 +56,14 @@ _GENERIC_BREADCRUMB = {
 }
 _CODE_BLOCK_RE = re.compile(r"```(?:\w+)?\s*\n(.*?)```", re.DOTALL)
 _STRUCTURED_MEMBER_KINDS = {"method", "property", "event", "constructor", "function", "field"}
-_STRUCTURED_OBJECT_KINDS = {"type", "manager", "global_context", "metadata_object", "collection", "enum"}
+_STRUCTURED_OBJECT_KINDS = {
+    "type",
+    "manager",
+    "global_context",
+    "metadata_object",
+    "collection",
+    "enum",
+}
 _INLINE_SECTION_LABELS = {
     "Синтаксис:": "syntax",
     "Поля:": "fields",
@@ -70,10 +77,7 @@ _INLINE_SECTION_LABELS = {
     "Использование в версии:": "availability",
 }
 _INLINE_SECTION_RE = re.compile(
-    "|".join(
-        re.escape(label)
-        for label in sorted(_INLINE_SECTION_LABELS, key=len, reverse=True)
-    )
+    "|".join(re.escape(label) for label in sorted(_INLINE_SECTION_LABELS, key=len, reverse=True))
 )
 
 
@@ -90,7 +94,9 @@ def _topic_point_id(path: str, version: str = "", language: str = "") -> int:
 
 
 def _normalize_text(value: str) -> str:
-    return "\n".join(line.rstrip() for line in (value or "").replace("\r\n", "\n").splitlines()).strip()
+    return "\n".join(
+        line.rstrip() for line in (value or "").replace("\r\n", "\n").splitlines()
+    ).strip()
 
 
 def _compact_summary(value: str, max_chars: int = 500) -> str:
@@ -193,7 +199,9 @@ def _has_structured_api_sections(sections: dict[str, str]) -> bool:
     return any(sections.get(key) for key in ("syntax", "params", "returns", "availability"))
 
 
-def _should_index_object_topic(topic_path: str, title: str, sections: dict[str, str], kind: str) -> bool:
+def _should_index_object_topic(
+    topic_path: str, title: str, sections: dict[str, str], kind: str
+) -> bool:
     if kind in _STRUCTURED_OBJECT_KINDS:
         return True
     if kind in {"table", "query_topic", "language_topic"}:
@@ -240,7 +248,11 @@ def _split_markdown_sections(text: str) -> tuple[str, str, dict[str, str]]:
         elif title:
             intro.append(line)
     intro_text = _normalize_text("\n".join(intro))
-    return title, intro_text, {key: _normalize_text("\n".join(value)) for key, value in sections.items()}
+    return (
+        title,
+        intro_text,
+        {key: _normalize_text("\n".join(value)) for key, value in sections.items()},
+    )
 
 
 def _parse_param_lines(text: str) -> list[dict[str, str]]:
@@ -483,13 +495,18 @@ def _build_structured_records(
     path: str,
     entity_type: str,
     breadcrumb: list[str],
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None, list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[
+    dict[str, Any] | None, dict[str, Any] | None, list[dict[str, Any]], list[dict[str, Any]]
+]:
     """Build object/member/example/link records from normalized extracted sections."""
     title = title or payload_title or path
     member_kind = _infer_member_kind(path, title, entity_type)
     object_kind = _infer_object_kind(path, title)
-    if member_kind == "topic" and "." in _strip_title_suffix(title) and "/tables/" not in path.replace("\\", "/").lower() and (
-        sections.get("syntax") or sections.get("params") or sections.get("returns")
+    if (
+        member_kind == "topic"
+        and "." in _strip_title_suffix(title)
+        and "/tables/" not in path.replace("\\", "/").lower()
+        and (sections.get("syntax") or sections.get("params") or sections.get("returns"))
     ):
         member_kind = "method"
     if not sections:
@@ -500,11 +517,15 @@ def _build_structured_records(
     notes = _clean_note(sections.get("note", ""))
     restrictions = _extract_restrictions(sections.get("availability", ""), notes)
     source_sections = {
-        key: _normalize_text(value)
-        for key, value in sections.items()
-        if _normalize_text(value)
+        key: _normalize_text(value) for key, value in sections.items() if _normalize_text(value)
     }
-    summary_source = sections.get("description") or intro or sections.get("returns") or sections.get("syntax") or title
+    summary_source = (
+        sections.get("description")
+        or intro
+        or sections.get("returns")
+        or sections.get("syntax")
+        or title
+    )
     summary = _compact_summary(summary_source, 500)
     see_also = _extract_see_also(sections.get("see_also", ""))
 
@@ -514,7 +535,11 @@ def _build_structured_records(
     if member_kind in _STRUCTURED_MEMBER_KINDS:
         full_name = _normalize_api_name(title, member_kind, breadcrumb)
         owner_name, member_name = _split_full_name(full_name)
-        owner_kind = _infer_object_kind(path.rsplit("/", 2)[0] if "/" in path else path, owner_name) if owner_name else "type"
+        owner_kind = (
+            _infer_object_kind(path.rsplit("/", 2)[0] if "/" in path else path, owner_name)
+            if owner_name
+            else "type"
+        )
         member_record = {
             "id": _topic_point_id(path, version, language),
             "owner_name": owner_name,
@@ -548,9 +573,13 @@ def _build_structured_records(
                 owner_kind=owner_kind if owner_kind in _STRUCTURED_OBJECT_KINDS else "type",
             )
         if member_kind == "property" and not member_record["returns"]:
-            member_record["returns"] = _returns_from_description(sections.get("description", "")) or _returns_from_description(summary)
+            member_record["returns"] = _returns_from_description(
+                sections.get("description", "")
+            ) or _returns_from_description(summary)
         if member_kind == "field" and not member_record["returns"]:
-            member_record["returns"] = _returns_from_description(sections.get("description", "")) or _returns_from_description(summary)
+            member_record["returns"] = _returns_from_description(
+                sections.get("description", "")
+            ) or _returns_from_description(summary)
         if member_kind == "property" and not member_record["syntax"]:
             member_record["syntax"] = full_name
             member_record["source_sections"] = {
@@ -573,7 +602,10 @@ def _build_structured_records(
             "id": _topic_point_id(path, version, language),
             "object_name": full_name,
             "full_name": full_name,
-            "kind": object_kind if object_kind in (_STRUCTURED_OBJECT_KINDS | {"table", "query_topic", "language_topic"}) else "type",
+            "kind": object_kind
+            if object_kind
+            in (_STRUCTURED_OBJECT_KINDS | {"table", "query_topic", "language_topic"})
+            else "type",
             "title": title,
             "summary": summary,
             "description": description,
@@ -638,7 +670,9 @@ def _build_structured_records(
 
 def extract_structured_records_from_topic(
     topic: dict[str, Any],
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None, list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[
+    dict[str, Any] | None, dict[str, Any] | None, list[dict[str, Any]], list[dict[str, Any]]
+]:
     """Extract structured object/member records, official examples and related links from indexed topic payload."""
     text = _normalize_text(str(topic.get("text") or ""))
     payload_title = str(topic.get("title") or "").strip()
@@ -668,7 +702,9 @@ def extract_structured_records_from_html_topic(
     title: str = "",
     breadcrumb: list[str] | None = None,
     entity_type: str = "topic",
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None, list[dict[str, Any]], list[dict[str, Any]]]:
+) -> tuple[
+    dict[str, Any] | None, dict[str, Any] | None, list[dict[str, Any]], list[dict[str, Any]]
+]:
     """Extract structured records directly from unpacked HTML help article."""
     raw_html = _read_html_file(html_path)
     if not raw_html.strip():
@@ -734,7 +770,9 @@ def extract_structured_records_from_html_topic(
     )
 
 
-def extract_api_records_from_topic(topic: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def extract_api_records_from_topic(
+    topic: dict[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Backward-compatible wrapper that returns member record + examples for API topics."""
     object_record, member_record, examples, _links = extract_structured_records_from_topic(topic)
     if member_record is not None:
@@ -787,7 +825,11 @@ def extract_api_records_from_topic(topic: dict[str, Any]) -> tuple[dict[str, Any
         )
     return (
         {
-            "id": _topic_point_id(str(topic.get("path") or ""), str(topic.get("version") or ""), str(topic.get("language") or "")),
+            "id": _topic_point_id(
+                str(topic.get("path") or ""),
+                str(topic.get("version") or ""),
+                str(topic.get("language") or ""),
+            ),
             "name": _strip_title_suffix(str(topic.get("title") or "")),
             "kind": "topic",
             "title": str(topic.get("title") or ""),
@@ -855,7 +897,9 @@ def iter_help_topics_from_index(
                 "breadcrumb": payload.get("breadcrumb") or [],
             }
             prev = by_path.get(path)
-            if prev is None or _version_sort_key(str(current["version"])) > _version_sort_key(str(prev["version"])):
+            if prev is None or _version_sort_key(str(current["version"])) > _version_sort_key(
+                str(prev["version"])
+            ):
                 by_path[path] = current
         if next_offset is None:
             break
@@ -869,16 +913,18 @@ def _write_jsonl(path: Path, items: list[dict[str, Any]]) -> None:
             fh.write(json.dumps(item, ensure_ascii=False) + "\n")
 
 
-def iter_help_topics_from_unpacked(
-    *, unpacked_dir: Path | None = None
-) -> list[dict[str, Any]]:
+def iter_help_topics_from_unpacked(*, unpacked_dir: Path | None = None) -> list[dict[str, Any]]:
     """Read unpacked HTML help articles with TOC metadata from data/unpacked."""
     base = (unpacked_dir or Path(env_config.get_data_unpacked_dir())).expanduser().resolve()
     if not base.exists():
         return []
     topics: list[dict[str, Any]] = []
-    for version_dir in sorted(p for p in base.iterdir() if p.is_dir() and not p.name.startswith(".")):
-        for stem_dir in sorted(p for p in version_dir.iterdir() if p.is_dir() and not p.name.startswith(".")):
+    for version_dir in sorted(
+        p for p in base.iterdir() if p.is_dir() and not p.name.startswith(".")
+    ):
+        for stem_dir in sorted(
+            p for p in version_dir.iterdir() if p.is_dir() and not p.name.startswith(".")
+        ):
             info_path = stem_dir / ".hbk_info.json"
             toc_path = stem_dir / ".toc.json"
             info: dict[str, Any] = {}
@@ -914,7 +960,9 @@ def iter_help_topics_from_unpacked(
                     {
                         "html_path": html_path,
                         "path": full_path,
-                        "title": str(toc_item.get("title_ru") or toc_item.get("title_en") or html_path.stem),
+                        "title": str(
+                            toc_item.get("title_ru") or toc_item.get("title_en") or html_path.stem
+                        ),
                         "version": version,
                         "language": language,
                         "entity_type": str(toc_item.get("entity_type") or "topic"),
@@ -941,7 +989,9 @@ def build_structured_api_snapshot(
     out_dir.mkdir(parents=True, exist_ok=True)
     html_topics = iter_help_topics_from_unpacked(unpacked_dir=unpacked_dir)
     if not html_topics:
-        source_base = (unpacked_dir or Path(env_config.get_data_unpacked_dir())).expanduser().resolve()
+        source_base = (
+            (unpacked_dir or Path(env_config.get_data_unpacked_dir())).expanduser().resolve()
+        )
         raise RuntimeError(
             f"No unpacked HTML help topics found in {source_base}. "
             "Run ingest or unpack .hbk before build-api-structured."
@@ -953,14 +1003,16 @@ def build_structured_api_snapshot(
     links: list[dict[str, Any]] = []
 
     for topic in html_topics:
-        object_record, member_record, topic_examples, topic_links = extract_structured_records_from_html_topic(
-            Path(topic["html_path"]),
-            version=str(topic.get("version") or ""),
-            language=str(topic.get("language") or ""),
-            topic_path=str(topic.get("path") or ""),
-            title=str(topic.get("title") or ""),
-            breadcrumb=list(topic.get("breadcrumb") or []),
-            entity_type=str(topic.get("entity_type") or "topic"),
+        object_record, member_record, topic_examples, topic_links = (
+            extract_structured_records_from_html_topic(
+                Path(topic["html_path"]),
+                version=str(topic.get("version") or ""),
+                language=str(topic.get("language") or ""),
+                topic_path=str(topic.get("path") or ""),
+                title=str(topic.get("title") or ""),
+                breadcrumb=list(topic.get("breadcrumb") or []),
+                entity_type=str(topic.get("entity_type") or "topic"),
+            )
         )
         if object_record is not None:
             topic_path = str(object_record.get("topic_path") or "")
@@ -995,7 +1047,12 @@ def build_structured_api_snapshot(
     )
     members.sort(key=lambda item: str(item.get("full_name") or ""))
     examples.sort(key=lambda item: str(item.get("full_name") or ""))
-    links.sort(key=lambda item: (str(item.get("source_full_name") or ""), str(item.get("target_name") or "")))
+    links.sort(
+        key=lambda item: (
+            str(item.get("source_full_name") or ""),
+            str(item.get("target_name") or ""),
+        )
+    )
 
     _write_jsonl(out_dir / API_OBJECTS_FILE, object_items)
     _write_jsonl(out_dir / API_MEMBERS_FILE, members)
@@ -1010,8 +1067,9 @@ def build_structured_api_snapshot(
         "links": len(links),
         "source": "unpacked_html",
         "source_collection": "",
-        "source_unpacked_dir": str((unpacked_dir or Path(env_config.get_data_unpacked_dir())).expanduser().resolve())
-        ,
+        "source_unpacked_dir": str(
+            (unpacked_dir or Path(env_config.get_data_unpacked_dir())).expanduser().resolve()
+        ),
     }
     (out_dir / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2),
@@ -1067,7 +1125,8 @@ def index_structured_help_snapshot(
     # Run all four collection indexing tasks in parallel.
     # Progress tracking via _on_collection_progress works correctly with concurrent access
     # because it uses inserted_by_collection (updated under its own internal lock from the GIL).
-    from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
+    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import as_completed as _as_completed
 
     _collection_tasks = [
         (
@@ -1098,7 +1157,9 @@ def index_structured_help_snapshot(
                 collection=col,
                 recreate=recreate,
                 batch_size=batch_size,
-                progress_callback=lambda loaded, total, _col=col: _on_collection_progress(_col, loaded, total),
+                progress_callback=lambda loaded, total, _col=col: _on_collection_progress(
+                    _col, loaded, total
+                ),
             ): col
             for col, fn in _collection_tasks
         }
@@ -1275,12 +1336,16 @@ def _index_records(
     client = _make_client()
     dim = 1
     if use_dense:
-        existing_dim = None if recreate else get_collection_vector_size(collection=collection, qdrant_host=host, qdrant_port=port)
+        existing_dim = (
+            None
+            if recreate
+            else get_collection_vector_size(
+                collection=collection, qdrant_host=host, qdrant_port=port
+            )
+        )
         dim = existing_dim or embedding.get_embedding_dimension()
     if recreate:
-        if client.collection_exists(collection):
-            client.delete_collection(collection_name=collection)
-        client.create_collection(
+        client.recreate_collection(
             collection_name=collection,
             vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
         )
@@ -1304,7 +1369,14 @@ def _index_records(
         for item, payload, vector in zip(batch, payloads, vectors, strict=True):
             points.append(
                 PointStruct(
-                    id=int(item.get("id") or _topic_point_id(payload.get("path", ""), payload.get("version", ""), payload.get("language", ""))),
+                    id=int(
+                        item.get("id")
+                        or _topic_point_id(
+                            payload.get("path", ""),
+                            payload.get("version", ""),
+                            payload.get("language", ""),
+                        )
+                    ),
                     vector=vector,
                     payload=payload,
                 )
@@ -1566,7 +1638,11 @@ def search_official_examples(
         )
         if results:
             return results
-    items = load_api_examples(snapshot_dir) if snapshot_dir is not None else _scroll_payloads(API_EXAMPLES_COLLECTION_NAME)
+    items = (
+        load_api_examples(snapshot_dir)
+        if snapshot_dir is not None
+        else _scroll_payloads(API_EXAMPLES_COLLECTION_NAME)
+    )
     scored: list[tuple[int, dict[str, Any]]] = []
     for item in items:
         if version and str(item.get("version") or "") != version:
@@ -1576,7 +1652,13 @@ def search_official_examples(
         score = _score_text_match(query, item, ["full_name", "title", "description", "code"])
         if score > 0:
             scored.append((score, item))
-    scored.sort(key=lambda item: (-item[0], str(item[1].get("full_name") or ""), str(item[1].get("title") or "")))
+    scored.sort(
+        key=lambda item: (
+            -item[0],
+            str(item[1].get("full_name") or ""),
+            str(item[1].get("title") or ""),
+        )
+    )
     return [item for _, item in scored[:limit]]
 
 

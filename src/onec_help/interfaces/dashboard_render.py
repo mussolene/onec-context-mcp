@@ -226,7 +226,11 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 )
         metadata_loading_w = metadata_loading
         metadata_pts_w = metadata_pts
-        if metadata_loading_w and metadata_pts_w and metadata_pts_w.get("phase") not in ("parsing", None):
+        if (
+            metadata_loading_w
+            and metadata_pts_w
+            and metadata_pts_w.get("phase") not in ("parsing", None)
+        ):
             tot_m = metadata_pts_w.get("total") or 0
             if tot_m > 0:
                 phase_m = metadata_pts_w.get("phase") or "embedding"
@@ -418,7 +422,12 @@ def render_dashboard(data: dict[str, Any]) -> Any:
         tasks_parts.append(Text(f"\n  Active tasks: {len(active_workers)}\n"))
         tasks_parts.append(workers_table)
         current_tasks = (ingest or {}).get("current") or []
-        if ingest and ingest.get("status") == "in_progress" and current_tasks and len(current_tasks) > 10:
+        if (
+            ingest
+            and ingest.get("status") == "in_progress"
+            and current_tasks
+            and len(current_tasks) > 10
+        ):
             tasks_parts.append(Text(f"  … +{len(current_tasks) - 10} more\n"))
 
     tasks_content: Any = Group(*tasks_parts)

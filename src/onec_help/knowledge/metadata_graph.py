@@ -61,8 +61,8 @@ _OBJECT_TYPE_RU: dict[str, str] = {
     "DocumentJournal": "Журнал документов",
     "ScheduledJob": "Регламентное задание",
     "ChartOfCharacteristicTypes": "План видов характеристик",
-    "RegisterAccumulation": "Регистр накопления",   # old-style export alias
-    "RegisterInformation": "Регистр сведений",       # old-style export alias
+    "RegisterAccumulation": "Регистр накопления",  # old-style export alias
+    "RegisterInformation": "Регистр сведений",  # old-style export alias
 }
 
 # Префиксы типов из выгрузки (cfg:/xs:) → читаемое название по справке 1С (СправочникСсылка, Строка, Число и т.д.).
@@ -167,8 +167,14 @@ def format_requisite_type_display(
         if types_list:
             for t in types_list:
                 if t and isinstance(t, str):
-                    length = req.get("length") if "string" in t.lower() and isinstance(req.get("length"), int) else None
-                    inner.append(format_type_readable(t, length=length, append_raw_in_brackets=False))
+                    length = (
+                        req.get("length")
+                        if "string" in t.lower() and isinstance(req.get("length"), int)
+                        else None
+                    )
+                    inner.append(
+                        format_type_readable(t, length=length, append_raw_in_brackets=False)
+                    )
         if not inner and (req.get("type") or "").strip():
             length = req.get("length") if isinstance(req.get("length"), int) else None
             inner.append(
@@ -400,7 +406,8 @@ def _ensure_collection(
         _ensure_payload_indexes(client, collection_name, qmodels=qmodels)
         print(
             f"metadata-graph-build: collection {collection_name!r} exists, will upsert",
-            file=sys.stderr, flush=True,
+            file=sys.stderr,
+            flush=True,
         )
         return
 
@@ -409,7 +416,8 @@ def _ensure_collection(
             client.create_collection(**create_kw)
             print(
                 f"metadata-graph-build: collection {collection_name!r} created",
-                file=sys.stderr, flush=True,
+                file=sys.stderr,
+                flush=True,
             )
         except Exception as e:
             err = str(e).lower()
@@ -418,7 +426,8 @@ def _ensure_collection(
                 client.create_collection(**create_kw)
                 print(
                     f"metadata-graph-build: collection {collection_name!r} recreated",
-                    file=sys.stderr, flush=True,
+                    file=sys.stderr,
+                    flush=True,
                 )
             else:
                 raise
@@ -428,7 +437,8 @@ def _ensure_collection(
         client.create_collection(**create_kw)
         print(
             f"metadata-graph-build: collection {collection_name!r} recreated",
-            file=sys.stderr, flush=True,
+            file=sys.stderr,
+            flush=True,
         )
     _ensure_payload_indexes(client, collection_name, qmodels=qmodels)
 
@@ -506,7 +516,8 @@ def build_metadata_graph_from_crawl(
         if not batch_vectors:
             print(
                 f"metadata-graph-build: embedding returned 0 vectors at offset {batch_start}, skipping batch",
-                file=sys.stderr, flush=True,
+                file=sys.stderr,
+                flush=True,
             )
             continue
 
@@ -529,7 +540,8 @@ def build_metadata_graph_from_crawl(
         written += len(batch_points)
         print(
             f"metadata-graph-build: {written}/{total} → {collection_name}",
-            file=sys.stderr, flush=True,
+            file=sys.stderr,
+            flush=True,
         )
         if upsert_progress_callback:
             try:
