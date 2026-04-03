@@ -1482,8 +1482,6 @@ def _build_mcp_app(help_path: Path) -> Any:
 
     @mcp.tool()
     @_record_mcp_tool
-    @mcp.tool()
-    @_record_mcp_tool
     def save_1c_snippet(
         code_snippet: str,
         description: str = "",
@@ -1500,6 +1498,8 @@ def _build_mcp_app(help_path: Path) -> Any:
         cs, err = _truncate_if_needed(code_snippet or "", MAX_CODE_SNIPPET_CHARS, "code_snippet")
         if err:
             return err
+        if not (cs or "").strip():
+            return "Provide a non-empty code_snippet."
         try:
             from ..knowledge.memory import get_memory_store
             from ..shared import env_config
@@ -1739,6 +1739,8 @@ def _build_mcp_app(help_path: Path) -> Any:
         q, err = _truncate_if_needed(query or "", MAX_QUERY_CHARS, "query")
         if err:
             return err
+        if not q.strip():
+            return "Provide a non-empty query (object id, name, path, or synonym)."
         try:
             from ..knowledge.metadata_graph import search_metadata_exact
         except Exception as e:  # pragma: no cover - import/runtime guard
@@ -1772,6 +1774,8 @@ def _build_mcp_app(help_path: Path) -> Any:
         q, err = _truncate_if_needed(query or "", MAX_QUERY_CHARS, "query")
         if err:
             return err
+        if not q.strip():
+            return "Provide a non-empty natural-language query for metadata search."
         try:
             from ..knowledge.metadata_graph import search_metadata_semantic
         except Exception as e:  # pragma: no cover - import/runtime guard
@@ -2013,8 +2017,6 @@ def _build_mcp_app(help_path: Path) -> Any:
                     lines.append(f"\n**{k}:** {v}")
         return "\n".join(lines)
 
-    @mcp.tool()
-    @_record_mcp_tool
     @mcp.tool()
     @_record_mcp_tool
     def compare_1c_help(

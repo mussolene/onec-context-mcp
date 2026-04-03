@@ -1013,6 +1013,30 @@ def test_compare_1c_help_query_no_results_returns_not_found(
     assert "Topic not found" in out or "not found" in out
 
 
+def test_compare_1c_help_empty_topic_returns_prompt() -> None:
+    """Empty topic_path_or_query must not run open-ended search."""
+    out = compare_1c_help(
+        "   ",
+        version_left="8.3",
+        version_right="8.3.27",
+        qdrant_host="localhost",
+        qdrant_port=6333,
+    )
+    assert "Provide topic_path_or_query" in out
+    assert "Empty string" in out
+
+
+@patch(
+    "onec_help.search_store.indexer._compare_1c_help_impl",
+    side_effect=ConnectionRefusedError(),
+)
+def test_compare_1c_help_unreachable_returns_friendly_message(mock_impl: MagicMock) -> None:
+    out = compare_1c_help("Topic.md", "8.3", "8.3.27", qdrant_host="127.0.0.1", qdrant_port=6333)
+    assert "Qdrant" in out
+    assert "unreachable" in out.lower()
+    mock_impl.assert_called_once()
+
+
 @patch("onec_help.search_store.indexer.QdrantClient")
 def test_add_bm25_to_collection_not_exists(mock_client: MagicMock) -> None:
     """add_bm25_to_collection raises when collection does not exist."""

@@ -1592,29 +1592,36 @@ def _score_text_match(query: str, item: dict[str, Any], fields: list[str]) -> in
 def _scroll_payloads(collection: str) -> list[dict[str, Any]]:
     from qdrant_client import QdrantClient
 
+    from ..shared.qdrant_errors import is_qdrant_unreachable_error
+
     host = env_config.get_qdrant_host()
     port = env_config.get_qdrant_port()
-    client = QdrantClient(host=host, port=port, check_compatibility=False)
-    if not client.collection_exists(collection):
-        return []
-    offset = None
-    items: list[dict[str, Any]] = []
-    while True:
-        points, next_offset = client.scroll(
-            collection_name=collection,
-            limit=500,
-            offset=offset,
-            with_payload=True,
-            with_vectors=False,
-        )
-        if not points:
-            break
-        for point in points:
-            items.append(getattr(point, "payload", None) or {})
-        if next_offset is None:
-            break
-        offset = next_offset
-    return items
+    try:
+        client = QdrantClient(host=host, port=port, check_compatibility=False)
+        if not client.collection_exists(collection):
+            return []
+        offset = None
+        items: list[dict[str, Any]] = []
+        while True:
+            points, next_offset = client.scroll(
+                collection_name=collection,
+                limit=500,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+            if not points:
+                break
+            for point in points:
+                items.append(getattr(point, "payload", None) or {})
+            if next_offset is None:
+                break
+            offset = next_offset
+        return items
+    except Exception as exc:
+        if is_qdrant_unreachable_error(exc):
+            return []
+        raise
 
 
 def search_official_examples(
@@ -1769,46 +1776,53 @@ def get_api_member(
     """Exact-first lookup in structured API member collection."""
     from qdrant_client import QdrantClient
 
-    host = qdrant_host or env_config.get_qdrant_host()
-    port = qdrant_port or env_config.get_qdrant_port()
-    client = QdrantClient(host=host, port=port, check_compatibility=False)
-    if not client.collection_exists(API_MEMBERS_COLLECTION_NAME):
-        return []
+    from ..shared.qdrant_errors import is_qdrant_unreachable_error
+
     name_clean = (name or "").strip()
     if not name_clean:
         return []
-    results: list[dict[str, Any]] = []
+    host = qdrant_host or env_config.get_qdrant_host()
+    port = qdrant_port or env_config.get_qdrant_port()
     try:
-        for field in ("name", "full_name", "member_name"):
-            results.extend(
-                _scroll_exact_member_matches(
-                    client,
-                    field=field,
-                    value=name_clean,
-                    version=version,
-                    language=language,
+        client = QdrantClient(host=host, port=port, check_compatibility=False)
+        if not client.collection_exists(API_MEMBERS_COLLECTION_NAME):
+            return []
+        results: list[dict[str, Any]] = []
+        try:
+            for field in ("name", "full_name", "member_name"):
+                results.extend(
+                    _scroll_exact_member_matches(
+                        client,
+                        field=field,
+                        value=name_clean,
+                        version=version,
+                        language=language,
+                    )
                 )
-            )
-    except Exception:
-        results = []
-    if results:
-        dedup: dict[tuple[str, str, str], dict[str, Any]] = {}
-        for item in results:
-            key = (
-                str(item.get("full_name") or ""),
-                str(item.get("version") or ""),
-                str(item.get("topic_path") or ""),
-            )
-            dedup[key] = item
-        return sorted(dedup.values(), key=lambda item: _member_exact_sort_key(name_clean, item))
-    return search_api_members(
-        name_clean,
-        limit=10,
-        version=version,
-        language=language,
-        qdrant_host=host,
-        qdrant_port=port,
-    )
+        except Exception:
+            results = []
+        if results:
+            dedup: dict[tuple[str, str, str], dict[str, Any]] = {}
+            for item in results:
+                key = (
+                    str(item.get("full_name") or ""),
+                    str(item.get("version") or ""),
+                    str(item.get("topic_path") or ""),
+                )
+                dedup[key] = item
+            return sorted(dedup.values(), key=lambda item: _member_exact_sort_key(name_clean, item))
+        return search_api_members(
+            name_clean,
+            limit=10,
+            version=version,
+            language=language,
+            qdrant_host=host,
+            qdrant_port=port,
+        )
+    except Exception as exc:
+        if is_qdrant_unreachable_error(exc):
+            return []
+        raise
 
 
 def get_api_object(
@@ -1823,41 +1837,48 @@ def get_api_object(
     from qdrant_client import QdrantClient
     from qdrant_client.models import FieldCondition, Filter, MatchValue
 
-    host = qdrant_host or env_config.get_qdrant_host()
-    port = qdrant_port or env_config.get_qdrant_port()
-    client = QdrantClient(host=host, port=port, check_compatibility=False)
-    if not client.collection_exists(API_OBJECTS_COLLECTION_NAME):
-        return []
+    from ..shared.qdrant_errors import is_qdrant_unreachable_error
+
     name_clean = (name or "").strip()
     if not name_clean:
         return []
-    must = [FieldCondition(key="name", match=MatchValue(value=name_clean))]
-    if version:
-        must.append(FieldCondition(key="version", match=MatchValue(value=version)))
-    if language:
-        must.append(FieldCondition(key="language", match=MatchValue(value=language)))
-    results: list[dict[str, Any]] = []
+    host = qdrant_host or env_config.get_qdrant_host()
+    port = qdrant_port or env_config.get_qdrant_port()
     try:
-        points, _ = client.scroll(
-            collection_name=API_OBJECTS_COLLECTION_NAME,
-            scroll_filter=Filter(must=must),
+        client = QdrantClient(host=host, port=port, check_compatibility=False)
+        if not client.collection_exists(API_OBJECTS_COLLECTION_NAME):
+            return []
+        must = [FieldCondition(key="name", match=MatchValue(value=name_clean))]
+        if version:
+            must.append(FieldCondition(key="version", match=MatchValue(value=version)))
+        if language:
+            must.append(FieldCondition(key="language", match=MatchValue(value=language)))
+        results: list[dict[str, Any]] = []
+        try:
+            points, _ = client.scroll(
+                collection_name=API_OBJECTS_COLLECTION_NAME,
+                scroll_filter=Filter(must=must),
+                limit=10,
+                with_payload=True,
+                with_vectors=False,
+            )
+            results = [getattr(point, "payload", None) or {} for point in points or []]
+        except Exception:
+            results = []
+        if results:
+            return results
+        return search_api_objects(
+            name_clean,
             limit=10,
-            with_payload=True,
-            with_vectors=False,
+            version=version,
+            language=language,
+            qdrant_host=host,
+            qdrant_port=port,
         )
-        results = [getattr(point, "payload", None) or {} for point in points or []]
-    except Exception:
-        results = []
-    if results:
-        return results
-    return search_api_objects(
-        name_clean,
-        limit=10,
-        version=version,
-        language=language,
-        qdrant_host=host,
-        qdrant_port=port,
-    )
+    except Exception as exc:
+        if is_qdrant_unreachable_error(exc):
+            return []
+        raise
 
 
 def get_api_related(

@@ -1270,86 +1270,99 @@ def search_index(
     """Search Qdrant; return list of payloads with path, title, text snippet.
     version, language, entity_type: optional payload filters.
     full_payload=True: return full Qdrant payload (needed for structured API collections)."""
+    from ..shared.qdrant_errors import is_qdrant_unreachable_error
     from . import embedding
 
     host = qdrant_host or env_config.get_qdrant_host()
     port = qdrant_port or env_config.get_qdrant_port()
     if QdrantClient is None:
         return []
-    client = _get_default_qdrant_client(host, port)
-    coll_dim = get_collection_vector_size(collection=collection, qdrant_host=host, qdrant_port=port)
-    vector = embedding.get_embedding(
-        query, target_dimension=coll_dim if coll_dim is not None else None
-    )
-
-    must = []
-    if version and Filter and FieldCondition and MatchValue:
-        must.append(FieldCondition(key="version", match=MatchValue(value=version)))
-    if language and Filter and FieldCondition and MatchValue:
-        must.append(FieldCondition(key="language", match=MatchValue(value=language)))
-    if entity_type and Filter and FieldCondition and MatchValue:
-        must.append(FieldCondition(key="entity_type", match=MatchValue(value=entity_type)))
-    qfilter = Filter(must=must) if must and Filter else None
-
-    kwargs: dict[str, Any] = {"collection_name": collection, "limit": limit}
-    if hasattr(client, "query_points"):
-        kwargs["query"] = vector
-        if qfilter is not None:
-            kwargs["query_filter"] = qfilter
-        response = client.query_points(**kwargs)
-        hits = getattr(response, "points", [])
-    else:
-        kwargs["query_vector"] = vector
-        if qfilter is not None:
-            kwargs["query_filter"] = qfilter
-        hits = client.search(**kwargs)
-    _SNIPPET_LEN = 550
-    raw = []
-    for h in hits:
-        payload = getattr(h, "payload", None) or {}
-        if full_payload:
-            rec = dict(payload)
-            rec["score"] = getattr(h, "score", None)
-        else:
-            text = (payload.get("text") or "")[:_SNIPPET_LEN]
-            links = payload.get("outgoing_links") or []
-            if links:
-                titles = [lnk.get("target_title") or lnk.get("link_text", "") for lnk in links[:5]]
-                text = (text + "\nСвязанные: " + ", ".join(t for t in titles if t)).strip()
-            rec = {
-                "path": payload.get("path", ""),
-                "title": payload.get("title", ""),
-                "text": text,
-                "score": getattr(h, "score", None),
-                "version": payload.get("version", ""),
-                "entity_type": payload.get("entity_type", ""),
-                "breadcrumb": payload.get("breadcrumb") or [],
-            }
-        raw.append(rec)
-    if not full_payload and not version and not language:
-        # Deduplicate by path, preferring newest version then highest score.
-        # Skipped for full_payload mode (structured API collections) — dedup is done in search_hybrid.
-        by_path: dict[str, dict[str, Any]] = {}
-        for r in raw:
-            p = r.get("path", "")
-            if not p:
-                continue
-            vkey = _version_sort_key(r.get("version", ""))
-            score = r.get("score") or 0.0
-            if p not in by_path:
-                by_path[p] = r
-            else:
-                prev = by_path[p]
-                prev_key = _version_sort_key(prev.get("version", ""))
-                prev_score = prev.get("score") or 0.0
-                if vkey > prev_key or (vkey == prev_key and score > prev_score):
-                    by_path[p] = r
-        deduped = list(by_path.values())
-        deduped.sort(
-            key=lambda x: (-(x.get("score") or 0.0), -len(_version_sort_key(x.get("version", ""))))
+    try:
+        client = _get_default_qdrant_client(host, port)
+        coll_dim = get_collection_vector_size(
+            collection=collection, qdrant_host=host, qdrant_port=port
         )
-        return deduped
-    return raw
+        vector = embedding.get_embedding(
+            query, target_dimension=coll_dim if coll_dim is not None else None
+        )
+
+        must = []
+        if version and Filter and FieldCondition and MatchValue:
+            must.append(FieldCondition(key="version", match=MatchValue(value=version)))
+        if language and Filter and FieldCondition and MatchValue:
+            must.append(FieldCondition(key="language", match=MatchValue(value=language)))
+        if entity_type and Filter and FieldCondition and MatchValue:
+            must.append(FieldCondition(key="entity_type", match=MatchValue(value=entity_type)))
+        qfilter = Filter(must=must) if must and Filter else None
+
+        kwargs: dict[str, Any] = {"collection_name": collection, "limit": limit}
+        if hasattr(client, "query_points"):
+            kwargs["query"] = vector
+            if qfilter is not None:
+                kwargs["query_filter"] = qfilter
+            response = client.query_points(**kwargs)
+            hits = getattr(response, "points", [])
+        else:
+            kwargs["query_vector"] = vector
+            if qfilter is not None:
+                kwargs["query_filter"] = qfilter
+            hits = client.search(**kwargs)
+        _SNIPPET_LEN = 550
+        raw = []
+        for h in hits:
+            payload = getattr(h, "payload", None) or {}
+            if full_payload:
+                rec = dict(payload)
+                rec["score"] = getattr(h, "score", None)
+            else:
+                text = (payload.get("text") or "")[:_SNIPPET_LEN]
+                links = payload.get("outgoing_links") or []
+                if links:
+                    titles = [
+                        lnk.get("target_title") or lnk.get("link_text", "") for lnk in links[:5]
+                    ]
+                    text = (text + "\nСвязанные: " + ", ".join(t for t in titles if t)).strip()
+                rec = {
+                    "path": payload.get("path", ""),
+                    "title": payload.get("title", ""),
+                    "text": text,
+                    "score": getattr(h, "score", None),
+                    "version": payload.get("version", ""),
+                    "entity_type": payload.get("entity_type", ""),
+                    "breadcrumb": payload.get("breadcrumb") or [],
+                }
+            raw.append(rec)
+        if not full_payload and not version and not language:
+            # Deduplicate by path, preferring newest version then highest score.
+            # Skipped for full_payload mode (structured API collections) — dedup is done in search_hybrid.
+            by_path: dict[str, dict[str, Any]] = {}
+            for r in raw:
+                p = r.get("path", "")
+                if not p:
+                    continue
+                vkey = _version_sort_key(r.get("version", ""))
+                score = r.get("score") or 0.0
+                if p not in by_path:
+                    by_path[p] = r
+                else:
+                    prev = by_path[p]
+                    prev_key = _version_sort_key(prev.get("version", ""))
+                    prev_score = prev.get("score") or 0.0
+                    if vkey > prev_key or (vkey == prev_key and score > prev_score):
+                        by_path[p] = r
+            deduped = list(by_path.values())
+            deduped.sort(
+                key=lambda x: (
+                    -(x.get("score") or 0.0),
+                    -len(_version_sort_key(x.get("version", ""))),
+                )
+            )
+            return deduped
+        return raw
+    except Exception as e:
+        if is_qdrant_unreachable_error(e):
+            return []
+        raise
 
 
 _RRF_K = 60
@@ -1496,11 +1509,18 @@ def search_index_keyword(
 ) -> list[dict[str, Any]]:
     """Search by keyword. Uses BM25 sparse if available, else payload.keywords/substring.
     full_payload=True: return full Qdrant payload (needed for structured API collections)."""
+    from ..shared.qdrant_errors import is_qdrant_unreachable_error
+
     if QdrantClient is None:
         return []
     host = qdrant_host or env_config.get_qdrant_host()
     port = qdrant_port or env_config.get_qdrant_port()
-    client = _get_default_qdrant_client(host, port)
+    try:
+        client = _get_default_qdrant_client(host, port)
+    except Exception as e:
+        if is_qdrant_unreachable_error(e):
+            return []
+        raise
     q_lower = query.strip().lower()
     if not q_lower:
         return []
@@ -2096,16 +2116,49 @@ def compare_1c_help(
     include_diff: bool = False,
 ) -> str:
     """Compare topic content between two versions. Returns formatted comparison or diff."""
-    path = topic_path_or_query.strip()
+    from ..shared.qdrant_errors import is_qdrant_unreachable_error
+
+    try:
+        return _compare_1c_help_impl(
+            topic_path_or_query,
+            version_left,
+            version_right,
+            qdrant_host=qdrant_host,
+            qdrant_port=qdrant_port,
+            collection=collection,
+            language=language,
+            include_diff=include_diff,
+        )
+    except Exception as e:
+        if is_qdrant_unreachable_error(e):
+            return "Help index (Qdrant) is unreachable. Start Qdrant or check QDRANT_HOST / QDRANT_PORT."
+        raise
+
+
+def _compare_1c_help_impl(
+    topic_path_or_query: str,
+    version_left: str,
+    version_right: str,
+    qdrant_host: str | None = None,
+    qdrant_port: int | None = None,
+    collection: str = COLLECTION_NAME,
+    language: str | None = None,
+    include_diff: bool = False,
+) -> str:
+    """Body of compare_1c_help (separated for unreachable guard)."""
+    path = (topic_path_or_query or "").strip()
+    if not path:
+        return (
+            "Provide topic_path_or_query: a help path (e.g. …/topic.md) or a short search query "
+            "(e.g. CryptoManager). Empty string is not allowed."
+        )
     is_query = ".md" not in path and ".html" not in path
 
     def find_topic_path(version: str) -> str | None:
         if not is_query:
-            # User provided exact path, use it directly for this version
             rel_path = _path_without_version_prefix(path)
             return f"{version}/{rel_path}" if rel_path else path
 
-        # Search for topic in this specific version
         results = search_index_keyword(
             path,
             qdrant_host=qdrant_host,

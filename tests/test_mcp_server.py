@@ -634,6 +634,19 @@ def test_mcp_tool_save_1c_snippet_via_app(help_sample_dir: Path, tmp_path: Path)
     assert "saved" in text.lower() or "ok" in text.lower() or "Test" in text
 
 
+def test_mcp_tool_save_1c_snippet_empty_rejected(help_sample_dir: Path) -> None:
+    """save_1c_snippet rejects whitespace-only code."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    result = asyncio.run(
+        app.call_tool(
+            "save_1c_snippet",
+            {"code_snippet": "   \n\t", "description": "x", "title": "y"},
+        )
+    )
+    text = result.content[0].text if result.content else ""
+    assert "non-empty" in text.lower() or "Provide" in text
+
+
 def test_mcp_tool_compare_1c_help_via_app(help_sample_dir: Path) -> None:
     """Call compare_1c_help tool via app."""
     app = mcp_server._build_mcp_app(help_sample_dir)
