@@ -678,6 +678,7 @@ def cmd_add_bm25(args: argparse.Namespace) -> int:
     collection = getattr(args, "collection", None)
     batch_size = getattr(args, "batch_size", 200) or 200
     verbose = getattr(args, "verbose", True)
+    force_rebuild = getattr(args, "force", False)
 
     try:
         if collection:
@@ -686,6 +687,7 @@ def cmd_add_bm25(args: argparse.Namespace) -> int:
                 qdrant_port=env_config.get_qdrant_port(),
                 collection=collection,
                 batch_size=batch_size,
+                force_rebuild=force_rebuild,
                 verbose=verbose,
             )
             print(f"{collection}: migrated {count} points with BM25")
@@ -1038,7 +1040,9 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         print(f"Ingested and indexed {n} structured records")
         return 0
     except Exception as e:
+        import traceback
         print(f"Error: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
         return 1
 
 
@@ -2184,6 +2188,12 @@ def main() -> int:
         type=int,
         default=200,
         help="Batch size for scroll/upsert (default: 200)",
+    )
+    p_add_bm25.add_argument(
+        "--force",
+        action="store_true",
+        default=False,
+        help="Force rebuild: remove existing BM25 from collection and rebuild sparse vectors (only with --collection).",
     )
     p_add_bm25.set_defaults(func=cmd_add_bm25)
 

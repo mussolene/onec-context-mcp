@@ -414,7 +414,8 @@ def _ensure_collection(
         except Exception as e:
             err = str(e).lower()
             if "already exist" in err or "already exists" in err:
-                client.recreate_collection(collection_name=collection_name, vectors_config=vectors_cfg)
+                client.delete_collection(collection_name=collection_name)
+                client.create_collection(**create_kw)
                 print(
                     f"metadata-graph-build: collection {collection_name!r} recreated",
                     file=sys.stderr, flush=True,
@@ -422,7 +423,9 @@ def _ensure_collection(
             else:
                 raise
     else:
-        client.recreate_collection(collection_name=collection_name, vectors_config=vectors_cfg)
+        if client.collection_exists(collection_name):
+            client.delete_collection(collection_name=collection_name)
+        client.create_collection(**create_kw)
         print(
             f"metadata-graph-build: collection {collection_name!r} recreated",
             file=sys.stderr, flush=True,

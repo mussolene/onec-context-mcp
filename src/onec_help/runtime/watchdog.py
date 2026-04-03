@@ -304,10 +304,13 @@ def run_watchdog(
         # This handles fresh installs, Qdrant volume wipes, and first starts where the
         # watchdog state in Redis already matches the filesystem (no change detected).
         if not run_ingest and current:
-            pts = _get_collection_points("onec_help")
+            # Check primary structured collection; fall back to legacy onec_help for old installs.
+            pts = _get_collection_points("onec_help_api_objects")
+            if pts < 0:
+                pts = _get_collection_points("onec_help")
             if pts == 0:
                 print(
-                    "[watchdog] onec_help collection empty — forcing ingest with INGEST_SKIP_CACHE=1",
+                    "[watchdog] help collection empty — forcing ingest with INGEST_SKIP_CACHE=1",
                     file=sys.stderr,
                     flush=True,
                 )

@@ -6,7 +6,10 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 try:
     from qdrant_client import QdrantClient
@@ -44,7 +47,7 @@ from ..help_core.toc_parser import (
 from ..shared import env_config
 from ..shared._utils import path_inside_base, safe_error_message
 
-COLLECTION_NAME = "onec_help"
+COLLECTION_NAME = "onec_help_api_members"
 SNIPPET_MAX_CHARS = 850
 
 # Shared QdrantClient for the default host/port (read hot-path: search, get_topic, etc.).
@@ -561,7 +564,9 @@ def build_index(
                         sparse_vectors_config=sparse_config,
                     )
             else:
-                client.recreate_collection(
+                if client.collection_exists(collection):
+                    client.delete_collection(collection_name=collection)
+                client.create_collection(
                     collection_name=collection,
                     vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
                     sparse_vectors_config=sparse_config,
@@ -732,6 +737,21 @@ def get_all_collections_status(
 SPARSE_VECTOR_NAME = "text-bm25"
 
 
+_CAMEL_SPLIT_RE = re.compile(r"[А-ЯЁ][а-яё]+|[A-Z][a-z]+")
+
+
+def _expand_camel_names(*names: str) -> str:
+    """Extract individual CamelCase parts from compound API identifiers.
+    E.g. 'ВызватьИсключение' → 'Вызвать Исключение', enabling BM25 to match on parts."""
+    parts: list[str] = []
+    for name in names:
+        for segment in re.split(r"[.\s]+", name or ""):
+            words = _CAMEL_SPLIT_RE.findall(segment)
+            if len(words) > 1:  # only add if actually split (compound word)
+                parts.extend(words)
+    return " ".join(parts)
+
+
 def _bm25_text_from_payload(collection: str, payload: dict[str, Any]) -> str:
     """Extract text for BM25 from point payload. onec_help: title+text; onec_help_memory: title, summary, ...; onec_config_metadata: text (config_name, object_type, name, full_name)."""
     if collection == "onec_help_memory":
@@ -752,21 +772,16 @@ def _bm25_text_from_payload(collection: str, payload: dict[str, Any]) -> str:
                 None, [payload.get("config_name"), payload.get("name"), payload.get("full_name")]
             )
         )
-    if collection == "onec_help_api":
+    if collection in ("onec_help_api", "onec_help_api_members", "onec_help_api_objects", "onec_help_examples"):
+        fn = payload.get("full_name") or payload.get("name") or ""
+        title = payload.get("title") or ""
+        summary = payload.get("summary") or ""
         text = (payload.get("text") or "").strip()
-        if text:
-            return text
-        return "\n".join(
-            str(part)
-            for part in (
-                payload.get("name") or "",
-                payload.get("title") or "",
-                payload.get("summary") or "",
-                payload.get("syntax") or "",
-                payload.get("returns") or "",
-            )
-            if part
-        )
+        base = "\n".join(p for p in (title, text) if p)
+        # Expand CamelCase compound names so individual parts are BM25-searchable.
+        # e.g. "ВызватьИсключение" → adds "Вызвать Исключение" as separate tokens.
+        camel_expanded = _expand_camel_names(fn, title, summary)
+        return (base + ("\n" + camel_expanded if camel_expanded else "")).strip()
     # onec_help and any other: title + text
     return ((payload.get("title") or "") + "\n" + (payload.get("text") or "")).strip() or ""
 
@@ -797,6 +812,7 @@ def add_bm25_to_collection(
     collection: str = COLLECTION_NAME,
     batch_size: int = 200,
     verbose: bool = True,
+    force_rebuild: bool = False,
 ) -> int:
     """Add BM25 sparse vectors to existing collection. No re-ingest, no re-embedding.
 
@@ -804,9 +820,12 @@ def add_bm25_to_collection(
     {collection}_bm25_tmp first, then swaps. Original collection is only dropped
     after the temp is fully written. On re-run, if tmp exists with marker, finishes
     the swap (recovery). Returns total points migrated.
+
+    force_rebuild: if True, remove existing BM25 first and fully rebuild sparse vectors.
+    Without this flag, collections that already have BM25 only get vocab refreshed on disk.
     """
     from . import embedding
-    from .sparse_bm25 import bm25_vocab_path, build_bm25_vectors, save_vocab
+    from .sparse_bm25 import bm25_build_stats, bm25_doc_vector, bm25_vocab_path, save_vocab
 
     if QdrantClient is None or SparseVector is None or SparseVectorParams is None:
         raise RuntimeError("qdrant-client required for add-bm25")
@@ -817,30 +836,34 @@ def add_bm25_to_collection(
     if not client.collection_exists(collection):
         raise RuntimeError(f"Collection {collection} does not exist. Run ingest first.")
 
+    if _collection_has_sparse(client, collection) and force_rebuild:
+        if verbose:
+            print(f"[add-bm25] {collection}: force_rebuild — removing existing BM25 first", file=sys.stderr)
+        _remove_bm25_from_collection(client, collection, batch_size, verbose)
+
     if _collection_has_sparse(client, collection):
         # Collection already has BM25; only save vocab to host
-        points: list[Any] = []
-        offset = None
-        while True:
-            res, next_offset = client.scroll(
-                collection_name=collection,
-                limit=batch_size,
-                offset=offset,
-                with_payload=True,
-                with_vectors=False,
-            )
-            points.extend(res or [])
-            if next_offset is None:
-                break
-            offset = next_offset
-        if points:
-            texts = [
-                _bm25_text_from_payload(collection, getattr(p, "payload", None) or {})
-                for p in points
-            ]
-            _, vocab, doc_freq = build_bm25_vectors(texts)
+        # Streaming stats pass — no text/token lists kept in memory.
+        def _scroll_texts() -> "Generator[str, None, None]":
+            _off = None
+            while True:
+                _res, _next = client.scroll(
+                    collection_name=collection,
+                    limit=batch_size,
+                    offset=_off,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                for _p in _res or []:
+                    yield _bm25_text_from_payload(collection, getattr(_p, "payload", None) or {})
+                if _next is None:
+                    break
+                _off = _next
+
+        vocab, doc_freq, _, _, N_pts = bm25_build_stats(_scroll_texts())
+        if N_pts:
             vocab_path = bm25_vocab_path(collection)
-            save_vocab(vocab_path, vocab, doc_freq, len(texts))
+            save_vocab(vocab_path, vocab, doc_freq, N_pts)
             if verbose:
                 print(
                     f"[add-bm25] Collection already has BM25. Vocab saved to {vocab_path}",
@@ -875,8 +898,93 @@ def add_bm25_to_collection(
         except Exception:
             pass
 
-    # Scroll all points from original collection
-    points = []
+    # Phase 1: scroll WITHOUT vectors to collect texts/payloads/ids for BM25 computation.
+    # This avoids loading all dense vectors (768-dim × N floats) into memory at once.
+    # Phase 1: streaming stats — build vocab/df/doc_lens without storing any text/token lists.
+    # Only meta_ids (ints) and doc_lens (ints) are kept; everything else is aggregate.
+    meta_ids: list[Any] = []
+    meta_dl: list[int] = []
+    offset = None
+    while True:
+        res, next_offset = client.scroll(
+            collection_name=collection,
+            limit=batch_size,
+            offset=offset,
+            with_payload=True,
+            with_vectors=False,
+        )
+        for p in res or []:
+            meta_ids.append(getattr(p, "id", 0))
+            meta_dl.append(0)  # placeholder; filled by bm25_build_stats below
+        if next_offset is None:
+            break
+        offset = next_offset
+
+    if not meta_ids:
+        if verbose:
+            print("[add-bm25] No points to migrate.", file=sys.stderr)
+        return 0
+
+    N = len(meta_ids)
+    if verbose:
+        print(
+            f"[add-bm25] Migrating {N} points (safe: tmp first)...",
+            file=sys.stderr,
+            flush=True,
+        )
+
+    # Re-scroll payloads (no vectors) for stats; build vocab/df/avgdl in one pass.
+    def _texts_for_stats() -> "Generator[str, None, None]":
+        _off = None
+        while True:
+            _res, _next = client.scroll(
+                collection_name=collection,
+                limit=batch_size,
+                offset=_off,
+                with_payload=True,
+                with_vectors=False,
+            )
+            for _p in _res or []:
+                yield _bm25_text_from_payload(collection, getattr(_p, "payload", None) or {})
+            if _next is None:
+                break
+            _off = _next
+
+    vocab, doc_freq, doc_lens, avgdl, _ = bm25_build_stats(_texts_for_stats())
+    vocab_path = bm25_vocab_path(collection)
+    save_vocab(vocab_path, vocab, doc_freq, N)
+
+    # id → doc-length map so Phase 2 can compute BM25 without re-tokenising twice.
+    # Both lists are O(N ints), small compared to token lists.
+    id_to_dl: dict[Any, int] = {pid: dl for pid, dl in zip(meta_ids, doc_lens)}
+    del meta_ids, doc_lens  # free before dense-vector pass
+
+    # Determine dense vector dimension from a single point sample.
+    dim = embedding.get_embedding_dimension()
+    sample_res, _ = client.scroll(
+        collection_name=collection, limit=1, with_payload=False, with_vectors=True
+    )
+    if sample_res:
+        sv_sample = getattr(sample_res[0], "vector", None)
+        if isinstance(sv_sample, dict):
+            sv_sample = sv_sample.get("") or sv_sample.get(None)
+        if isinstance(sv_sample, list) and sv_sample:
+            dim = len(sv_sample)
+
+    sparse_config = {SPARSE_VECTOR_NAME: SparseVectorParams(modifier=Modifier.IDF)}
+    optimizers = (
+        OptimizersConfigDiff(indexing_threshold=1) if OptimizersConfigDiff is not None else None
+    )
+
+    # Phase 2: scroll WITH dense vectors in batches; compute BM25 vector on-the-fly
+    # and upsert immediately — never hold all sparse vectors in memory at once.
+    client.create_collection(
+        collection_name=tmp_collection,
+        vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
+        sparse_vectors_config=sparse_config,
+        optimizers_config=optimizers,
+    )
+    upserted = 0
     offset = None
     while True:
         res, next_offset = client.scroll(
@@ -886,81 +994,39 @@ def add_bm25_to_collection(
             with_payload=True,
             with_vectors=True,
         )
-        points.extend(res or [])
-        if next_offset is None:
-            break
-        offset = next_offset
-
-    if not points:
-        if verbose:
-            print("[add-bm25] No points to migrate.", file=sys.stderr)
-        return 0
-
-    if verbose:
-        print(
-            f"[add-bm25] Migrating {len(points)} points (safe: tmp first)...",
-            file=sys.stderr,
-            flush=True,
-        )
-
-    texts = []
-    dense_vectors = []
-    payloads = []
-    ids = []
-    for p in points:
-        pl = getattr(p, "payload", None) or {}
-        texts.append(_bm25_text_from_payload(collection, pl))
-        vec = getattr(p, "vector", None)
-        if isinstance(vec, dict):
-            vec = vec.get("") or vec.get(None)
-        dense_vectors.append(vec if isinstance(vec, list) else [])
-        payloads.append(pl)
-        ids.append(getattr(p, "id", 0))
-
-    vectors_bm25, vocab, doc_freq = build_bm25_vectors(texts)
-    N = len(texts)
-    vocab_path = bm25_vocab_path(collection)
-    save_vocab(vocab_path, vocab, doc_freq, N)
-
-    dim = embedding.get_embedding_dimension()
-    for d in dense_vectors:
-        if isinstance(d, list) and len(d) > 0:
-            dim = len(d)
-            break
-    sparse_config = {SPARSE_VECTOR_NAME: SparseVectorParams(modifier=Modifier.IDF)}
-    optimizers = (
-        OptimizersConfigDiff(indexing_threshold=1) if OptimizersConfigDiff is not None else None
-    )
-
-    # Create temp collection and write all points there (original untouched)
-    client.create_collection(
-        collection_name=tmp_collection,
-        vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
-        sparse_vectors_config=sparse_config,
-        optimizers_config=optimizers,
-    )
-    for i in range(0, len(points), batch_size):
-        batch_ids = ids[i : i + batch_size]
-        batch_payloads = payloads[i : i + batch_size]
-        batch_dense = dense_vectors[i : i + batch_size]
-        batch_sparse = vectors_bm25[i : i + batch_size]
+        if not res:
+            if next_offset is None:
+                break
+            offset = next_offset
+            continue
         batch_points = []
-        for _j, (pid, pl, dense, sparse) in enumerate(
-            zip(batch_ids, batch_payloads, batch_dense, batch_sparse, strict=True)
-        ):
+        for p in res:
+            pid = getattr(p, "id", 0)
+            pl = getattr(p, "payload", None) or {}
+            vec = getattr(p, "vector", None)
+            if isinstance(vec, dict):
+                vec = vec.get("") or vec.get(None)
+            dense = vec if isinstance(vec, list) else []
+            text = _bm25_text_from_payload(collection, pl)
+            dl = id_to_dl.get(pid, 0)
+            sparse_vec = bm25_doc_vector(text, dl, vocab, avgdl)
             sv = SparseVector(
-                indices=sparse.get("indices", []),
-                values=sparse.get("values", []),
+                indices=sparse_vec["indices"],
+                values=sparse_vec["values"],
             )
             vec_dict: dict[str, Any] = {"": dense, SPARSE_VECTOR_NAME: sv}
             batch_points.append(PointStruct(id=pid, vector=vec_dict, payload=pl))
         client.upsert(collection_name=tmp_collection, points=batch_points)
-        if verbose and (i + batch_size) % 1000 == 0:
+        upserted += len(batch_points)
+        if verbose and upserted % 1000 < batch_size:
             print(
-                f"[add-bm25] Upserted {min(i + batch_size, len(points))}/{len(points)} to tmp",
+                f"[add-bm25] Upserted {upserted}/{N} to tmp",
                 file=sys.stderr,
                 flush=True,
             )
+        if next_offset is None:
+            break
+        offset = next_offset
 
     vocab_dir.mkdir(parents=True, exist_ok=True)
     marker_path.write_text("", encoding="utf-8")
@@ -1002,7 +1068,7 @@ def add_bm25_to_collection(
 
     if verbose:
         print(f"[add-bm25] Done. BM25 vocab saved to {vocab_path}", file=sys.stderr)
-    return len(points)
+    return N
 
 
 def _recover_add_bm25_swap(
@@ -1095,7 +1161,9 @@ def _remove_bm25_from_collection(
         if isinstance(vec, list) and len(vec) > 0:
             dim = len(vec)
             break
-    client.recreate_collection(
+    if client.collection_exists(collection):
+        client.delete_collection(collection_name=collection)
+    client.create_collection(
         collection_name=collection,
         vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
     )
@@ -1190,9 +1258,11 @@ def search_index(
     version: str | None = None,
     language: str | None = None,
     entity_type: str | None = None,
+    full_payload: bool = False,
 ):
     """Search Qdrant; return list of payloads with path, title, text snippet.
-    version, language, entity_type: optional payload filters."""
+    version, language, entity_type: optional payload filters.
+    full_payload=True: return full Qdrant payload (needed for structured API collections)."""
     from . import embedding
 
     host = qdrant_host or env_config.get_qdrant_host()
@@ -1230,13 +1300,16 @@ def search_index(
     raw = []
     for h in hits:
         payload = getattr(h, "payload", None) or {}
-        text = (payload.get("text") or "")[:_SNIPPET_LEN]
-        links = payload.get("outgoing_links") or []
-        if links:
-            titles = [lnk.get("target_title") or lnk.get("link_text", "") for lnk in links[:5]]
-            text = (text + "\nСвязанные: " + ", ".join(t for t in titles if t)).strip()
-        raw.append(
-            {
+        if full_payload:
+            rec = dict(payload)
+            rec["score"] = getattr(h, "score", None)
+        else:
+            text = (payload.get("text") or "")[:_SNIPPET_LEN]
+            links = payload.get("outgoing_links") or []
+            if links:
+                titles = [lnk.get("target_title") or lnk.get("link_text", "") for lnk in links[:5]]
+                text = (text + "\nСвязанные: " + ", ".join(t for t in titles if t)).strip()
+            rec = {
                 "path": payload.get("path", ""),
                 "title": payload.get("title", ""),
                 "text": text,
@@ -1245,9 +1318,10 @@ def search_index(
                 "entity_type": payload.get("entity_type", ""),
                 "breadcrumb": payload.get("breadcrumb") or [],
             }
-        )
-    if not version and not language:
-        # Deduplicate by path, preferring newest version then highest score
+        raw.append(rec)
+    if not full_payload and not version and not language:
+        # Deduplicate by path, preferring newest version then highest score.
+        # Skipped for full_payload mode (structured API collections) — dedup is done in search_hybrid.
         by_path: dict[str, dict[str, Any]] = {}
         for r in raw:
             p = r.get("path", "")
@@ -1274,6 +1348,14 @@ def search_index(
 _RRF_K = 60
 
 
+def _rrf_doc_key(r: dict[str, Any]) -> str:
+    """Unique key for RRF dedup: full_name+version for structured API records, else path."""
+    fn = r.get("full_name") or r.get("name") or ""
+    if fn:
+        return fn + "|" + str(r.get("version") or "")
+    return (r.get("path") or "") + "|" + str(r.get("version") or "")
+
+
 def search_hybrid(
     query: str,
     limit: int = 10,
@@ -1283,9 +1365,11 @@ def search_hybrid(
     qdrant_host: str | None = None,
     qdrant_port: int | None = None,
     collection: str = COLLECTION_NAME,
+    full_payload: bool = False,
 ) -> list[dict[str, Any]]:
     """Semantic + keyword search merged with RRF (Reciprocal Rank Fusion).
-    Used by MCP and can be reused elsewhere."""
+    Used by MCP and can be reused elsewhere.
+    full_payload=True: return full Qdrant payload (needed for structured API collections)."""
     semantic_list = search_index(
         query,
         qdrant_host=qdrant_host,
@@ -1295,6 +1379,7 @@ def search_hybrid(
         version=version,
         language=language,
         entity_type=entity_type,
+        full_payload=full_payload,
     )
     keyword_list = search_index_keyword(
         query,
@@ -1305,22 +1390,23 @@ def search_hybrid(
         version=version,
         language=language,
         entity_type=entity_type,
+        full_payload=full_payload,
     )
     rrf_scores: dict[str, float] = {}
-    path_to_doc: dict[str, dict[str, Any]] = {}
+    key_to_doc: dict[str, dict[str, Any]] = {}
     for rank, r in enumerate(semantic_list, 1):
-        p = r.get("path", "")
-        if p:
-            rrf_scores[p] = rrf_scores.get(p, 0) + 1 / (_RRF_K + rank)
-            path_to_doc[p] = r
+        k = _rrf_doc_key(r)
+        if k and k != "|":
+            rrf_scores[k] = rrf_scores.get(k, 0) + 1 / (_RRF_K + rank)
+            key_to_doc[k] = r
     for rank, r in enumerate(keyword_list, 1):
-        p = r.get("path", "")
-        if p:
-            rrf_scores[p] = rrf_scores.get(p, 0) + 1 / (_RRF_K + rank)
-            path_to_doc[p] = r
+        k = _rrf_doc_key(r)
+        if k and k != "|":
+            rrf_scores[k] = rrf_scores.get(k, 0) + 1 / (_RRF_K + rank)
+            key_to_doc[k] = r
     return sorted(
-        path_to_doc.values(),
-        key=lambda x: -rrf_scores.get(x.get("path", ""), 0),
+        key_to_doc.values(),
+        key=lambda x: -rrf_scores.get(_rrf_doc_key(x), 0),
     )[:limit]
 
 
@@ -1399,8 +1485,10 @@ def search_index_keyword(
     version: str | None = None,
     language: str | None = None,
     entity_type: str | None = None,
+    full_payload: bool = False,
 ) -> list[dict[str, Any]]:
-    """Search by keyword. Uses BM25 sparse if available, else payload.keywords/substring."""
+    """Search by keyword. Uses BM25 sparse if available, else payload.keywords/substring.
+    full_payload=True: return full Qdrant payload (needed for structured API collections)."""
     if QdrantClient is None:
         return []
     host = qdrant_host or env_config.get_qdrant_host()
@@ -1451,18 +1539,21 @@ def search_index_keyword(
                     raw = []
                     for h in hits:
                         payload = getattr(h, "payload", None) or {}
-                        snippet = (payload.get("text") or "")[:SNIPPET_MAX_CHARS]
-                        links = payload.get("outgoing_links") or []
-                        if links:
-                            titles = [
-                                lnk.get("target_title") or lnk.get("link_text", "")
-                                for lnk in links[:5]
-                            ]
-                            snippet = (
-                                snippet + "\nСвязанные: " + ", ".join(t for t in titles if t)
-                            ).strip()
-                        raw.append(
-                            {
+                        if full_payload:
+                            rec = dict(payload)
+                            rec["score"] = getattr(h, "score", None)
+                        else:
+                            snippet = (payload.get("text") or "")[:SNIPPET_MAX_CHARS]
+                            links = payload.get("outgoing_links") or []
+                            if links:
+                                titles = [
+                                    lnk.get("target_title") or lnk.get("link_text", "")
+                                    for lnk in links[:5]
+                                ]
+                                snippet = (
+                                    snippet + "\nСвязанные: " + ", ".join(t for t in titles if t)
+                                ).strip()
+                            rec = {
                                 "path": payload.get("path", ""),
                                 "title": payload.get("title", ""),
                                 "name": payload.get("name", ""),
@@ -1473,7 +1564,7 @@ def search_index_keyword(
                                 "entity_type": payload.get("entity_type", ""),
                                 "breadcrumb": payload.get("breadcrumb") or [],
                             }
-                        )
+                        raw.append(rec)
                     if raw:
                         by_path: dict[str, dict[str, Any]] = {}
                         for r in raw:
@@ -1553,22 +1644,26 @@ def search_index_keyword(
             if not use_keyword_filter and not _matches(payload):
                 continue
             vkey = _version_sort_key(payload.get("version", ""))
-            snippet = (payload.get("text") or "")[:SNIPPET_MAX_CHARS]
-            links = payload.get("outgoing_links") or []
-            if links:
-                titles = [lnk.get("target_title") or lnk.get("link_text", "") for lnk in links[:5]]
-                snippet = (snippet + "\nСвязанные: " + ", ".join(t for t in titles if t)).strip()
-            rec = {
-                "path": path,
-                "title": payload.get("title", ""),
-                "name": payload.get("name", ""),
-                "kind": payload.get("kind", ""),
-                "text": snippet,
-                "score": None,
-                "version": payload.get("version", ""),
-                "entity_type": payload.get("entity_type", ""),
-                "breadcrumb": payload.get("breadcrumb") or [],
-            }
+            if full_payload:
+                rec = dict(payload)
+                rec["score"] = None
+            else:
+                snippet = (payload.get("text") or "")[:SNIPPET_MAX_CHARS]
+                links = payload.get("outgoing_links") or []
+                if links:
+                    titles = [lnk.get("target_title") or lnk.get("link_text", "") for lnk in links[:5]]
+                    snippet = (snippet + "\nСвязанные: " + ", ".join(t for t in titles if t)).strip()
+                rec = {
+                    "path": path,
+                    "title": payload.get("title", ""),
+                    "name": payload.get("name", ""),
+                    "kind": payload.get("kind", ""),
+                    "text": snippet,
+                    "score": None,
+                    "version": payload.get("version", ""),
+                    "entity_type": payload.get("entity_type", ""),
+                    "breadcrumb": payload.get("breadcrumb") or [],
+                }
             if path not in out_dict:
                 out_dict[path] = rec
             elif vkey > _version_sort_key(out_dict[path].get("version", "")):

@@ -262,7 +262,11 @@ def _flush_ingest_status(state_lock: threading.Lock, state: dict[str, Any]) -> N
         done_tasks = state["done_tasks"]
         total_points = state["total_points"]
         folders = copy.deepcopy(state["folders"])
-        current = list(state["current_work"].values())
+        current_work = state.get("current_work")
+        if current_work:
+            current = list(current_work.values())
+        else:
+            current = list(state.get("current") or [])
         failed_tasks = list(state.get("failed", []))
         completed_files = list(state.get("completed_files", []))
         current_task_points = state.get("current_task_points", 0) or 0
@@ -1094,6 +1098,9 @@ def run_ingest_from_unpacked(
             state["current_task_estimated_total"] = estimated_total
         _flush_ingest_status(state_lock, state)
 
+        # Per-collection progress state for dashboard: keyed by collection name.
+        _collection_progress: dict[str, dict[str, Any]] = {}
+
         def _structured_progress(
             loaded: int,
             total_expected: int,
@@ -1107,16 +1114,24 @@ def run_ingest_from_unpacked(
             with state_lock:
                 state["current_task_points"] = loaded
                 state["current_task_estimated_total"] = total_expected
-                if state.get("current"):
+                # Update per-collection progress entry.
+                if collection:
+                    _collection_progress[collection] = {
+                        "path": "structured_help",
+                        "version": "",
+                        "language": "",
+                        "stage": phase or "index_structured",
+                        "collection": collection,
+                        "points": collection_loaded if collection_loaded is not None else loaded,
+                        "estimated_total": collection_total if collection_total is not None else total_expected,
+                    }
+                # Expose all active collections as "current" list for the dashboard.
+                if _collection_progress:
+                    state["current"] = list(_collection_progress.values())
+                elif state.get("current"):
                     state["current"][0]["points"] = loaded
                     state["current"][0]["estimated_total"] = total_expected
                     state["current"][0]["stage"] = phase or "index_structured"
-                    if collection:
-                        state["current"][0]["collection"] = collection
-                    if collection_loaded is not None:
-                        state["current"][0]["collection_loaded"] = collection_loaded
-                    if collection_total is not None:
-                        state["current"][0]["collection_total"] = collection_total
             _flush_ingest_status(state_lock, state)
 
         counts = index_structured_help_snapshot(

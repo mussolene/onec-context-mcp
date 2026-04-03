@@ -601,12 +601,36 @@ def _compact_api_answer(result: dict[str, Any], content: str, *, max_chars: int 
     return "\n\n".join(lines)
 
 
-def _structured_api_sort_key(query: str, item: dict[str, Any]) -> tuple[int, bool, str]:
+def _structured_api_sort_key(query: str, item: dict[str, Any]) -> tuple[int, int, bool, str]:
     query_lower = (query or "").strip().lower()
     name_lower = str(item.get("name") or "").strip().lower()
     title_lower = str(item.get("title") or "").strip().lower()
+    priority = _match_priority(query_lower, name_lower or title_lower, "")
+    # If no name match, check if query appears in item content.
+    # 0 = query/suffix in full_name (stronger), 1 = query in text/summary only, 2 = no match.
+    content_no_match = 2
+    if priority == 3 and query_lower:
+        fn_lower = str(item.get("full_name") or "").lower()
+        # Check direct substring and also suffixes (e.g. "вызватьисключение" → suffix "исключение")
+        fn_match = query_lower in fn_lower
+        if not fn_match and len(query_lower) > 6:
+            for start in range(1, len(query_lower) - 5):
+                sfx = query_lower[start:]
+                if len(sfx) >= 6 and sfx in fn_lower:
+                    fn_match = True
+                    break
+        if fn_match:
+            content_no_match = 0
+        else:
+            rest = " ".join([
+                str(item.get("summary") or ""),
+                str(item.get("text") or ""),
+            ]).lower()
+            if query_lower in rest:
+                content_no_match = 1
     return (
-        _match_priority(query_lower, name_lower or title_lower, ""),
+        priority,
+        content_no_match,
         _member_sort_key(query_lower, name_lower or title_lower),
         str(item.get("topic_path") or item.get("path") or ""),
     )
@@ -751,12 +775,37 @@ def _question_structured_sort_key(
     question: str,
     intent: str,
     item: dict[str, Any],
-) -> tuple[int, int, bool, str]:
+) -> tuple[int, int, int, bool, str]:
     query = (question or "").strip()
     has_fact = bool(item.get("availability")) if intent in {"version", "restriction"} else bool(item.get("summary"))
+    # Try both full question and individual API name tokens — use the best (lowest) match.
+    # Only use tokens that start with an uppercase letter (proper API names, not common words).
+    api_tokens = [t for t in _extract_question_api_names(query) if t and t[0].isupper()]
+    candidates_to_try = [query] + api_tokens
+    best_priority = min(_structured_api_sort_key(t, item)[0] for t in candidates_to_try if t)
+    item_name = str(item.get("name") or item.get("title") or "").lower()
+    best_member = min(int(_member_sort_key(t.lower(), item_name)) for t in candidates_to_try if t)
+    # For priority-3 items (no name match), check if query keywords appear in item content.
+    # 0 = keyword in full_name (stronger signal), 1 = keyword in text/summary only, 2 = no match.
+    content_no_match = 2
+    if best_priority == 3:
+        words = [w for w in re.split(r"\W+", query.lower()) if len(w) >= 6]
+        if words:
+            fn_lower = str(item.get("full_name") or "").lower()
+            if any(w in fn_lower for w in words):
+                content_no_match = 0
+            else:
+                rest = " ".join([
+                    str(item.get("summary") or ""),
+                    str(item.get("description") or ""),
+                    str(item.get("text") or ""),
+                ]).lower()
+                if any(w in rest for w in words):
+                    content_no_match = 1
     return (
-        _structured_api_sort_key(query, item)[0],
-        _member_sort_key(query.lower(), str(item.get("name") or item.get("title") or "").lower()),
+        best_priority,
+        content_no_match,
+        best_member,
         not has_fact,
         str(item.get("topic_path") or ""),
     )
@@ -1261,13 +1310,19 @@ def _build_mcp_app(help_path: Path) -> Any:
         )
         if candidates:
             best = candidates[0]
-            fact = _extract_fact_from_structured(best, intent, detail=detail)
-            if fact:
-                return _format_question_answer(
-                    question_clean,
-                    answer=fact,
-                    candidate=best,
-                )
+            best_sort = _question_structured_sort_key(question_clean, intent, best)
+            # Reject only pure semantic hits with no name match and no content keyword match.
+            # best_sort = (priority, content_no_match, member, no_fact, path)
+            # content_no_match: 0=in full_name, 1=in text/summary, 2=no match at all
+            pure_noise = best_sort[0] >= 3 and best_sort[1] >= 2
+            if not pure_noise:
+                fact = _extract_fact_from_structured(best, intent, detail=detail)
+                if fact:
+                    return _format_question_answer(
+                        question_clean,
+                        answer=fact,
+                        candidate=best,
+                    )
 
         return (
             "Не удалось уверенно ответить по structured help layer. "

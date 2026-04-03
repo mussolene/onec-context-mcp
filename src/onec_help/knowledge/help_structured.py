@@ -1064,50 +1064,61 @@ def index_structured_help_snapshot(
         except Exception:
             pass
 
-    objects_inserted = index_structured_api_objects(
-        snapshot_dir,
-        qdrant_host=qdrant_host,
-        qdrant_port=qdrant_port,
-        collection=API_OBJECTS_COLLECTION_NAME,
-        recreate=recreate,
-        batch_size=batch_size,
-        progress_callback=lambda loaded, total: _on_collection_progress(
-            API_OBJECTS_COLLECTION_NAME, loaded, total
+    # Run all four collection indexing tasks in parallel.
+    # Progress tracking via _on_collection_progress works correctly with concurrent access
+    # because it uses inserted_by_collection (updated under its own internal lock from the GIL).
+    from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
+
+    _collection_tasks = [
+        (
+            API_OBJECTS_COLLECTION_NAME,
+            index_structured_api_objects,
         ),
-    )
-    members_inserted = index_structured_api_members(
-        snapshot_dir,
-        qdrant_host=qdrant_host,
-        qdrant_port=qdrant_port,
-        collection=API_MEMBERS_COLLECTION_NAME,
-        recreate=recreate,
-        batch_size=batch_size,
-        progress_callback=lambda loaded, total: _on_collection_progress(
-            API_MEMBERS_COLLECTION_NAME, loaded, total
+        (
+            API_MEMBERS_COLLECTION_NAME,
+            index_structured_api_members,
         ),
-    )
-    examples_inserted = index_structured_api_examples(
-        snapshot_dir,
-        qdrant_host=qdrant_host,
-        qdrant_port=qdrant_port,
-        collection=API_EXAMPLES_COLLECTION_NAME,
-        recreate=recreate,
-        batch_size=batch_size,
-        progress_callback=lambda loaded, total: _on_collection_progress(
-            API_EXAMPLES_COLLECTION_NAME, loaded, total
+        (
+            API_EXAMPLES_COLLECTION_NAME,
+            index_structured_api_examples,
         ),
-    )
-    links_inserted = index_structured_api_links(
-        snapshot_dir,
-        qdrant_host=qdrant_host,
-        qdrant_port=qdrant_port,
-        collection=API_LINKS_COLLECTION_NAME,
-        recreate=recreate,
-        batch_size=batch_size,
-        progress_callback=lambda loaded, total: _on_collection_progress(
-            API_LINKS_COLLECTION_NAME, loaded, total
+        (
+            API_LINKS_COLLECTION_NAME,
+            index_structured_api_links,
         ),
-    )
+    ]
+
+    with ThreadPoolExecutor(max_workers=4) as _pool:
+        _futures = {
+            _pool.submit(
+                fn,
+                snapshot_dir,
+                qdrant_host=qdrant_host,
+                qdrant_port=qdrant_port,
+                collection=col,
+                recreate=recreate,
+                batch_size=batch_size,
+                progress_callback=lambda loaded, total, _col=col: _on_collection_progress(_col, loaded, total),
+            ): col
+            for col, fn in _collection_tasks
+        }
+        errors: list[tuple[str, Exception]] = []
+        for _fut in _as_completed(_futures):
+            col = _futures[_fut]
+            try:
+                inserted_by_collection[col] = _fut.result()
+            except Exception as exc:
+                inserted_by_collection[col] = 0
+                errors.append((col, exc))
+
+    if errors:
+        msgs = "; ".join(f"{c}: {e}" for c, e in errors)
+        raise RuntimeError(f"[index_structured] {len(errors)} collection(s) failed: {msgs}")
+
+    objects_inserted = inserted_by_collection[API_OBJECTS_COLLECTION_NAME]
+    members_inserted = inserted_by_collection[API_MEMBERS_COLLECTION_NAME]
+    examples_inserted = inserted_by_collection[API_EXAMPLES_COLLECTION_NAME]
+    links_inserted = inserted_by_collection[API_LINKS_COLLECTION_NAME]
 
     use_bm25 = env_config.get_bm25_enabled() if bm25_enabled is None else bm25_enabled
     if use_bm25:
@@ -1187,6 +1198,52 @@ def _record_embedding_text(item: dict[str, Any], *, kind: str) -> str:
     return "\n".join(part for part in parts if part).strip()
 
 
+def _upsert_with_retry(client_factory, collection: str, points, *, max_attempts: int = 4) -> None:
+    """Upsert points into Qdrant with retry on transient connection errors.
+
+    ``client_factory`` is a zero-argument callable that returns a fresh
+    ``QdrantClient``; a new client is created on each retry to avoid stale
+    keep-alive connections that cause ``httpx.RemoteProtocolError``.
+    """
+    import time
+
+    client = client_factory()
+    delay = 5.0
+    for attempt in range(1, max_attempts + 1):
+        try:
+            client.upsert(collection_name=collection, points=points)
+            return
+        except Exception as exc:
+            msg = str(exc)
+            # Detect transient connection/protocol errors that are worth retrying.
+            is_transient = any(
+                kw in msg
+                for kw in (
+                    "Server disconnected",
+                    "RemoteProtocolError",
+                    "Connection reset",
+                    "ConnectionError",
+                    "ReadError",
+                    "ConnectError",
+                    "TimeoutError",
+                    "timed out",
+                )
+            )
+            if not is_transient or attempt == max_attempts:
+                raise
+            print(
+                f"[ingest] upsert transient error (attempt {attempt}/{max_attempts}): {exc!r} — retrying in {delay:.0f}s",
+                file=__import__("sys").stderr,
+            )
+            time.sleep(delay)
+            delay = min(delay * 2, 60.0)
+            # Recreate client to avoid stale keep-alive connection.
+            try:
+                client = client_factory()
+            except Exception:
+                pass  # if recreation fails, proceed with old client
+
+
 def _index_records(
     items: list[dict[str, Any]],
     *,
@@ -1206,18 +1263,24 @@ def _index_records(
         return 0
     host = qdrant_host or env_config.get_qdrant_host()
     port = qdrant_port or env_config.get_qdrant_port()
-    client = QdrantClient(
-        host=host,
-        port=port,
-        timeout=env_config.get_qdrant_timeout(),
-        check_compatibility=False,
-    )
+
+    def _make_client():
+        return QdrantClient(
+            host=host,
+            port=port,
+            timeout=env_config.get_qdrant_timeout(),
+            check_compatibility=False,
+        )
+
+    client = _make_client()
     dim = 1
     if use_dense:
         existing_dim = None if recreate else get_collection_vector_size(collection=collection, qdrant_host=host, qdrant_port=port)
         dim = existing_dim or embedding.get_embedding_dimension()
     if recreate:
-        client.recreate_collection(
+        if client.collection_exists(collection):
+            client.delete_collection(collection_name=collection)
+        client.create_collection(
             collection_name=collection,
             vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
         )
@@ -1246,7 +1309,7 @@ def _index_records(
                     payload=payload,
                 )
             )
-        client.upsert(collection_name=collection, points=points)
+        _upsert_with_retry(_make_client, collection, points)
         inserted += len(points)
         if callable(progress_callback):
             try:
@@ -1537,6 +1600,7 @@ def search_api_members(
         limit=limit,
         version=version,
         language=language,
+        full_payload=True,
     )
 
 
@@ -1608,6 +1672,7 @@ def search_api_objects(
         limit=limit,
         version=version,
         language=language,
+        full_payload=True,
     )
 
 

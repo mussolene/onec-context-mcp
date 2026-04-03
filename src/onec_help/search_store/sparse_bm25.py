@@ -7,7 +7,10 @@ import math
 import re
 from collections import Counter
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 _BM25_K1 = 1.5
 _BM25_B = 0.75
@@ -72,6 +75,65 @@ def _bm25_idf(df: int, N: int) -> float:
     if N <= 0 or df <= 0:
         return 0.0
     return max(0.0, math.log((N - df + 0.5) / (df + 0.5) + 1.0))
+
+
+def bm25_build_stats(
+    texts_iter: "Iterable[str]",
+) -> "tuple[dict[str, int], dict[str, int], list[int], float, int]":
+    """Single-pass stats builder — does NOT store tokenised lists.
+
+    Returns (vocab, doc_freq, doc_lens, avgdl, N).
+    ``doc_lens[i]`` is the token count of the i-th text; everything else is
+    aggregate.  Memory cost: O(vocab) + O(N ints) — not O(N × tokens).
+    """
+    vocab: dict[str, int] = {}
+    df: dict[str, int] = {}
+    doc_lens: list[int] = []
+    sum_dl = 0
+    for text in texts_iter:
+        toks = tokenize_bm25((text or "").lower())
+        dl = len(toks)
+        doc_lens.append(dl)
+        sum_dl += dl
+        for t in set(toks):
+            if t not in vocab:
+                if len(vocab) < _MAX_VOCAB_SIZE:
+                    vocab[t] = len(vocab)
+                else:
+                    continue
+            df[t] = df.get(t, 0) + 1
+    N = len(doc_lens)
+    avgdl = sum_dl / N if N > 0 else 0.0
+    return vocab, df, doc_lens, avgdl, N
+
+
+def bm25_doc_vector(
+    text: str,
+    dl: int,
+    vocab: dict[str, int],
+    avgdl: float,
+    k1: float = _BM25_K1,
+    b: float = _BM25_B,
+) -> "dict[str, Any]":
+    """Compute BM25 doc-side sparse vector for a single text.
+
+    ``dl`` must be the pre-computed token length of *this* text (from the same
+    tokenisation pass that produced ``avgdl``).  This avoids re-tokenising
+    twice: pass the stored dl from ``bm25_build_stats``.
+    """
+    toks = tokenize_bm25((text or "").lower())
+    c = Counter(toks)
+    indices: list[int] = []
+    values: list[float] = []
+    denom_base = k1 * (1 - b + b * dl / avgdl) if avgdl > 0 else k1
+    for term, tf in c.items():
+        if term not in vocab:
+            continue
+        idx = vocab[term]
+        w = (tf * (k1 + 1)) / (tf + denom_base)
+        indices.append(idx)
+        values.append(round(w, 6))
+    return {"indices": indices, "values": values}
 
 
 def build_bm25_vectors(
