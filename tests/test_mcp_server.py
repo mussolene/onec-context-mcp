@@ -826,29 +826,45 @@ def test_mcp_tool_search_1c_memory_with_domains(help_sample_dir: Path) -> None:
 
 
 def test_mcp_tool_get_1c_function_info_choose_index(help_sample_dir: Path) -> None:
-    """get_1c_function_info with choose_index returns content of chosen result."""
+    """get_1c_function_info with choose_index formats chosen structured member (no Qdrant)."""
     app = mcp_server._build_mcp_app(help_sample_dir)
-    with patch.object(
-        mcp_server,
-        "_search_keyword",
-        return_value=[
-            {"path": "Format1.md", "title": "Формат (функция)", "text": "x"},
-            {"path": "Format2.md", "title": "Формат (страница)", "text": "y"},
-        ],
-    ):
-        with patch.object(
-            mcp_server,
-            "_get_topic",
-            side_effect=["# Формат функция\n\nОписание.", "# Формат страница\n\nДругое."],
-        ):
-            result = asyncio.run(
-                app.call_tool(
-                    "get_1c_function_info",
-                    {"name": "Формат", "path": None, "choose_index": 1},
-                )
+    # topic_path breaks sort tie so order is stable without live onec_help_api_members.
+    members = [
+        {
+            "name": "Формат (функция)",
+            "version": "8.3.27",
+            "topic_path": "topics/a",
+            "summary": "FIRST_CHOSEN_SUMMARY",
+        },
+        {
+            "name": "Формат (страница)",
+            "version": "8.3.27",
+            "topic_path": "topics/b",
+            "summary": "SECOND_NOT_CHOSEN",
+        },
+    ]
+    with patch.object(mcp_server, "_get_api_member", return_value=list(members)):
+        result = asyncio.run(
+            app.call_tool(
+                "get_1c_function_info",
+                {"name": "Формат", "path": None, "choose_index": 1},
             )
+        )
     text = result.content[0].text if result.content else ""
     assert "Формат" in text
+    assert "FIRST_CHOSEN_SUMMARY" in text
+    assert "SECOND_NOT_CHOSEN" not in text
+
+    with patch.object(mcp_server, "_get_api_member", return_value=list(members)):
+        result2 = asyncio.run(
+            app.call_tool(
+                "get_1c_function_info",
+                {"name": "Формат", "path": None, "choose_index": 2},
+            )
+        )
+    text2 = result2.content[0].text if result2.content else ""
+    assert "SECOND_NOT_CHOSEN" in text2
+    assert "FIRST_CHOSEN_SUMMARY" not in text2
 
 
 def test_mcp_tool_get_1c_function_info_empty_name(help_sample_dir: Path) -> None:
