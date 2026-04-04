@@ -19,7 +19,7 @@ def test_build_context_includes_help_and_memory_and_metadata() -> None:
             {"payload": {"title": "Snippet", "code_snippet": "Сообщить(1);"}},
         ]
         mock_meta_exact.return_value = [
-            {"id": "Document/Sales", "object_type": "Document", "name": "Sales"},
+            {"id": "Document.Sales", "object_type": "Document", "name": "Sales"},
         ]
         mock_meta_semantic.return_value = []
 
@@ -49,7 +49,7 @@ def test_build_context_uses_file_uri_to_focus_metadata() -> None:
     ):
         mock_help.return_value = []
         mock_mem_store.return_value.search_long.return_value = []
-        mock_meta_exact.return_value = [{"id": "Document/Sales", "name": "Sales"}]
+        mock_meta_exact.return_value = [{"id": "Document.Sales", "name": "Sales"}]
         mock_meta_semantic.return_value = []
 
         ctx = build_context(

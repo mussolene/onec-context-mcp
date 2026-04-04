@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .metadata_ids import make_metadata_object_id
+
 # Optional XML parsing for object metadata (full_name, requisites, tabular sections)
 try:
     import defusedxml.ElementTree as _ET
@@ -39,7 +41,7 @@ class ConfigObject:
     """Stable identifier within one configuration version.
 
     Should be unique inside a single `config_version`. The concrete scheme
-    (e.g. `<object_type>/<name>` or GUID from metadata) is decided by crawler.
+    (e.g. ``EnglishType.ObjectName`` / GUID from metadata) is decided by crawler.
     """
 
     object_type: str
@@ -483,7 +485,7 @@ _DUMPINFO_TYPE_TO_OBJECT_TYPE: dict[str, str] = {
 def _read_config_dump_info(root_dir: Path) -> dict[str, dict[str, Any]]:
     """Parse ConfigDumpInfo.xml (hierarchical export from configurator).
 
-    Returns dict: object_id (e.g. 'Document/РеализацияТоваровУслуг') -> {
+    Returns dict: object_id (e.g. 'Document.РеализацияТоваровУслуг') -> {
         requisites: [{"name": "..."}],
         tabular_sections: [{"name": "Товары", "attributes": ["Номенклатура", ...]}],
     }.
@@ -504,7 +506,7 @@ def _read_config_dump_info(root_dir: Path) -> dict[str, dict[str, Any]]:
 
     def obj_id(otype: str, oname: str) -> str:
         ot = _DUMPINFO_TYPE_TO_OBJECT_TYPE.get(otype, otype)
-        return f"{ot}/{oname}"
+        return make_metadata_object_id(ot, oname)
 
     for el in root.iter():
         tag = ns(el.tag) if hasattr(el, "tag") else ""
@@ -744,7 +746,7 @@ def crawl_config(root_dir: Path) -> CrawlResult:
                 continue
             name = obj_dir.name
             rel_path = obj_dir.relative_to(root_dir).as_posix()
-            obj_id = f"{object_type}/{name}"
+            obj_id = make_metadata_object_id(object_type, name)
             obj_meta = _read_object_metadata_xml(obj_dir)
             # Hierarchical export: object definition often in sibling file Documents/Имя.xml
             sibling_xml = obj_dir.parent / (name + ".xml")
@@ -814,7 +816,6 @@ def crawl_config(root_dir: Path) -> CrawlResult:
             forms_dir = root_dir / obj.path / "Forms"
             if not forms_dir.is_dir():
                 continue
-            parent_id_flat = obj.id.replace("/", ".")
             for form_dir in forms_dir.iterdir():
                 if not form_dir.is_dir():
                     continue
@@ -830,7 +831,7 @@ def crawl_config(root_dir: Path) -> CrawlResult:
                     form_attrs["form_requisites"] = form_meta["attributes"]
                 if form_meta.get("commands"):
                     form_attrs["form_commands"] = form_meta["commands"]
-                form_id = f"Form/{parent_id_flat}.{form_name}"
+                form_id = make_metadata_object_id("Form", f"{obj.id}.{form_name}")
                 form_attrs["parent_id"] = obj.id
                 form_attrs["config_name"] = config_name
                 form_attrs["config_version"] = config_version

@@ -18,7 +18,7 @@ description: Авто-документирование объектов конф
 ### Шаг 1 — Структура объекта (1c-help)
 
 ```
-get_1c_metadata_object(object_id="Document/Sales")
+get_1c_metadata_object(object_id="Document.Sales")
 ```
 
 Даёт: тип объекта, реквизиты с типами, табличные части, full_name.
@@ -121,7 +121,7 @@ git diff v1.0..v2.0 -- path/to/Documents/Sales/Ext/ObjectModule.bsl
 ## Пример: «Как заполняется реквизит Валюта в Реализации?»
 
 ```
-1. get_1c_metadata_object("Document/Sales")
+1. get_1c_metadata_object("Document.Sales")
    → реквизит Валюта, тип СправочникСсылка.Валюты
 
 2. get_form_metadata(xml_content=Form.xml)

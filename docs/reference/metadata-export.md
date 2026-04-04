@@ -47,7 +47,7 @@ Deprecated fallback:
 
 - входной артефакт: `*.xml` из `MetadataExport.epf`
 - производные snapshot-файлы по конфигурациям:
-  - `snapshots/<config-key>/manifest.json`
+  - `snapshots/<config-key>/manifest.json` (поле `format`: `onec_kd2_snapshot_v2`; в `objects.jsonl`/`fields.jsonl` поле `id`/`object_id` — канон **`EnglishType.ИмяОбъекта`**)
   - `snapshots/<config-key>/objects.jsonl`
   - `snapshots/<config-key>/fields.jsonl`
 

@@ -1848,7 +1848,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         limit: int = 20,
     ) -> str:
         """Exact-first metadata lookup by id/name/full_name/path.
-        Index id uses EnglishType/Name (e.g. Document/РеализацияТоваровУслуг) — KD2/Qdrant convention, not query language.
+        Index id uses EnglishType.Name (e.g. Document.РеализацияТоваровУслуг) — KD2/Qdrant payload id, not query language.
         Normalizes dotted BSL/query-like strings; segments after the configuration object name are ignored for graph lookup.
         Disambiguate same name across types with object_type. Manager methods/properties: get_1c_api_object with templates
         in onec_help.knowledge.platform_help_manager_templates (synced to structured help api_objects). Root: get_1c_api_answer("Глобальный контекст.Метаданные")."""
@@ -1887,7 +1887,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         limit: int = 20,
     ) -> str:
         """Semantic metadata lookup for natural-language queries.
-        Pass object_type (e.g. Document, Catalog) to narrow results. For object names or Type/Name, exact matches are prepended before vector search."""
+        Pass object_type (e.g. Document, Catalog) to narrow results. For object names or Type.Name (or dotted Russian/English metadata paths), exact matches are prepended before vector search."""
         err = _check_rate_limit()
         if err:
             return err
@@ -2002,7 +2002,7 @@ def _build_mcp_app(help_path: Path) -> Any:
     ) -> str:
         """Get detailed info about a single configuration object from metadata graph.
 
-        object_id: identifier from search_1c_metadata_exact/search_1c_metadata_semantic (payload.id, e.g. 'Document/РеализацияТоваровУслуг').
+        object_id: identifier from search_1c_metadata_exact/search_1c_metadata_semantic (payload.id, e.g. 'Document.РеализацияТоваровУслуг'). Legacy 'Type/Name' is accepted until reindex.
         config_version: optional filter (e.g. '3.0.184.16'). If omitted, returns first match across all loaded configs.
         """
         err = _check_rate_limit()
@@ -2676,7 +2676,7 @@ def _build_mcp_app(help_path: Path) -> Any:
 - search_1c_metadata_exact(query, config_version=None, object_type=None, limit=20): exact-first object lookup.
 - search_1c_metadata_semantic(query, config_version=None, object_type=None, limit=20): natural-language object lookup.
 - search_1c_metadata_fields(object_query, field_query, config_version=None, object_type=None): field/requisite lookup.
-- get_1c_metadata_object(object_id, config_version=None): details for one object (requisites, tabular sections). Pass config_version from metadata search to avoid ambiguity.
+- get_1c_metadata_object(object_id, config_version=None): details for one object (requisites, tabular sections). object_id is payload.id (EnglishType.ObjectName, e.g. Document.Sales). Pass config_version from metadata search to avoid ambiguity.
 - get_1c_task_context(query, file_uri=None, symbol_name=None, diagnostics_json=None): compact anti-hallucination context for AI.
 
 ---

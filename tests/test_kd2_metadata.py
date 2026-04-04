@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from onec_help.knowledge.kd2_metadata import (
     crawl_kd2_xml,
     is_kd2_snapshot_root,
@@ -86,6 +88,43 @@ KD2_XML = """<?xml version="1.0" encoding="UTF-8"?>
 </Конфигурация>
 """
 
+KD2_CONSTANTS_SET_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<Конфигурация Имя="CfgConst">
+  <CatalogObject.Конфигурации>
+    <Ref>cfg-c</Ref>
+    <Description>CfgConst</Description>
+    <Имя>CfgConst</Имя>
+    <Версия>1.0.0.1</Версия>
+  </CatalogObject.Конфигурации>
+  <CatalogObject.Объекты>
+    <Ref>cs-1</Ref>
+    <IsFolder>false</IsFolder>
+    <Description>Основные</Description>
+    <Имя>Основные</Имя>
+    <Тип>НаборКонстант</Тип>
+  </CatalogObject.Объекты>
+  <CatalogObject.Свойства>
+    <Ref>p-1</Ref>
+    <Owner>cs-1</Owner>
+    <Parent>00000000-0000-0000-0000-000000000000</Parent>
+    <Description>ИспользоватьСкидки</Description>
+    <Имя>ИспользоватьСкидки</Имя>
+    <Синоним>Использовать скидки</Синоним>
+    <Вид>Константа</Вид>
+    <Типы></Типы>
+  </CatalogObject.Свойства>
+  <CatalogObject.Свойства>
+    <Ref>p-2</Ref>
+    <Owner>cs-1</Owner>
+    <Parent>00000000-0000-0000-0000-000000000000</Parent>
+    <Description>НомерВерсии</Description>
+    <Имя>НомерВерсии</Имя>
+    <Вид>Реквизит</Вид>
+    <Типы></Типы>
+  </CatalogObject.Свойства>
+</Конфигурация>
+"""
+
 
 def test_crawl_kd2_xml_extracts_objects_and_fields(tmp_path: Path) -> None:
     xml_path = tmp_path / "kd2.xml"
@@ -98,12 +137,42 @@ def test_crawl_kd2_xml_extracts_objects_and_fields(tmp_path: Path) -> None:
     assert len(crawl.objects) == 2
 
     doc = next(obj for obj in crawl.objects if obj.object_type == "Document")
+    assert doc.id == "Document.РеализацияТоваровУслуг"
     assert doc.name == "РеализацияТоваровУслуг"
     assert doc.full_name == "Реализация товаров и услуг"
     assert doc.attributes["requisites"][0]["name"] == "Организация"
     assert doc.attributes["requisites"][0]["type"] == "СправочникСсылка.Организации"
     assert doc.attributes["tabular_sections"][0]["name"] == "Товары"
     assert doc.attributes["tabular_sections"][0]["requisites"][0]["name"] == "Номенклатура"
+
+
+def test_crawl_kd2_constants_set_keeps_owner_with_requisites_like_document(tmp_path: Path) -> None:
+    """В KD константы вложены в набор; в модели 1С это те же объекты метаданных — строки как реквизиты владельца."""
+    xml_path = tmp_path / "kd2const.xml"
+    xml_path.write_text(KD2_CONSTANTS_SET_XML, encoding="utf-8")
+    crawl = crawl_kd2_xml(xml_path)
+    assert len(crawl.objects) == 1
+    cs = crawl.objects[0]
+    assert cs.object_type == "ConstantsSet"
+    assert cs.name == "Основные"
+    assert cs.id == "ConstantsSet.Основные"
+    req_names = [r["name"] for r in cs.attributes["requisites"]]
+    assert sorted(req_names) == ["ИспользоватьСкидки", "НомерВерсии"]
+    row = next(r for r in cs.attributes["requisites"] if r["name"] == "ИспользоватьСкидки")
+    assert "Константы.ИспользоватьСкидки.Получить()" in (row.get("constant_bsl_hint") or "")
+
+
+def test_load_kd2_snapshot_rejects_unknown_format(tmp_path: Path) -> None:
+    snap = tmp_path / "bad"
+    snap.mkdir()
+    (snap / "manifest.json").write_text(
+        '{"format":"onec_kd2_snapshot_v0","config_name":"X","config_version":"1"}',
+        encoding="utf-8",
+    )
+    (snap / "objects.jsonl").write_text("", encoding="utf-8")
+    (snap / "fields.jsonl").write_text("", encoding="utf-8")
+    with pytest.raises(ValueError, match="Unsupported KD2 snapshot format"):
+        load_kd2_snapshot(snap)
 
 
 def test_kd2_snapshot_roundtrip(tmp_path: Path) -> None:
@@ -115,7 +184,7 @@ def test_kd2_snapshot_roundtrip(tmp_path: Path) -> None:
     manifest = write_kd2_snapshot(crawl, snapshot_dir)
     loaded = load_kd2_snapshot(snapshot_dir)
 
-    assert manifest["format"] == "onec_kd2_snapshot_v1"
+    assert manifest["format"] == "onec_kd2_snapshot_v2"
     assert manifest["objects"] == len(crawl.objects)
     assert loaded.config_version == "3.0.1.1"
     assert len(loaded.objects) == len(crawl.objects)

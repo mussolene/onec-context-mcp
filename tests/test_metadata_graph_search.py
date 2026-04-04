@@ -53,14 +53,14 @@ def test_search_metadata_substring_multiword_prefers_name_matching_tokens() -> N
                     object_type="Document",
                     name="ТоварнаяНакладная",
                     full_name="",
-                    id="Document/A",
+                    id="Document.A",
                 ),
                 _point(
                     "b",
                     object_type="Document",
                     name="РеализацияТоваровУслуг",
                     full_name="",
-                    id="Document/B",
+                    id="Document.B",
                 ),
             ]
         ]
@@ -111,10 +111,10 @@ def test_search_metadata_exact_matches_name_without_broad_scan() -> None:
         [
             [
                 _point(
-                    "Catalog/Items",
+                    "Catalog.Items",
                     config_version="3.0.184.16",
                     object_type="Catalog",
-                    id="Catalog/Items",
+                    id="Catalog.Items",
                     name="Items",
                     full_name="Номенклатура",
                     path="Catalogs/Items",
@@ -129,7 +129,7 @@ def test_search_metadata_exact_matches_name_without_broad_scan() -> None:
         client=client,
     )
     assert len(results) == 1
-    assert results[0]["id"] == "Catalog/Items"
+    assert results[0]["id"] == "Catalog.Items"
 
 
 def test_search_metadata_fields_finds_requisite_in_exact_object() -> None:
@@ -139,10 +139,10 @@ def test_search_metadata_fields_finds_requisite_in_exact_object() -> None:
                 [
                     [
                         _point(
-                            "Document/РеализацияТоваровУслуг",
+                            "Document.РеализацияТоваровУслуг",
                             config_version="3.0.184.16",
                             object_type="Document",
-                            id="Document/РеализацияТоваровУслуг",
+                            id="Document.РеализацияТоваровУслуг",
                             name="РеализацияТоваровУслуг",
                             full_name="Документ.РеализацияТоваровУслуг",
                             path="Documents/РеализацияТоваровУслуг",
@@ -167,53 +167,55 @@ def test_search_metadata_fields_finds_requisite_in_exact_object() -> None:
         client=_FieldsClient(),
     )
     assert len(results) == 1
-    assert results[0]["object_id"] == "Document/РеализацияТоваровУслуг"
+    assert results[0]["object_id"] == "Document.РеализацияТоваровУслуг"
     assert results[0]["field_name"] == "Организация"
 
 
-def test_metadata_slash_aliases_from_dot_query() -> None:
-    assert "Document/РеализацияТоваровУслуг" in metadata_graph._metadata_slash_aliases_from_query(
+def test_metadata_canonical_id_aliases_from_dot_query() -> None:
+    assert "Document.РеализацияТоваровУслуг" in metadata_graph._metadata_canonical_id_aliases_from_query(
         "Документ.РеализацияТоваровУслуг"
     )
-    assert "Document/РеализацияТоваровУслуг" in metadata_graph._metadata_slash_aliases_from_query(
+    assert "Document.РеализацияТоваровУслуг" in metadata_graph._metadata_canonical_id_aliases_from_query(
         "Документы.РеализацияТоваровУслуг"
     )
-    assert "Document/РеализацияТоваровУслуг" in metadata_graph._metadata_slash_aliases_from_query(
+    assert "Document.РеализацияТоваровУслуг" in metadata_graph._metadata_canonical_id_aliases_from_query(
         "Метаданные.Документы.РеализацияТоваровУслуг"
     )
-    assert "Document/РеализацияТоваровУслуг" in metadata_graph._metadata_slash_aliases_from_query(
+    assert "Document.РеализацияТоваровУслуг" in metadata_graph._metadata_canonical_id_aliases_from_query(
         "Метаданные.Документы.РеализацияТоваровУслуг.Реквизиты"
     )
     assert (
-        "ChartOfCharacteristicTypes/ВидыСубконто"
-        in metadata_graph._metadata_slash_aliases_from_query("ПланыВидовХарактеристик.ВидыСубконто")
+        "ChartOfCharacteristicTypes.ВидыСубконто"
+        in metadata_graph._metadata_canonical_id_aliases_from_query(
+            "ПланыВидовХарактеристик.ВидыСубконто"
+        )
     )
-    assert "Document/Авансы" in metadata_graph._metadata_slash_aliases_from_query(
+    assert "Document.Авансы" in metadata_graph._metadata_canonical_id_aliases_from_query(
         "Документы . Авансы"
     )
-    assert "Catalog/Авансы" in metadata_graph._metadata_slash_aliases_from_query(
+    assert "Catalog.Авансы" in metadata_graph._metadata_canonical_id_aliases_from_query(
         "Справочники.Авансы"
     )
-    assert "Document/РеализацияТоваровУслуг" in metadata_graph._metadata_slash_aliases_from_query(
+    assert "Document.РеализацияТоваровУслуг" in metadata_graph._metadata_canonical_id_aliases_from_query(
         "Документы.РеализацияТоваровУслуг.СоздатьДокумент()"
     )
-    assert "Document/РеализацияТоваровУслуг" in metadata_graph._metadata_slash_aliases_from_query(
+    assert "Document.РеализацияТоваровУслуг" in metadata_graph._metadata_canonical_id_aliases_from_query(
         "Метаданные.Метаданные.Документы.РеализацияТоваровУслуг"
     )
-    assert "Document/РеализацияТоваровУслуг" in metadata_graph._metadata_slash_aliases_from_query(
+    assert "Document.РеализацияТоваровУслуг" in metadata_graph._metadata_canonical_id_aliases_from_query(
         "Глобальный контекст.Метаданные.Документы.РеализацияТоваровУслуг"
     )
-    assert "Document/Shipment" in metadata_graph._metadata_slash_aliases_from_query(
+    assert "Document.Shipment" in metadata_graph._metadata_canonical_id_aliases_from_query(
         "Metadata.Documents.Shipment"
     )
-    assert "Document/Shipment" in metadata_graph._metadata_slash_aliases_from_query(
+    assert "Document.Shipment" in metadata_graph._metadata_canonical_id_aliases_from_query(
         "Documents.Shipment.CreateDocument()"
     )
-    assert "Enum/Статусы" in metadata_graph._metadata_slash_aliases_from_query(
+    assert "Enum.Статусы" in metadata_graph._metadata_canonical_id_aliases_from_query(
         "Перечисления.Статусы.Оплачен"
     )
-    assert "Document/Foo" in metadata_graph._metadata_slash_aliases_from_query("Document.Foo")
-    assert metadata_graph._metadata_slash_aliases_from_query("no_dot") == []
+    assert "Document.Foo" in metadata_graph._metadata_canonical_id_aliases_from_query("Document.Foo")
+    assert metadata_graph._metadata_canonical_id_aliases_from_query("no_dot") == []
 
 
 def test_search_metadata_fields_finds_tabular_requisite() -> None:
@@ -223,10 +225,10 @@ def test_search_metadata_fields_finds_tabular_requisite() -> None:
                 [
                     [
                         _point(
-                            "Document/РеализацияТоваровУслуг",
+                            "Document.РеализацияТоваровУслуг",
                             config_version="3.0.184.16",
                             object_type="Document",
-                            id="Document/РеализацияТоваровУслуг",
+                            id="Document.РеализацияТоваровУслуг",
                             name="РеализацияТоваровУслуг",
                             full_name="Реализация",
                             attributes={
@@ -268,10 +270,10 @@ def test_search_metadata_fields_finds_register_dimension() -> None:
                 [
                     [
                         _point(
-                            "InformationRegister/Тест",
+                            "InformationRegister.Тест",
                             config_version="3.0.184.16",
                             object_type="InformationRegister",
-                            id="InformationRegister/Тест",
+                            id="InformationRegister.Тест",
                             name="Тест",
                             attributes={
                                 "dimensions": [
@@ -300,10 +302,10 @@ def test_search_metadata_exact_accepts_dot_notation() -> None:
         [
             [
                 _point(
-                    "Document/РеализацияТоваровУслуг",
+                    "Document.РеализацияТоваровУслуг",
                     config_version="3.0.184.16",
                     object_type="Document",
-                    id="Document/РеализацияТоваровУслуг",
+                    id="Document.РеализацияТоваровУслуг",
                     name="РеализацияТоваровУслуг",
                     full_name="Реализация",
                 )
@@ -317,4 +319,4 @@ def test_search_metadata_exact_accepts_dot_notation() -> None:
         client=client,
     )
     assert len(results) == 1
-    assert results[0]["id"] == "Document/РеализацияТоваровУслуг"
+    assert results[0]["id"] == "Document.РеализацияТоваровУслуг"

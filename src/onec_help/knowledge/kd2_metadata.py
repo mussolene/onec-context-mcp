@@ -6,7 +6,7 @@ converts them into the same `CrawlResult` model used by the metadata graph.
 Design:
 - treat KD2 XML as the new primary metadata source for object/field lookup;
 - keep file-export crawler as deprecated fallback for full-fidelity scenarios;
-- provide a compact JSONL snapshot format for stable downstream indexing.
+- provide a compact JSONL snapshot format (`onec_kd2_snapshot_v2`, ids as `EnglishType.ObjectName`) for stable downstream indexing.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from .config_crawler import ConfigObject, CrawlResult
+from .metadata_ids import make_metadata_object_id
 
 try:
     import defusedxml.ElementTree as _ET
@@ -41,7 +42,12 @@ _OBJECT_TYPE_MAP: dict[str, str] = {
     "БизнесПроцесс": "BusinessProcess",
     "ТочкаМаршрутаБизнесПроцесса": "RoutePoint",
     "Задача": "Task",
+    # Константы: в выгрузках встречаются варианты написания типа объекта.
     "НаборКонстант": "ConstantsSet",
+    "КонстантыНабор": "ConstantsSet",
+    "ConstantsSet": "ConstantsSet",
+    "Константа": "Constant",
+    "Constant": "Constant",
 }
 
 _FIELD_KIND_TO_GROUP: dict[str, str] = {
@@ -49,6 +55,9 @@ _FIELD_KIND_TO_GROUP: dict[str, str] = {
     "Измерение": "dimensions",
     "Ресурс": "resources",
     "Свойство": "properties",
+    # В KD2 строка с Вид=Константа — описание константы; кладём в реквизиты объекта-владельца
+    # (набор или отдельная константа), как у документа, а не в отдельную группу.
+    "Константа": "requisites",
     "ВидыСубконтоСчета": "properties",
     "ЭлементСоставаПланаОбмена": "properties",
     "СоставПланаОбмена": "properties",
@@ -225,6 +234,25 @@ def _field_from_property(
     return out
 
 
+def _constant_bsl_hint_text(constant_name: str) -> str:
+    """Глобальный контекст 1С: ``Константы.<Имя>.Получить()`` / ``Установить()`` (набор в KD — группировка, не префикс в коде)."""
+    return (
+        f"Константы.{constant_name}.Получить() — значение; "
+        f"Константы.{constant_name}.Установить(Значение) — только там, где разрешено (часто сервер)"
+    )
+
+
+def _enrich_constant_bsl_hint(field: dict[str, Any], owner: ConfigObject) -> None:
+    """Подсказка по доступу к значению константы в BSL (имя из строки выгрузки / объекта)."""
+    if owner.object_type == "Constant":
+        cname = (owner.name or "").strip()
+    else:
+        cname = (field.get("name") or "").strip()
+    if not cname:
+        return
+    field["constant_bsl_hint"] = _constant_bsl_hint_text(cname)
+
+
 def _resolve_types(elem: Any, ref_index: dict[str, dict[str, str]]) -> list[str]:
     values: list[str] = []
     for child in list(elem):
@@ -301,7 +329,7 @@ def crawl_kd2_xml(path: str | Path) -> CrawlResult:
                 elem.clear()
                 continue
             obj = ConfigObject(
-                id=f"{object_type}/{name}",
+                id=make_metadata_object_id(object_type, name),
                 object_type=object_type,
                 name=name,
                 full_name=record.get("Синоним", "").strip() or None,
@@ -316,6 +344,7 @@ def crawl_kd2_xml(path: str | Path) -> CrawlResult:
                     "dimensions": [],
                     "resources": [],
                     "properties": [],
+                    "constants": [],
                     "values": [],
                 },
             )
@@ -346,6 +375,18 @@ def crawl_kd2_xml(path: str | Path) -> CrawlResult:
                     table_sections[parent_ref][1]["requisites"].append(field)
                 else:
                     group = _FIELD_KIND_TO_GROUP.get(kind, "properties")
+                    if owner.object_type == "ConstantsSet" and kind in (
+                        "Константа",
+                        "Реквизит",
+                        "Свойство",
+                    ):
+                        _enrich_constant_bsl_hint(field, owner)
+                    elif owner.object_type == "Constant" and kind in (
+                        "Реквизит",
+                        "Свойство",
+                        "Константа",
+                    ):
+                        _enrich_constant_bsl_hint(field, owner)
                     owner.attributes.setdefault(group, []).append(field)
 
         elif tag == "CatalogObject.Значения":
@@ -403,7 +444,7 @@ def write_kd2_snapshot(crawl: CrawlResult, output_dir: str | Path) -> dict[str, 
             }
             objects_fp.write(json.dumps(payload, ensure_ascii=False) + "\n")
             attrs = obj.attributes or {}
-            for group_name in ("requisites", "dimensions", "resources", "properties"):
+            for group_name in ("requisites", "dimensions", "resources", "properties", "constants"):
                 for field in attrs.get(group_name) or []:
                     fields_fp.write(
                         json.dumps(
@@ -457,7 +498,7 @@ def write_kd2_snapshot(crawl: CrawlResult, output_dir: str | Path) -> dict[str, 
                     field_count += 1
 
     manifest = {
-        "format": "onec_kd2_snapshot_v1",
+        "format": "onec_kd2_snapshot_v2",
         "config_name": crawl.config_name,
         "config_version": crawl.config_version,
         "platform_version": crawl.platform_version,
@@ -472,6 +513,12 @@ def load_kd2_snapshot(snapshot_dir: str | Path) -> CrawlResult:
     """Load compact snapshot written by write_kd2_snapshot back into CrawlResult."""
     base = Path(snapshot_dir).expanduser().resolve()
     manifest = json.loads((base / "manifest.json").read_text(encoding="utf-8"))
+    fmt = str(manifest.get("format") or "")
+    if fmt and fmt not in ("onec_kd2_snapshot_v1", "onec_kd2_snapshot_v2"):
+        raise ValueError(
+            f"Unsupported KD2 snapshot format {fmt!r} in {base}; "
+            "expected onec_kd2_snapshot_v2 (regenerate with kd2-snapshot-build)."
+        )
     objects: list[ConfigObject] = []
     with (base / "objects.jsonl").open("r", encoding="utf-8") as fp:
         for line in fp:

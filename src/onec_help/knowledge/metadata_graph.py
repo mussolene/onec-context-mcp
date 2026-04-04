@@ -17,6 +17,7 @@ from typing import Any, cast
 
 from ..shared import env_config
 from .config_crawler import ConfigObject, ConfigRelation, CrawlResult
+from .metadata_ids import legacy_slash_metadata_id_to_dot, make_metadata_object_id
 
 # Типы объектов метаданных по-русски (для понимания конфигурации и единообразия с справкой).
 _OBJECT_TYPE_RU: dict[str, str] = {
@@ -59,6 +60,8 @@ _OBJECT_TYPE_RU: dict[str, str] = {
     "Style": "Стиль",
     "Sequence": "Последовательность",
     "DocumentJournal": "Журнал документов",
+    "Constant": "Константа",
+    "ConstantsSet": "Набор констант",
     "ScheduledJob": "Регламентное задание",
     "ChartOfCharacteristicTypes": "План видов характеристик",
     "RegisterAccumulation": "Регистр накопления",  # old-style export alias
@@ -276,6 +279,19 @@ def _object_to_markdown(
     if obj.full_name:
         lines.append(f"\n**Представление:** {obj.full_name}")
     attrs = obj.attributes or {}
+    if obj.object_type == "Constant" and attrs.get("constant_bsl_hint"):
+        lines.append(f"\n**Доступ:** {attrs['constant_bsl_hint']}")
+    if obj.object_type == "ConstantsSet":
+        lines.append(
+            "\n**Константы:** в дереве метаданных набор только группирует имена; "
+            "каждая строка ниже — отдельная константа (как объект **Метаданные.Константы**). "
+            "В коде доступ без префикса набора: `Константы.<Имя>.Получить()` / `Установить(...)`."
+        )
+    if attrs.get("kd2_source_constants_set"):
+        lines.append(
+            f"\n**Примечание (выгрузка KD):** строка из набора «{attrs['kd2_source_constants_set']}»; "
+            "в конфигураторе это корневая коллекция **Метаданные.Константы**."
+        )
     obj_config_name = attrs.get("config_name") or crawl.config_name
     obj_config_version = attrs.get("config_version") or crawl.config_version
     lines.append(f"\n**Конфигурация:** {obj_config_name} (версия {obj_config_version})")
@@ -300,10 +316,12 @@ def _object_to_markdown(
             if isinstance(r, dict):
                 name = r.get("name") or ""
                 disp = format_requisite_type_display(r, append_raw_in_brackets=True)
+                hint = (r.get("constant_bsl_hint") or "").strip()
+                suffix = f" — {hint}" if hint else ""
                 if disp:
-                    lines.append(f"- {name}: {disp}")
+                    lines.append(f"- {name}: {disp}{suffix}")
                 else:
-                    lines.append(f"- {name}")
+                    lines.append(f"- {name}{suffix}")
 
     tabs = attrs.get("tabular_sections") or []
     if tabs:
@@ -653,6 +671,7 @@ _RRF_K = 60
 _SEARCH_METADATA_SUBSTRING_MAX_POINTS = 5_000
 
 _TYPE_FILTER_HINTS: dict[str, tuple[str, ...]] = {
+    "Constant": ("констант", "constant", "constants"),
     "Document": ("документ", "document"),
     "Catalog": ("справочник", "catalog"),
     "InformationRegister": ("регистр сведений", "informationregister"),
@@ -758,7 +777,7 @@ def _metadata_match_priority(payload: dict[str, Any], variants: list[str]) -> in
     return 3
 
 
-# Русские/английские префиксы → id в графе KD2/Qdrant (Document/Имя).
+# Русские/английские префиксы → канонический id в графе KD2/Qdrant (Document.Имя).
 # Единственное число — как в языке запросов (вирт. таблицы: Документ.Имя, Справочник.Имя).
 # Множественное — как коллекции в BSL (Метаданные.Документы.Имя, Метаданные.Справочники.Имя, …).
 _METADATA_DOT_PREFIX_TO_ID_PREFIX: dict[str, str] = {
@@ -813,6 +832,9 @@ _METADATA_DOT_PREFIX_TO_ID_PREFIX: dict[str, str] = {
     "Reports": "Report",
     "DataProcessors": "DataProcessor",
     "CommonModules": "CommonModule",
+    "Константы": "Constant",
+    "Константа": "Constant",
+    "Constants": "Constant",
 }
 
 _ENGLISH_METADATA_ID_PREFIXES: frozenset[str] = frozenset(
@@ -833,8 +855,22 @@ _ENGLISH_METADATA_ID_PREFIXES: frozenset[str] = frozenset(
         "Report",
         "DataProcessor",
         "CommonModule",
+        "Form",
+        "Constant",
+        "ConstantsSet",
     }
 )
+
+
+def _looks_like_english_dot_metadata_id(query: str) -> bool:
+    """True if query looks like canonical ``EnglishType.ObjectName`` (or ``Form.…``) for exact-first."""
+    q = (query or "").strip()
+    if "." not in q:
+        return False
+    prefix, _, rest = q.partition(".")
+    if not prefix or not rest:
+        return False
+    return prefix in _ENGLISH_METADATA_ID_PREFIXES
 
 
 def _collapse_dotted_path_segments(path: str) -> str:
@@ -882,8 +918,8 @@ def _metadata_object_name_from_accessor_rest(rest: str) -> str:
     return first
 
 
-def _metadata_slash_aliases_from_query(query: str) -> list[str]:
-    """Префикс типа (до первой точки) → id вида Document/ИмяОбъекта.
+def _metadata_canonical_id_aliases_from_query(query: str) -> list[str]:
+    """Префикс типа (до первой точки) → канонический id ``EnglishType.ObjectName``.
 
     Поддерживаются: язык запросов (Документ.Имя), коллекции BSL (Документы.Имя, Справочники.Имя),
     Метаданные.*/Metadata.*, EN-коллекции (Documents.Имя). Все сегменты после имени объекта (методы,
@@ -907,9 +943,9 @@ def _metadata_slash_aliases_from_query(query: str) -> list[str]:
     out: list[str] = []
     mapped = _METADATA_DOT_PREFIX_TO_ID_PREFIX.get(prefix)
     if mapped:
-        out.append(f"{mapped}/{object_name}")
+        out.append(make_metadata_object_id(mapped, object_name))
     if prefix in _ENGLISH_METADATA_ID_PREFIXES:
-        out.append(f"{prefix}/{object_name}")
+        out.append(make_metadata_object_id(prefix, object_name))
     return list(dict.fromkeys(out))
 
 
@@ -920,7 +956,9 @@ def _metadata_query_prefers_exact_first(query: str) -> bool:
         return False
     if "/" in q:
         return True
-    if _metadata_slash_aliases_from_query(q):
+    if _looks_like_english_dot_metadata_id(q):
+        return True
+    if _metadata_canonical_id_aliases_from_query(q):
         return True
     if " " in q:
         return False
@@ -938,8 +976,11 @@ def _normalized_metadata_exact_values(query: str) -> list[str]:
     for value in _metadata_query_variants(query):
         if value not in variants:
             variants.append(value)
-    for alias in _metadata_slash_aliases_from_query(raw):
+    for alias in _metadata_canonical_id_aliases_from_query(raw):
         variants.append(alias)
+    legacy = legacy_slash_metadata_id_to_dot(raw)
+    if legacy and legacy not in variants:
+        variants.append(legacy)
     deduped: list[str] = []
     seen: set[str] = set()
     for value in variants:
@@ -1035,7 +1076,14 @@ def _collect_field_values(payload: dict[str, Any]) -> list[dict[str, Any]]:
     """Flatten attributes for search_metadata_fields (aligned with kd2 fields.jsonl groups)."""
     attributes = payload.get("attributes") or {}
     values: list[dict[str, Any]] = []
-    for group_name in ("requisites", "dimensions", "resources", "properties", "commands"):
+    for group_name in (
+        "requisites",
+        "dimensions",
+        "resources",
+        "properties",
+        "constants",
+        "commands",
+    ):
         group = attributes.get(group_name)
         if not isinstance(group, list):
             continue
@@ -1390,6 +1438,16 @@ def search_metadata_by_name(
     return degraded[:limit]
 
 
+def _metadata_object_id_lookup_candidates(object_id: str) -> list[str]:
+    raw = (object_id or "").strip()
+    if not raw:
+        return []
+    alt = legacy_slash_metadata_id_to_dot(raw)
+    if alt and alt != raw:
+        return list(dict.fromkeys([raw, alt]))
+    return [raw]
+
+
 def get_metadata_object(
     object_id: str,
     *,
@@ -1400,6 +1458,7 @@ def get_metadata_object(
     """Return single metadata object payload by its id.
 
     If config_version is given, only the object from that configuration is returned.
+    Accepts legacy ``Type/Name`` ids as well as canonical ``Type.Name``.
     """
     if not object_id:
         return None
@@ -1409,28 +1468,32 @@ def get_metadata_object(
         return None
 
     client = client or _get_default_client()
-    must: list[Any] = [qmodels.FieldCondition(key="id", match=qmodels.MatchValue(value=object_id))]
-    if config_version and str(config_version).strip():
-        must.append(
-            qmodels.FieldCondition(
-                key="config_version",
-                match=qmodels.MatchValue(value=str(config_version).strip()),
+    cfg = str(config_version).strip() if config_version else ""
+    for candidate in _metadata_object_id_lookup_candidates(object_id):
+        must: list[Any] = [
+            qmodels.FieldCondition(key="id", match=qmodels.MatchValue(value=candidate))
+        ]
+        if cfg:
+            must.append(
+                qmodels.FieldCondition(
+                    key="config_version",
+                    match=qmodels.MatchValue(value=cfg),
+                )
             )
+        filt = qmodels.Filter(must=must)
+        points, _ = client.scroll(
+            collection_name=collection_name,
+            scroll_filter=filt,
+            limit=1,
+            offset=None,
         )
-    filt = qmodels.Filter(must=must)
-    points, _ = client.scroll(
-        collection_name=collection_name,
-        scroll_filter=filt,
-        limit=1,
-        offset=None,
-    )
-    if not points:
-        return None
-    pt = points[0]
-    payload = getattr(pt, "payload", None) or {}
-    if "id" not in payload:
-        payload["id"] = getattr(pt, "id", None)
-    return cast(dict[str, Any], payload)
+        if points:
+            pt = points[0]
+            payload = getattr(pt, "payload", None) or {}
+            if "id" not in payload:
+                payload["id"] = getattr(pt, "id", None)
+            return cast(dict[str, Any], payload)
+    return None
 
 
 # Note: search/read helpers (e.g. search_metadata_by_name, get_metadata_object)

@@ -152,8 +152,8 @@ def test_read_config_dump_info_extracts_requisites_and_tabular_sections(tmp_path
 
     result = _read_config_dump_info(tmp_path)
 
-    assert "Document/Sales" in result
-    data = result["Document/Sales"]
+    assert "Document.Sales" in result
+    data = result["Document.Sales"]
     assert len(data["requisites"]) == 2
     names = {r["name"] for r in data["requisites"]}
     assert names == {"Date", "Partner"}

@@ -225,7 +225,7 @@ def test_scan_metadata_source_stable_kd2_snapshot_dir(tmp_path: Path) -> None:
     snapshot_dir = tmp_path / "snapshot"
     snapshot_dir.mkdir()
     (snapshot_dir / "manifest.json").write_text(
-        '{"format":"onec_kd2_snapshot_v1"}', encoding="utf-8"
+        '{"format":"onec_kd2_snapshot_v2"}', encoding="utf-8"
     )
     (snapshot_dir / "objects.jsonl").write_text("{}", encoding="utf-8")
     (snapshot_dir / "fields.jsonl").write_text("{}", encoding="utf-8")
@@ -238,7 +238,7 @@ def test_scan_metadata_source_stable_kd2_workdir_includes_xml_and_snapshot(tmp_p
     work_dir = tmp_path / "kd2"
     work_dir.mkdir()
     (work_dir / "export.xml").write_text("<Конфигурация Имя='Cfg'/>", encoding="utf-8")
-    (work_dir / "manifest.json").write_text('{"format":"onec_kd2_snapshot_v1"}', encoding="utf-8")
+    (work_dir / "manifest.json").write_text('{"format":"onec_kd2_snapshot_v2"}', encoding="utf-8")
     (work_dir / "objects.jsonl").write_text("{}", encoding="utf-8")
     (work_dir / "fields.jsonl").write_text("{}", encoding="utf-8")
     out = _scan_metadata_source_stable(work_dir)

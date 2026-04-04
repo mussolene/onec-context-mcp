@@ -933,7 +933,7 @@ def test_mcp_tool_search_1c_metadata_exact_via_app(mock_search_meta, help_sample
     app = mcp_server._build_mcp_app(help_sample_dir)
     mock_search_meta.return_value = [
         {
-            "id": "Document/Sales",
+            "id": "Document.Sales",
             "config_name": "Cfg",
             "config_version": "1.0.0.0",
             "object_type": "Document",
@@ -960,7 +960,7 @@ def test_mcp_tool_search_1c_metadata_semantic_via_app(
     app = mcp_server._build_mcp_app(help_sample_dir)
     mock_search_meta.return_value = [
         {
-            "id": "Document/Sales",
+            "id": "Document.Sales",
             "config_name": "Cfg",
             "config_version": "1.0.0.0",
             "object_type": "Document",
@@ -992,7 +992,7 @@ def test_mcp_tool_search_1c_metadata_fields_via_app(
     app = mcp_server._build_mcp_app(help_sample_dir)
     mock_search_fields.return_value = [
         {
-            "object_id": "Document/Sales",
+            "object_id": "Document.Sales",
             "object_name": "Sales",
             "object_type": "Document",
             "config_version": "1.0.0.0",
@@ -1025,7 +1025,7 @@ def test_mcp_tool_get_1c_metadata_object_via_app(mock_get_meta, help_sample_dir:
     """Call get_1c_metadata_object tool via app."""
     app = mcp_server._build_mcp_app(help_sample_dir)
     mock_get_meta.return_value = {
-        "id": "Document/Sales",
+        "id": "Document.Sales",
         "object_type": "Document",
         "name": "Sales",
         "full_name": "Реализация",
@@ -1036,7 +1036,7 @@ def test_mcp_tool_get_1c_metadata_object_via_app(mock_get_meta, help_sample_dir:
     result = asyncio.run(
         app.call_tool(
             "get_1c_metadata_object",
-            {"object_id": "Document/Sales", "config_version": "1.0.0.0"},
+            {"object_id": "Document.Sales", "config_version": "1.0.0.0"},
         )
     )
     text = result.content[0].text if result.content else ""
@@ -1053,7 +1053,7 @@ def test_mcp_tool_get_1c_context_bundle_via_app(mock_build_ctx, help_sample_dir:
         "memory": [{"payload": {"title": "Snippet", "domain": "snippets", "description": "desc"}}],
         "metadata_objects": [
             {
-                "id": "Document/Sales",
+                "id": "Document.Sales",
                 "object_type": "Document",
                 "name": "Sales",
                 "full_name": "Реализация",
@@ -1098,7 +1098,7 @@ def test_mcp_tool_get_1c_task_context_via_app(mock_build_ctx, help_sample_dir: P
                 }
             }
         ],
-        "metadata_objects": [{"id": "Document/Sales", "object_type": "Document", "name": "Sales"}],
+        "metadata_objects": [{"id": "Document.Sales", "object_type": "Document", "name": "Sales"}],
     }
     result = asyncio.run(
         app.call_tool(

@@ -72,7 +72,7 @@ class FakeQdrantClient:
 
 def _dummy_crawl_for_build() -> CrawlResult:
     obj1 = ConfigObject(
-        id="Document/Sales",
+        id="Document.Sales",
         object_type="Document",
         name="Sales",
         full_name="Реализация товаров и услуг",
@@ -80,7 +80,7 @@ def _dummy_crawl_for_build() -> CrawlResult:
         attributes={},
     )
     obj2 = ConfigObject(
-        id="Catalog/Items",
+        id="Catalog.Items",
         object_type="Catalog",
         name="Items",
         full_name="Номенклатура",
@@ -172,7 +172,7 @@ def test_search_metadata_by_name_prefers_exact_lookup() -> None:
     pts = [
         P(
             {
-                "id": "Document/Sales",
+                "id": "Document.Sales",
                 "config_name": crawl.config_name,
                 "config_version": crawl.config_version,
                 "object_type": "Document",
@@ -183,7 +183,7 @@ def test_search_metadata_by_name_prefers_exact_lookup() -> None:
         ),
         P(
             {
-                "id": "Catalog/Items",
+                "id": "Catalog.Items",
                 "config_name": crawl.config_name,
                 "config_version": crawl.config_version,
                 "object_type": "Catalog",
@@ -199,7 +199,7 @@ def test_search_metadata_by_name_prefers_exact_lookup() -> None:
         "Items", type_filter="Catalog", config_version=crawl.config_version, client=client
     )
     assert len(results) == 1
-    assert results[0]["id"] == "Catalog/Items"
+    assert results[0]["id"] == "Catalog.Items"
 
 
 def test_get_metadata_object_uses_scroll() -> None:
@@ -215,7 +215,7 @@ def test_get_metadata_object_uses_scroll() -> None:
     pts = [
         P(
             {
-                "id": "Document/Sales",
+                "id": "Document.Sales",
                 "config_name": crawl.config_name,
                 "config_version": crawl.config_version,
                 "object_type": "Document",
@@ -229,7 +229,8 @@ def test_get_metadata_object_uses_scroll() -> None:
     obj = metadata_graph.get_metadata_object("Document/Sales", client=client)
     assert obj is not None
     assert obj["name"] == "Sales"
-    assert obj["id"] == "Document/Sales"
+    assert obj["id"] == "Document.Sales"
+    assert metadata_graph.get_metadata_object("Document.Sales", client=client)["id"] == "Document.Sales"
 
 
 def test_get_metadata_config_summaries_returns_pairs() -> None:

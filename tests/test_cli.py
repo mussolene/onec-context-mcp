@@ -284,13 +284,13 @@ def test_cmd_build_metadata_graph_kd2_xml(
         config_version="1.0.0.1",
         platform_version=None,
         objects=[
-            ConfigObject(id="Document/Sales", object_type="Document", name="Sales", attributes={})
+            ConfigObject(id="Document.Sales", object_type="Document", name="Sales", attributes={})
         ],
         relations=[],
     )
     mock_build_graph.return_value = 1
     mock_write_snapshot.return_value = {
-        "format": "onec_kd2_snapshot_v1",
+        "format": "onec_kd2_snapshot_v2",
         "objects": 1,
         "fields": 0,
     }
@@ -335,7 +335,7 @@ def test_cmd_build_metadata_graph_auto_merges_multiple_kd2_exports(
                 platform_version=None,
                 objects=[
                     ConfigObject(
-                        id="Document/A",
+                        id="Document.A",
                         object_type="Document",
                         name="A",
                         attributes={"config_version": "1.0"},
@@ -350,7 +350,7 @@ def test_cmd_build_metadata_graph_auto_merges_multiple_kd2_exports(
                 platform_version=None,
                 objects=[
                     ConfigObject(
-                        id="Document/B",
+                        id="Document.B",
                         object_type="Document",
                         name="B",
                         attributes={"config_version": "2.0"},
@@ -362,7 +362,7 @@ def test_cmd_build_metadata_graph_auto_merges_multiple_kd2_exports(
     ) as mock_crawl_xml:
         mock_build_graph.return_value = 2
         mock_write_snapshot.return_value = {
-            "format": "onec_kd2_snapshot_v1",
+            "format": "onec_kd2_snapshot_v2",
             "objects": 2,
             "fields": 0,
         }
@@ -402,13 +402,13 @@ def test_cmd_build_metadata_graph_auto_refreshes_snapshot_from_workdir(
         config_version="1.0.0.1",
         platform_version=None,
         objects=[
-            ConfigObject(id="Document/Sales", object_type="Document", name="Sales", attributes={})
+            ConfigObject(id="Document.Sales", object_type="Document", name="Sales", attributes={})
         ],
         relations=[],
     )
     mock_build_graph.return_value = 1
     mock_write_snapshot.return_value = {
-        "format": "onec_kd2_snapshot_v1",
+        "format": "onec_kd2_snapshot_v2",
         "objects": 1,
         "fields": 0,
     }
@@ -1509,7 +1509,7 @@ def test_cmd_build_metadata_graph_success(
         platform_version=None,
         objects=[
             ConfigObject(
-                id="Document/Test",
+                id="Document.Test",
                 object_type="Document",
                 name="Test",
             )

@@ -83,7 +83,7 @@ def test_node_payload_form_has_parent_id_document_has_form_ids() -> None:
     from pathlib import Path
 
     doc = ConfigObject(
-        id="Document/Sales",
+        id="Document.Sales",
         object_type="Document",
         name="Sales",
         full_name="Реализация",
@@ -91,12 +91,12 @@ def test_node_payload_form_has_parent_id_document_has_form_ids() -> None:
         attributes={},
     )
     form = ConfigObject(
-        id="Form/Document.Sales.ФормаДокумента",
+        id="Form.Document.Sales.ФормаДокумента",
         object_type="Form",
         name="ФормаДокумента",
         full_name="Форма документа",
         path="Documents/Sales/Forms/ФормаДокумента",
-        attributes={"parent_id": "Document/Sales", "form_requisites": []},
+        attributes={"parent_id": "Document.Sales", "form_requisites": []},
     )
     crawl = CrawlResult(
         root_dir=Path("/cfg"),
@@ -108,8 +108,8 @@ def test_node_payload_form_has_parent_id_document_has_form_ids() -> None:
     )
     doc_payload = _node_payload_from_object(doc, crawl)
     form_payload = _node_payload_from_object(form, crawl)
-    assert form_payload.get("parent_id") == "Document/Sales"
-    assert doc_payload.get("form_ids") == ["Form/Document.Sales.ФормаДокумента"]
+    assert form_payload.get("parent_id") == "Document.Sales"
+    assert doc_payload.get("form_ids") == ["Form.Document.Sales.ФормаДокумента"]
 
 
 def test_format_type_readable_russian_and_ref_types() -> None:
