@@ -36,6 +36,47 @@ def test_guess_type_filter_from_query() -> None:
     assert metadata_graph._guess_type_filter("произвольный запрос", None) is None
 
 
+def test_metadata_nl_word_variants_strips_type_hints() -> None:
+    v = metadata_graph._metadata_nl_word_variants("документ реализация товаров")
+    assert "реализация" in v
+    assert "товаров" in v
+    assert "документ" not in v
+
+
+def test_search_metadata_substring_multiword_prefers_name_matching_tokens() -> None:
+    """NL query: token «реализация» should match РеализацияТоваровУслуг, not unrelated «товар» docs."""
+    client = _DummyClient(
+        [
+            [
+                _point(
+                    "a",
+                    object_type="Document",
+                    name="ТоварнаяНакладная",
+                    full_name="",
+                    id="Document/A",
+                ),
+                _point(
+                    "b",
+                    object_type="Document",
+                    name="РеализацияТоваровУслуг",
+                    full_name="",
+                    id="Document/B",
+                ),
+            ]
+        ]
+    )
+    results = metadata_graph._search_metadata_substring(
+        client,
+        "onec_config_metadata",
+        "документ реализация товаров",
+        "Document",
+        filt=None,
+        limit=10,
+        max_points=100,
+    )
+    assert results[0]["name"] == "РеализацияТоваровУслуг"
+
+
 def test_search_metadata_substring_prefers_exact_then_startswith() -> None:
     client = _DummyClient(
         [

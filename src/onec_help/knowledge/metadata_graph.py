@@ -663,6 +663,61 @@ _TYPE_FILTER_HINTS: dict[str, tuple[str, ...]] = {
 }
 
 
+def _build_metadata_nl_stopwords() -> frozenset[str]:
+    """Words stripped from NL metadata queries before token substring matching."""
+    words: set[str] = set()
+    for object_type, hints in _TYPE_FILTER_HINTS.items():
+        words.add(object_type.lower())
+        for h in hints:
+            for part in h.replace("_", " ").split():
+                pl = part.strip().lower()
+                if len(pl) >= 3:
+                    words.add(pl)
+    words.update(
+        {
+            "метаданные",
+            "metadata",
+            "объект",
+            "object",
+            "найти",
+            "нужен",
+            "нужна",
+            "нужно",
+            "where",
+            "find",
+            "the",
+            "and",
+            "for",
+        }
+    )
+    return frozenset(words)
+
+
+_METADATA_NL_STOPWORDS: frozenset[str] = _build_metadata_nl_stopwords()
+
+
+def _metadata_nl_word_variants(query: str) -> list[str]:
+    """Significant tokens from a multi-word phrase for name/full_name substring match.
+
+    Vector search often ranks the wrong «товарный» document; matching e.g. «реализация»
+    inside **РеализацияТоваровУслуг** fixes NL queries like «документ реализация товаров».
+    """
+    q = (query or "").strip().lower()
+    if not q or " " not in q:
+        return []
+    raw_tokens = re.findall(r"[\w\dА-Яа-яЁё]+", q)
+    out: list[str] = []
+    seen: set[str] = set()
+    for tok in raw_tokens:
+        t = tok.strip().lower()
+        if len(t) < 4 or t in _METADATA_NL_STOPWORDS:
+            continue
+        if t not in seen:
+            seen.add(t)
+            out.append(t)
+    return out
+
+
 def _guess_type_filter(query: str, type_filter: str | None) -> str | None:
     if type_filter:
         return type_filter
@@ -1104,6 +1159,21 @@ def search_metadata_semantic(
         type_filter=effective_type_filter,
         qmodels=qmodels,
     )
+    # NL phrases: prepend token-based substring hits so embedding order does not hide the right object.
+    substring_prepend: list[dict[str, Any]] = []
+    if q and " " in q:
+        try:
+            substring_prepend = _search_metadata_substring(
+                client,
+                collection_name,
+                q,
+                effective_type_filter,
+                filt,
+                limit=min(limit, 30),
+                max_points=min(_SEARCH_METADATA_SUBSTRING_MAX_POINTS, 6000),
+            )
+        except Exception:
+            substring_prepend = []
     try:
         from ..search_store import embedding
         from ..search_store.indexer import get_collection_vector_size
@@ -1114,7 +1184,7 @@ def search_metadata_semantic(
             qdrant_port=env_config.get_qdrant_port(),
         )
         if not client.collection_exists(collection_name) or coll_dim is None:
-            return exact_first[:limit]
+            return _unique_metadata_items(exact_first + substring_prepend, limit)
         vector = query_vector
         if vector is None or len(vector) != coll_dim:
             vector = embedding.get_embedding(q, target_dimension=coll_dim)
@@ -1131,9 +1201,9 @@ def search_metadata_semantic(
             kwargs["query_vector"] = vector
             hits = client.search(**kwargs)
         semantic = [_payload_from_point(hit) for hit in hits]
-        return _unique_metadata_items(exact_first + semantic, limit)
+        return _unique_metadata_items(exact_first + substring_prepend + semantic, limit)
     except Exception:
-        return exact_first[:limit]
+        return _unique_metadata_items(exact_first + substring_prepend, limit)
 
 
 def search_metadata_fields(
@@ -1214,7 +1284,11 @@ def _search_metadata_substring(
     max_points: int = _SEARCH_METADATA_SUBSTRING_MAX_POINTS,
 ) -> list[dict[str, Any]]:
     """Scroll + substring match by name/full_name. Stops after max_points to avoid slow full scan."""
-    variants = _metadata_query_variants(q)
+    base_variants = _metadata_query_variants(q)
+    if " " in (q or "").strip():
+        variants = list(dict.fromkeys(base_variants + _metadata_nl_word_variants(q)))
+    else:
+        variants = base_variants
     exact: list[dict[str, Any]] = []
     startswith: list[dict[str, Any]] = []
     contains: list[dict[str, Any]] = []
