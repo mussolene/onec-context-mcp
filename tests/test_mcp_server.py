@@ -28,6 +28,17 @@ def test_snippet_max_chars_from_env() -> None:
         assert mcp_server._snippet_max_chars() == 5000
 
 
+def test_normalize_api_related_items_dedupes_and_drops_crumbs() -> None:
+    raw = [
+        {"target_name": "Foo", "link_kind": "see_also"},
+        {"target_name": "Foo", "link_kind": "see_also"},
+        {"target_name": ", метод", "link_kind": "see_also"},
+        {"target_name": "Bar", "link_kind": "see_also"},
+    ]
+    out = mcp_server._normalize_api_related_items(raw)
+    assert [x["target_name"] for x in out] == ["Foo", "Bar"]
+
+
 def test_max_topic_content_chars_default() -> None:
     """_max_topic_content_chars returns default 4000 when env unset."""
     assert 500 <= mcp_server._max_topic_content_chars() <= 50000

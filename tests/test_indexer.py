@@ -910,6 +910,25 @@ def test_pick_best_path_for_compare_prefers_non_untitled() -> None:
     )  # fallback when only option
 
 
+def test_pick_best_path_for_compare_prefers_object_page_over_method_stub() -> None:
+    """Object/topic HTML wins over .../methods/... when comparing by type name."""
+    results = [
+        {
+            "path": "8.3/shcntx_ru/objects/cat/DataCompositionSchema/methods/Default5421.html",
+            "title": "По умолчанию",
+            "name": "СхемаКомпоновкиДанных",
+        },
+        {
+            "path": "8.3/shcntx_ru/objects/cat/DataCompositionSchema/DataCompositionSchema.html",
+            "title": "Схема компоновки данных",
+            "name": "СхемаКомпоновкиДанных",
+        },
+    ]
+    picked = _pick_best_path_for_compare(results, query="СхемаКомпоновкиДанных")
+    assert "methods" not in picked
+    assert picked.endswith("DataCompositionSchema.html")
+
+
 @patch("onec_help.search_store.indexer.get_topic_content")
 @patch("onec_help.search_store.indexer.QdrantClient")
 def test_compare_1c_help_with_path(mock_client: MagicMock, mock_get_content: MagicMock) -> None:

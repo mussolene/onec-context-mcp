@@ -30,6 +30,9 @@
 | **search_1c_metadata_exact** | `query`, при нескольких конфигурациях — `config_version` | — |
 | **search_1c_metadata_semantic** | `query`, при нескольких конфигурациях — `config_version` | — |
 | **search_1c_metadata_fields** | `object_query`, `field_query`, при нескольких конфигурациях — `config_version` | — |
+| **get_1c_context_bundle** | `query`, `config_version`, `file_uri`, `symbol_name`, `limit` | Нет параметров `domains`, `metadata_limit` (устарели в клиентских схемах). |
+| **get_module_info** | `uri_or_path` | Не `module_name` / `symbol`. |
+| **get_form_metadata** | `xml_content` (сырой XML Form.xml) | Не `form_uri`. |
 
 Основной публичный broad-search параметр теперь только `query` у `search_1c_api`.
 
@@ -42,7 +45,7 @@
 | **search_1c_api** | `query`, `limit=10`, `version`, `language`, `include_examples=True` | Широкий structured lookup по `api_members`, `api_objects` и официальным примерам. | query до 64 KB. Основной broad-search route вместо topic-layer search. |
 | **get_1c_api_answer** | `name`, `version=None`, `language=None`, `detail="compact"` | Compact exact-first ответ по точному API/функции/методу. | Первый выбор для `Тип.Метод`; `detail="full"` возвращает enriched structured payload. |
 | **get_1c_api_object** | `name`, `version=None`, `language=None` | Structured API object/type из `onec_help_api_objects`. | Low-token truth-source для агента и отладки exact API route. |
-| **answer_1c_help_question** | `question`, `version=None`, `language=None`, `detail="compact"` | Естественный вопрос по справке через structured DB-first route. | Первый выбор для вопросов вида «с какой версии», «доступно ли», «как использовать». |
+| **answer_1c_help_question** | `question`, `version=None`, `language=None`, `detail="compact"` | Естественный вопрос по справке через structured DB-first route; вопросы про **СКД/компоновку** дополнительно маршрутизируются в structured API search. | Пустые тела примеров в индексе не выводятся как пустой блок `bsl`. |
 | **search_1c_official_examples** | `query`, `limit=5`, `version=None`, `language=None` | Только официальные примеры из платформенной справки. | Не смешивает snippets, standards и community_help. |
 | **search_1c_standards** | `query`, `limit=5` | Поиск только по стандартам в памяти (v8std, v8-code-style, ITS). | Первый выбор для style/rule вопросов. |
 | **search_1c_snippets** | `query`, `limit=5` | Поиск только по примерам кода и snippets/community_help. | Первый выбор для code examples. |
@@ -67,7 +70,9 @@
 
 Работают после построения графа метаданных: выгрузка в ONEC_CONFIG_SOURCE_DIR и команда `metadata-graph-build` (или watchdog). При пустом графе инструменты возвращают пустой результат или «not found»; проверка: `get_1c_help_index_status` показывает коллекцию **onec_config_metadata**.
 
-**Поиск:** `search_1c_metadata_exact` делает exact-first lookup по `id`, `name`, `full_name`, `path` внутри `config_version`. `search_1c_metadata_semantic` использует только векторный поиск для natural-language запросов. `search_1c_metadata_fields` ищет реквизиты/табличные части/команды внутри найденных объектов.
+**Поиск:** `search_1c_metadata_exact` делает exact-first lookup по `id`, `name`, `full_name`, `path` внутри `config_version`. Дополнительно строка вида **«Документ.Имя»** / **«Справочник.Имя»** (как в языке запросов 1С) нормализуется к id **`Document/Имя`**, **`Catalog/Имя`** и т.д. `search_1c_metadata_semantic` сочетает векторный поиск с prepended exact для коротких имён объектов и путей `Type/Name`; для узкого поиска задавайте **`object_type`** (например `Document`). `search_1c_metadata_fields` ищет по **имени или синониму поля** в реквизитах, измерениях/ресурсах регистров, стандартных свойствах, колонках табличных частей и командах.
+
+**Переиндексация метаданных (Qdrant `onec_config_metadata`):** после исправлений, которые **только читают** уже записанный в payload `attributes` (например логика полей в `search_1c_metadata_fields`), полная пересборка графа **не обязательна**. Пересборка **`metadata-graph-build`** нужна при изменении текста для эмбеддинга, схемы payload, отдельной коллекции полей или источника выгрузки.
 
 **config_version:** при сборке графа версия берётся из `config.json` в корне выгрузки (ключ `config_version`); при отсутствии — `"0.0.0.0"`. В логе `metadata-graph-build` выводится строка `use config_version='...'` для metadata tools. В вызовах можно передавать эту версию; **если в коллекции только одна версия**, параметр `config_version` можно не передавать — подставится автоматически. Иначе нужно указать версию или убедиться, что в графе одна версия.
 

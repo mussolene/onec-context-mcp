@@ -2061,6 +2061,25 @@ def _path_without_version_prefix(path: str) -> str:
     return _VERSION_PREFIX_RE.sub("", path, count=1).lstrip("/") or path
 
 
+def _is_help_member_stub_path(path: str) -> bool:
+    """True for per-member HTML (constructors/methods) — often low signal for type-level compare."""
+    pl = (path or "").lower()
+    return "/methods/" in pl or "/properties/" in pl or "/constructors/" in pl
+
+
+def _ordered_compare_candidates(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Prefer object/topic pages over member stubs when both appear in search hits."""
+    primary: list[dict[str, Any]] = []
+    secondary: list[dict[str, Any]] = []
+    for r in results:
+        p = (r.get("path") or "").strip()
+        if _is_help_member_stub_path(p):
+            secondary.append(r)
+        else:
+            primary.append(r)
+    return primary + secondary
+
+
 def _pick_best_path_for_compare(
     results: list[dict[str, Any]], query: str | None = None
 ) -> str | None:
@@ -2069,20 +2088,21 @@ def _pick_best_path_for_compare(
         return None
     untitled_lower = "untitled"
     query_lower = (query or "").strip().lower()
+    ordered = _ordered_compare_candidates(results)
 
     # First priority: exact name match
     if query_lower:
-        for r in results:
+        for r in ordered:
             name = (r.get("name") or "").strip().lower()
             if name == query_lower:
                 p = (r.get("path") or "").strip()
-                if p and ".html" in p or ".md" in p:
+                if p and (".html" in p or ".md" in p):
                     title = (r.get("title") or "").strip()
                     if title.lower() != untitled_lower:
                         return p
 
     # Second: any name match with .html/.md and meaningful title
-    for r in results:
+    for r in ordered:
         p = (r.get("path") or "").strip()
         if not p:
             continue
@@ -2093,7 +2113,7 @@ def _pick_best_path_for_compare(
             return p
 
     # Third: any with meaningful title
-    for r in results:
+    for r in ordered:
         p = (r.get("path") or "").strip()
         if not p:
             continue

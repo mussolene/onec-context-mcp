@@ -286,6 +286,33 @@ def _get_api_related(
     return get_api_related(name, version=version, language=language)
 
 
+def _normalize_api_related_items(
+    items: list[dict[str, Any]], *, max_items: int = 50
+) -> list[dict[str, Any]]:
+    """Dedupe see-also links and drop parser crumbs (e.g. ", метод")."""
+    seen: set[tuple[str, str]] = set()
+    out: list[dict[str, Any]] = []
+    for item in items:
+        target = str(item.get("target_name") or "").strip()
+        if not target:
+            continue
+        if re.match(r"^,\s*(метод|свойство|конструктор)\b", target, flags=re.IGNORECASE):
+            continue
+        if target.startswith(",") and len(target) < 32:
+            continue
+        if len(target) <= 2 and not any(c.isalnum() for c in target):
+            continue
+        kind = str(item.get("link_kind") or "related")
+        key = (target.lower(), kind.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(item)
+        if len(out) >= max_items:
+            break
+    return out
+
+
 def _write_snippet_to_file(
     base_dir: Path,
     code_snippet: str,
@@ -857,6 +884,59 @@ def _search_help_question_candidates(
     return _dedup_structured_hits(items)
 
 
+_DCS_HELP_ROUTE_MARKERS = (
+    "скд",
+    "системыкомпоновки",
+    "компоновк",
+    "схемакомпоновкиданных",
+    "процессоркомпоновки",
+    "процессорвывода",
+    "наборданныхзапрос",
+    "макеткомпоновки",
+    "компоновщикмакета",
+    "компоновщикнастроек",
+)
+
+
+def _question_needs_dcs_structured_route(question: str) -> bool:
+    q = re.sub(r"\s+", "", (question or "").lower())
+    return any(m in q for m in _DCS_HELP_ROUTE_MARKERS)
+
+
+def _answer_help_via_dcs_structured_search(
+    question_clean: str,
+    *,
+    version: str | None,
+    language: str | None,
+    detail: str,
+) -> str | None:
+    """Prefer structured API search for data composition (СКД) questions."""
+    if not _question_needs_dcs_structured_route(question_clean):
+        return None
+    search_q = question_clean
+    ql = question_clean.lower()
+    if "скд" in ql and "компонов" not in ql:
+        search_q = f"компоновка данных {question_clean}"
+    routed = _dedup_structured_hits(
+        sorted(
+            _search_api_members(search_q, limit=10, version=version, language=language)
+            + _search_api_objects(search_q, limit=6, version=version, language=language),
+            key=lambda item: _structured_api_sort_key(search_q, item),
+        )
+    )
+    if not routed:
+        return None
+    best = routed[0]
+    fact = _extract_fact_from_structured(best, "general", detail=detail)
+    if not fact:
+        return None
+    return _format_question_answer(
+        question_clean,
+        answer=fact,
+        candidate=best,
+    )
+
+
 def _extract_markdown_heading_section(content: str, headings: tuple[str, ...]) -> str:
     if not content:
         return ""
@@ -1259,7 +1339,9 @@ def _build_mcp_app(help_path: Path) -> Any:
             return err
         if not name_clean:
             return "Provide API name, for example HTTPСоединение.Получить."
-        related = _get_api_related(name_clean, version=version, language=language)
+        related = _normalize_api_related_items(
+            _get_api_related(name_clean, version=version, language=language)
+        )
         if not related:
             return f"No related API links found for «{name_clean}»."
         lines = [f"Related API for **{name_clean}**:"]
@@ -1297,7 +1379,13 @@ def _build_mcp_app(help_path: Path) -> Any:
             lines.append(f"{idx}. **{title}** (path: {path})")
             if item.get("description"):
                 lines.append(f"   {item.get('description')}")
-            lines.append(f"```bsl\n{_compact_code(str(item.get('code') or ''), 1200)}\n```")
+            code_raw = str(item.get("code") or "").strip()
+            if len(code_raw) >= 3:
+                lines.append(f"```bsl\n{_compact_code(code_raw, 1200)}\n```")
+            else:
+                lines.append(
+                    "   (тело примера отсутствует в индексе; откройте topic по path или пересоберите structured help)"
+                )
         return "\n".join(lines)
 
     @mcp.tool()
@@ -1333,19 +1421,30 @@ def _build_mcp_app(help_path: Path) -> Any:
             if examples:
                 best = examples[0]
                 description = str(best.get("description") or "").strip()
-                code = _compact_code(str(best.get("code") or ""), 1200)
-                answer = description or "Найден официальный пример."
-                return _format_question_answer(
-                    question_clean,
-                    answer=f"{answer}\n\n```bsl\n{code}\n```",
-                    candidate={
-                        "full_name": best.get("full_name")
-                        or best.get("api_name")
-                        or best.get("title"),
-                        "version": best.get("version"),
-                        "topic_path": best.get("topic_path"),
-                    },
-                )
+                code_raw = str(best.get("code") or "").strip()
+                if len(code_raw) >= 5:
+                    code = _compact_code(code_raw, 1200)
+                    answer = description or "Найден официальный пример."
+                    return _format_question_answer(
+                        question_clean,
+                        answer=f"{answer}\n\n```bsl\n{code}\n```",
+                        candidate={
+                            "full_name": best.get("full_name")
+                            or best.get("api_name")
+                            or best.get("title"),
+                            "version": best.get("version"),
+                            "topic_path": best.get("topic_path"),
+                        },
+                    )
+
+        dcs_answer = _answer_help_via_dcs_structured_search(
+            question_clean,
+            version=version,
+            language=language,
+            detail=detail,
+        )
+        if dcs_answer:
+            return dcs_answer
 
         candidates = sorted(
             _search_help_question_candidates(
@@ -1747,7 +1846,8 @@ def _build_mcp_app(help_path: Path) -> Any:
         object_type: str | None = None,
         limit: int = 20,
     ) -> str:
-        """Exact-first metadata lookup by id/name/full_name/path."""
+        """Exact-first metadata lookup by id/name/full_name/path.
+        Also accepts query-language style: Документ.Имя / Справочник.Имя → resolved to Document/Имя, Catalog/Имя."""
         err = _check_rate_limit()
         if err:
             return err
@@ -1782,7 +1882,8 @@ def _build_mcp_app(help_path: Path) -> Any:
         object_type: str | None = None,
         limit: int = 20,
     ) -> str:
-        """Semantic metadata lookup for natural-language queries."""
+        """Semantic metadata lookup for natural-language queries.
+        Pass object_type (e.g. Document, Catalog) to narrow results. For object names or Type/Name, exact matches are prepended before vector search."""
         err = _check_rate_limit()
         if err:
             return err
@@ -1819,7 +1920,8 @@ def _build_mcp_app(help_path: Path) -> Any:
         limit: int = 10,
         exact_object_first: bool = True,
     ) -> str:
-        """Search requisites/tabular sections/commands inside matched metadata objects."""
+        """Search fields inside matched metadata objects: requisites, register dimensions/resources,
+        standard properties, tabular section columns, commands. field_query matches field name or synonym."""
         err = _check_rate_limit()
         if err:
             return err
@@ -1876,6 +1978,9 @@ def _build_mcp_app(help_path: Path) -> Any:
                 line += f" — {field_synonym}"
             if field_type:
                 line += f" — {field_type}"
+            ts = item.get("field_tabular_section") or ""
+            if ts:
+                line += f" [ТЧ: `{ts}`]"
             object_id = item.get("object_id") or ""
             if object_id:
                 line += f" (object_id: `{object_id}`)"

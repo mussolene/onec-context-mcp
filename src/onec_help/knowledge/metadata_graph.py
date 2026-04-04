@@ -703,6 +703,78 @@ def _metadata_match_priority(payload: dict[str, Any], variants: list[str]) -> in
     return 3
 
 
+# Русские/английские префиксы как в языке запросов 1С (Документ.Имя) → id в графе (Document/Имя).
+_METADATA_DOT_PREFIX_TO_ID_PREFIX: dict[str, str] = {
+    "Документ": "Document",
+    "Справочник": "Catalog",
+    "Перечисление": "Enum",
+    "РегистрСведений": "InformationRegister",
+    "РегистрНакопления": "AccumulationRegister",
+    "РегистрБухгалтерии": "AccountingRegister",
+    "РегистрРасчета": "CalculationRegister",
+    "ПланСчетов": "ChartOfAccounts",
+    "ПланВидовХарактеристик": "ChartOfCharacteristicTypes",
+    "ПланВидовРасчета": "ChartOfCalculationTypes",
+    "ПланОбмена": "ExchangePlan",
+    "БизнесПроцесс": "BusinessProcess",
+    "Задача": "Task",
+}
+
+_ENGLISH_METADATA_ID_PREFIXES: frozenset[str] = frozenset(
+    {
+        "Document",
+        "Catalog",
+        "Enum",
+        "InformationRegister",
+        "AccumulationRegister",
+        "AccountingRegister",
+        "CalculationRegister",
+        "ChartOfAccounts",
+        "ChartOfCharacteristicTypes",
+        "ChartOfCalculationTypes",
+        "ExchangePlan",
+        "BusinessProcess",
+        "Task",
+        "Report",
+        "DataProcessor",
+        "CommonModule",
+    }
+)
+
+
+def _metadata_slash_aliases_from_query(query: str) -> list[str]:
+    """Документ.РеализацияТоваровУслуг → Document/РеализацияТоваровУслуг; Document.X уже с слэшем."""
+    q = (query or "").strip()
+    if "." not in q:
+        return []
+    prefix, _, suffix = q.partition(".")
+    prefix = prefix.strip()
+    suffix = suffix.strip()
+    if not prefix or not suffix:
+        return []
+    out: list[str] = []
+    mapped = _METADATA_DOT_PREFIX_TO_ID_PREFIX.get(prefix)
+    if mapped:
+        out.append(f"{mapped}/{suffix}")
+    if prefix in _ENGLISH_METADATA_ID_PREFIXES:
+        out.append(f"{prefix}/{suffix}")
+    return list(dict.fromkeys(out))
+
+
+def _metadata_query_prefers_exact_first(query: str) -> bool:
+    """Семантика шумит на коротких именах объектов — сначала exact/id."""
+    q = (query or "").strip()
+    if not q:
+        return False
+    if "/" in q:
+        return True
+    if _metadata_slash_aliases_from_query(q):
+        return True
+    if " " in q:
+        return False
+    return bool(re.fullmatch(r"[\wА-Яа-яЁё][\wА-Яа-яЁё0-9]*", q))
+
+
 def _normalized_metadata_exact_values(query: str) -> list[str]:
     raw = (query or "").strip()
     variants: list[str] = []
@@ -714,6 +786,8 @@ def _normalized_metadata_exact_values(query: str) -> list[str]:
     for value in _metadata_query_variants(query):
         if value not in variants:
             variants.append(value)
+    for alias in _metadata_slash_aliases_from_query(raw):
+        variants.append(alias)
     deduped: list[str] = []
     seen: set[str] = set()
     for value in variants:
@@ -806,15 +880,35 @@ def _exact_field_matches(
 
 
 def _collect_field_values(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Flatten attributes for search_metadata_fields (aligned with kd2 fields.jsonl groups)."""
     attributes = payload.get("attributes") or {}
     values: list[dict[str, Any]] = []
-    for group_name in ("requisites", "tabular_sections", "commands"):
+    for group_name in ("requisites", "dimensions", "resources", "properties", "commands"):
         group = attributes.get(group_name)
         if not isinstance(group, list):
             continue
         for item in group:
             if isinstance(item, dict):
                 values.append({"group": group_name, **item})
+    tabs = attributes.get("tabular_sections")
+    if isinstance(tabs, list):
+        for section in tabs:
+            if not isinstance(section, dict):
+                continue
+            values.append(
+                {
+                    "group": "tabular_sections",
+                    "name": section.get("name", ""),
+                    "synonym": section.get("synonym", ""),
+                    "kind": "ТабличнаяЧасть",
+                }
+            )
+            ts_name = section.get("name", "")
+            for field in section.get("requisites") or []:
+                if isinstance(field, dict):
+                    values.append(
+                        {"group": "tabular_section_requisites", "tabular_section": ts_name, **field}
+                    )
     return values
 
 
@@ -898,6 +992,16 @@ def search_metadata_semantic(
     if not q and not query_vector:
         return []
     effective_type_filter = _guess_type_filter(q, type_filter)
+    exact_first: list[dict[str, Any]] = []
+    if q and _metadata_query_prefers_exact_first(q):
+        exact_first = search_metadata_exact(
+            q,
+            type_filter,
+            config_version,
+            client=client,
+            collection_name=collection_name,
+            limit=limit,
+        )
     filt = _base_metadata_filter(
         config_version=config_version,
         type_filter=effective_type_filter,
@@ -913,7 +1017,7 @@ def search_metadata_semantic(
             qdrant_port=env_config.get_qdrant_port(),
         )
         if not client.collection_exists(collection_name) or coll_dim is None:
-            return []
+            return exact_first[:limit]
         vector = query_vector
         if vector is None or len(vector) != coll_dim:
             vector = embedding.get_embedding(q, target_dimension=coll_dim)
@@ -929,9 +1033,10 @@ def search_metadata_semantic(
         else:
             kwargs["query_vector"] = vector
             hits = client.search(**kwargs)
-        return [_payload_from_point(hit) for hit in hits]
+        semantic = [_payload_from_point(hit) for hit in hits]
+        return _unique_metadata_items(exact_first + semantic, limit)
     except Exception:
-        return []
+        return exact_first[:limit]
 
 
 def search_metadata_fields(
@@ -988,6 +1093,7 @@ def search_metadata_fields(
                         "field_name": field_payload.get("name", ""),
                         "field_synonym": field_payload.get("synonym", ""),
                         "field_type": format_requisite_type_display(field_payload),
+                        "field_tabular_section": field_payload.get("tabular_section") or "",
                     },
                 )
             )

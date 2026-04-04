@@ -128,3 +128,115 @@ def test_search_metadata_fields_finds_requisite_in_exact_object() -> None:
     assert len(results) == 1
     assert results[0]["object_id"] == "Document/РеализацияТоваровУслуг"
     assert results[0]["field_name"] == "Организация"
+
+
+def test_metadata_slash_aliases_from_dot_query() -> None:
+    assert "Document/РеализацияТоваровУслуг" in metadata_graph._metadata_slash_aliases_from_query(
+        "Документ.РеализацияТоваровУслуг"
+    )
+    assert "Document/Foo" in metadata_graph._metadata_slash_aliases_from_query("Document.Foo")
+    assert metadata_graph._metadata_slash_aliases_from_query("no_dot") == []
+
+
+def test_search_metadata_fields_finds_tabular_requisite() -> None:
+    class _TabClient(_DummyClient):
+        def __init__(self):
+            super().__init__(
+                [
+                    [
+                        _point(
+                            "Document/РеализацияТоваровУслуг",
+                            config_version="3.0.184.16",
+                            object_type="Document",
+                            id="Document/РеализацияТоваровУслуг",
+                            name="РеализацияТоваровУслуг",
+                            full_name="Реализация",
+                            attributes={
+                                "tabular_sections": [
+                                    {
+                                        "name": "Товары",
+                                        "synonym": "Товары",
+                                        "requisites": [
+                                            {
+                                                "name": "Номенклатура",
+                                                "synonym": "Номенклатура",
+                                                "type": "cfg:CatalogRef.Номенклатура",
+                                            }
+                                        ],
+                                    }
+                                ]
+                            },
+                        )
+                    ]
+                ]
+            )
+
+    results = metadata_graph.search_metadata_fields(
+        "РеализацияТоваровУслуг",
+        "Номенклатура",
+        config_version="3.0.184.16",
+        client=_TabClient(),
+    )
+    assert len(results) == 1
+    assert results[0]["field_name"] == "Номенклатура"
+    assert results[0]["field_tabular_section"] == "Товары"
+    assert results[0]["field_group"] == "tabular_section_requisites"
+
+
+def test_search_metadata_fields_finds_register_dimension() -> None:
+    class _RegClient(_DummyClient):
+        def __init__(self):
+            super().__init__(
+                [
+                    [
+                        _point(
+                            "InformationRegister/Тест",
+                            config_version="3.0.184.16",
+                            object_type="InformationRegister",
+                            id="InformationRegister/Тест",
+                            name="Тест",
+                            attributes={
+                                "dimensions": [
+                                    {"name": "Измерение1", "synonym": "Изм", "type": "Строка"}
+                                ],
+                                "resources": [{"name": "Ресурс1", "synonym": "", "type": "Число"}],
+                            },
+                        )
+                    ]
+                ]
+            )
+
+    r1 = metadata_graph.search_metadata_fields(
+        "Тест", "Измерение1", config_version="3.0.184.16", client=_RegClient()
+    )
+    assert len(r1) == 1
+    assert r1[0]["field_group"] == "dimensions"
+    r2 = metadata_graph.search_metadata_fields(
+        "Тест", "Ресурс1", config_version="3.0.184.16", client=_RegClient()
+    )
+    assert r2[0]["field_group"] == "resources"
+
+
+def test_search_metadata_exact_accepts_dot_notation() -> None:
+    client = _DummyClient(
+        [
+            [
+                _point(
+                    "Document/РеализацияТоваровУслуг",
+                    config_version="3.0.184.16",
+                    object_type="Document",
+                    id="Document/РеализацияТоваровУслуг",
+                    name="РеализацияТоваровУслуг",
+                    full_name="Реализация",
+                )
+            ]
+        ]
+    )
+    results = metadata_graph.search_metadata_exact(
+        "Документ.РеализацияТоваровУслуг",
+        None,
+        "3.0.184.16",
+        client=client,
+    )
+    assert len(results) == 1
+    assert results[0]["id"] == "Document/РеализацияТоваровУслуг"
