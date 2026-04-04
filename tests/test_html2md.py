@@ -249,6 +249,48 @@ def test_html_to_md_fallback_body_text(tmp_path: Path) -> None:
     assert "Only Title" in md
 
 
+def test_extract_v8sh_sections_platform_since_and_page_descriptor() -> None:
+    """Использование в версии ≠ Доступность; дескриптор [kind, ver] под h1 — отдельно."""
+    soup = BeautifulSoup(
+        """<html><body>
+        <h1 class="V8SH_pagetitle">Foo.Бар</h1>
+        <p>[method, 8.3.13.1513]</p>
+        <p class="V8SH_chapter">Описание:</p><p>Текст.</p>
+        <p class="V8SH_chapter">Использование в версии</p>
+        <p class="V8SH_versionInfo">Доступен начиная с 8.3.13.</p>
+        <p class="V8SH_chapter">Доступность:</p>
+        <p>Сервер.</p>
+        </body></html>""",
+        "html.parser",
+    )
+    sections = extract_v8sh_sections(soup)
+    assert sections["page_descriptor"] == "[method, 8.3.13.1513]"
+    assert "8.3.13" in sections["version"]
+    assert sections["availability"] == "Сервер."
+
+
+def test_html_to_md_includes_page_descriptor_and_usage_version_sections(tmp_path: Path) -> None:
+    f = tmp_path / "ver.html"
+    f.write_text(
+        """<html><body>
+        <h1 class="V8SH_pagetitle">Foo.Бар</h1>
+        <p>[property, 8.2.19.130]</p>
+        <p class="V8SH_chapter">Описание:</p><p>О.</p>
+        <p class="V8SH_chapter">Использование в версии</p>
+        <p class="V8SH_versionInfo">С 8.2.</p>
+        <p class="V8SH_chapter">Доступность:</p>
+        <p>Толстый клиент.</p>
+        </body></html>""",
+        encoding="utf-8",
+    )
+    md = html_to_md_content(f)
+    assert "[property, 8.2.19.130]" in md
+    assert "## Использование в версии" in md
+    assert "С 8.2." in md
+    assert "## Доступность" in md
+    assert "Толстый клиент." in md
+
+
 def test_extract_v8sh_sections_handles_div_based_legacy_markup() -> None:
     soup = BeautifulSoup(
         """<html><body>

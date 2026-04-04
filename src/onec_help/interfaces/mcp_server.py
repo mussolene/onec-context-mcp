@@ -695,6 +695,8 @@ def _format_structured_api_object(
     include_rich_sections: bool = False,
 ) -> str:
     lines = [f"### {item.get('name') or item.get('title') or 'API'}"]
+    if item.get("page_descriptor"):
+        lines.append(str(item.get("page_descriptor")))
     meta: list[str] = []
     if item.get("kind"):
         meta.append(str(item.get("kind")))
@@ -725,6 +727,9 @@ def _format_structured_api_object(
     if item.get("returns"):
         lines.append("#### Возвращаемое значение")
         lines.append(str(item.get("returns")))
+    if item.get("platform_since"):
+        lines.append("#### Использование в версии")
+        lines.append(str(item.get("platform_since")))
     if item.get("availability"):
         lines.append("#### Доступность")
         lines.append(str(item.get("availability")))
@@ -829,11 +834,12 @@ def _question_structured_sort_key(
     item: dict[str, Any],
 ) -> tuple[int, int, int, bool, str]:
     query = (question or "").strip()
-    has_fact = (
-        bool(item.get("availability"))
-        if intent in {"version", "restriction"}
-        else bool(item.get("summary"))
-    )
+    if intent == "version":
+        has_fact = bool(item.get("platform_since") or item.get("availability"))
+    elif intent == "restriction":
+        has_fact = bool(item.get("availability"))
+    else:
+        has_fact = bool(item.get("summary"))
     # Try both full question and individual API name tokens — use the best (lowest) match.
     # Only use tokens that start with an uppercase letter (proper API names, not common words).
     api_tokens = [t for t in _extract_question_api_names(query) if t and t[0].isupper()]
@@ -969,6 +975,8 @@ def _extract_fact_from_structured(
         return ""
     if intent == "version":
         for value in (
+            item.get("platform_since"),
+            source_sections.get("platform_since"),
             item.get("availability"),
             item.get("restrictions"),
             source_sections.get("availability"),
@@ -998,6 +1006,8 @@ def _extract_fact_from_structured(
         str(item.get("summary") or "").strip(),
         str(item.get("description") or "").strip(),
         str(item.get("returns") or "").strip(),
+        str(item.get("platform_since") or "").strip(),
+        str(item.get("page_descriptor") or "").strip(),
         str(item.get("availability") or "").strip(),
         str(item.get("restrictions") or "").strip(),
     ]

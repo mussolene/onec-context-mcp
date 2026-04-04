@@ -88,8 +88,9 @@ KD2_XML = """<?xml version="1.0" encoding="UTF-8"?>
 </Конфигурация>
 """
 
+# Формат как после MetadataExport 2.1.9+: примитив «НаборКонстант» + отдельные Объекты с Тип=Константа.
 KD2_CONSTANTS_SET_XML = """<?xml version="1.0" encoding="UTF-8"?>
-<Конфигурация Имя="CfgConst">
+<Конфигурация Имя="CfgConst" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <CatalogObject.Конфигурации>
     <Ref>cfg-c</Ref>
     <Description>CfgConst</Description>
@@ -99,26 +100,51 @@ KD2_CONSTANTS_SET_XML = """<?xml version="1.0" encoding="UTF-8"?>
   <CatalogObject.Объекты>
     <Ref>cs-1</Ref>
     <IsFolder>false</IsFolder>
-    <Description>Основные</Description>
-    <Имя>Основные</Имя>
+    <Owner xsi:type="CatalogRef.Конфигурации">cfg-c</Owner>
+    <Parent>00000000-0000-0000-0000-000000000000</Parent>
+    <Description>КонстантыНабор</Description>
+    <Имя>КонстантыНабор</Имя>
     <Тип>НаборКонстант</Тип>
+  </CatalogObject.Объекты>
+  <CatalogObject.Объекты>
+    <Ref>c-disc</Ref>
+    <IsFolder>false</IsFolder>
+    <Owner xsi:type="CatalogRef.Конфигурации">cfg-c</Owner>
+    <Parent>00000000-0000-0000-0000-000000000000</Parent>
+    <Description>Константа.ИспользоватьСкидки</Description>
+    <Имя>ИспользоватьСкидки</Имя>
+    <Синоним>Использовать скидки</Синоним>
+    <Комментарий></Комментарий>
+    <Тип>Константа</Тип>
+  </CatalogObject.Объекты>
+  <CatalogObject.Объекты>
+    <Ref>c-ver</Ref>
+    <IsFolder>false</IsFolder>
+    <Owner xsi:type="CatalogRef.Конфигурации">cfg-c</Owner>
+    <Parent>00000000-0000-0000-0000-000000000000</Parent>
+    <Description>Константа.НомерВерсии</Description>
+    <Имя>НомерВерсии</Имя>
+    <Синоним>Номер версии</Синоним>
+    <Комментарий></Комментарий>
+    <Тип>Константа</Тип>
   </CatalogObject.Объекты>
   <CatalogObject.Свойства>
     <Ref>p-1</Ref>
-    <Owner>cs-1</Owner>
+    <Owner>c-disc</Owner>
     <Parent>00000000-0000-0000-0000-000000000000</Parent>
-    <Description>ИспользоватьСкидки</Description>
-    <Имя>ИспользоватьСкидки</Имя>
-    <Синоним>Использовать скидки</Синоним>
-    <Вид>Константа</Вид>
+    <Description>ТипЗначения</Description>
+    <Имя>ТипЗначения</Имя>
+    <Синоним>Тип значения</Синоним>
+    <Вид>Реквизит</Вид>
     <Типы></Типы>
   </CatalogObject.Свойства>
   <CatalogObject.Свойства>
     <Ref>p-2</Ref>
-    <Owner>cs-1</Owner>
+    <Owner>c-ver</Owner>
     <Parent>00000000-0000-0000-0000-000000000000</Parent>
-    <Description>НомерВерсии</Description>
-    <Имя>НомерВерсии</Имя>
+    <Description>ТипЗначения</Description>
+    <Имя>ТипЗначения</Имя>
+    <Синоним>Тип значения</Синоним>
     <Вид>Реквизит</Вид>
     <Типы></Типы>
   </CatalogObject.Свойства>
@@ -146,19 +172,20 @@ def test_crawl_kd2_xml_extracts_objects_and_fields(tmp_path: Path) -> None:
     assert doc.attributes["tabular_sections"][0]["requisites"][0]["name"] == "Номенклатура"
 
 
-def test_crawl_kd2_constants_set_keeps_owner_with_requisites_like_document(tmp_path: Path) -> None:
-    """В KD константы вложены в набор; в модели 1С это те же объекты метаданных — строки как реквизиты владельца."""
+def test_crawl_kd2_constants_export_has_set_and_constant_objects(tmp_path: Path) -> None:
+    """Выгрузка MetadataExport 2.1.9+: набор-тип + отдельные Constant для индексации."""
     xml_path = tmp_path / "kd2const.xml"
     xml_path.write_text(KD2_CONSTANTS_SET_XML, encoding="utf-8")
     crawl = crawl_kd2_xml(xml_path)
-    assert len(crawl.objects) == 1
-    cs = crawl.objects[0]
-    assert cs.object_type == "ConstantsSet"
-    assert cs.name == "Основные"
-    assert cs.id == "ConstantsSet.Основные"
-    req_names = [r["name"] for r in cs.attributes["requisites"]]
-    assert sorted(req_names) == ["ИспользоватьСкидки", "НомерВерсии"]
-    row = next(r for r in cs.attributes["requisites"] if r["name"] == "ИспользоватьСкидки")
+    by_type: dict[str, list] = {}
+    for o in crawl.objects:
+        by_type.setdefault(o.object_type, []).append(o)
+    assert "ConstantsSet" in by_type and len(by_type["ConstantsSet"]) == 1
+    assert "Constant" in by_type and len(by_type["Constant"]) == 2
+    c0 = next(o for o in crawl.objects if o.name == "ИспользоватьСкидки")
+    assert c0.id == "Constant.ИспользоватьСкидки"
+    assert c0.object_type == "Constant"
+    row = next(r for r in c0.attributes["requisites"] if r["name"] == "ТипЗначения")
     assert "Константы.ИспользоватьСкидки.Получить()" in (row.get("constant_bsl_hint") or "")
 
 

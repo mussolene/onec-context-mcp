@@ -46,6 +46,27 @@ def test_extract_api_records_from_topic_with_sections() -> None:
     assert "Соединение.Получить" in examples[0]["code"]
 
 
+def test_extract_structured_records_markdown_separates_platform_since_and_availability() -> None:
+    topic = {
+        "path": "8.3.27/shcntx_ru/objects/x/methods/Foo.html",
+        "title": "Foo.Бар",
+        "text": (
+            "# Foo.Бар\n\n"
+            "## Доступность\n\nТонкий клиент.\n\n"
+            "## Использование в версии\n\nС 8.3.13.\n"
+        ),
+        "version": "8.3.27.1859",
+        "language": "ru",
+        "entity_type": "method",
+        "breadcrumb": ["Объекты", "Foo"],
+    }
+    _obj, member, _examples, _links = extract_structured_records_from_topic(topic)
+    assert member is not None
+    assert member["availability"].strip() == "Тонкий клиент."
+    assert "8.3.13" in member["platform_since"]
+    assert member["source_sections"].get("platform_since")
+
+
 def test_extract_api_records_from_topic_without_sections() -> None:
     topic = {
         "path": "8.3.27/shcntx_ru/Format.md",

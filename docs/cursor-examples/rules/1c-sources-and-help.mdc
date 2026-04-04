@@ -1,0 +1,25 @@
+---
+description: Работа с исходниками 1С (BSL) и вопросами по платформе — обязательная справка 1c-help, локальный BSL LS, MCP lsp-bsl-bridge.
+globs: "**/*.bsl,**/*.os,**/Form.xml,**/Module.bsl"
+alwaysApply: false
+---
+
+# 1С: исходники и справка
+
+## Обязательно
+
+- **MCP 1c-help** — первичный источник по платформенному API, ограничениям и примерам: `get_1c_api_answer`, `search_1c_api`, `answer_1c_help_question`, при метаданных конфигурации — инструменты `search_1c_metadata_*` / `get_1c_metadata_object` после индексации.
+- Не подменять справку устаревшими шаблонами кода: при сомнении — запрос в 1c-help.
+
+## Статический анализ и формат
+
+- В IDE с **lsp-bsl-bridge** — цикл правок с `document_diagnostics` (как в skill 1c-mcp-development).
+- Вне MCP / офлайн — skill **bsl-language-server-local**: `java -jar … analyze` и `format` (см. `docs/cursor-examples/bsl-language-server-local/SKILL.md`).
+
+## Выгрузка метаданных (KD2)
+
+- Канонический поток — обработка **MetadataExport** (исходники в `.nosync/MetadataExportEpf`, версия **2.1.9+**): константы — отдельные `CatalogObject.Объекты` с `Тип=Константа` для строк `Constant.*` в `objects.jsonl`. Подробно: `docs/reference/metadata-export.md`.
+
+## Конфликт LS vs справка
+
+- Если диагностика BSL LS спорная относительно поведения 1С — приоритет у **официальной модели** из **1c-help**; правило/настройку LS при необходимости ослабить в конфиге проекта.

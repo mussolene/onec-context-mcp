@@ -296,6 +296,34 @@ def _v8sh_nodes_text(nodes: list[Any]) -> str:
     return _normalize_md_text("\n".join(parts)).strip()
 
 
+def _extract_v8sh_page_descriptor(soup: BeautifulSoup) -> str:
+    """Строка под заголовком статьи вида [method, 8.3.13] — в справке не секция, а отдельный блок."""
+    title_tag = soup.find("h1", class_="V8SH_pagetitle")
+    if title_tag is None:
+        return ""
+    chunks: list[str] = []
+    for sib in title_tag.next_siblings:
+        if getattr(sib, "get", None) and "V8SH_chapter" in (sib.get("class") or []):
+            break
+        if getattr(sib, "name", None) == "hr":
+            break
+        if isinstance(sib, str):
+            t = sib.strip()
+            if t:
+                chunks.append(t)
+        elif getattr(sib, "get_text", None):
+            t = sib.get_text(separator=" ", strip=True)
+            if t:
+                chunks.append(t)
+        if sum(len(x) for x in chunks) > 400:
+            break
+    blob = _normalize_md_text(" ".join(chunks)).strip()
+    if not blob:
+        return ""
+    m = re.search(r"\[[^\]]{2,240}]", blob)
+    return m.group(0).strip() if m else ""
+
+
 def _v8sh_compact_prose(text: str) -> str:
     value = _normalize_md_text(text)
     value = re.sub(r":\s*\n\s*", ": ", value)
@@ -376,6 +404,7 @@ def extract_v8sh_sections(soup: BeautifulSoup) -> dict[str, str]:
         "note": "",
         "version": "",
         "availability": "",
+        "page_descriptor": "",
     }
 
     chapter_map = {
@@ -467,6 +496,8 @@ def extract_v8sh_sections(soup: BeautifulSoup) -> dict[str, str]:
                 sections["version"] = _normalize_md_text(text)
                 break
 
+    sections["page_descriptor"] = _extract_v8sh_page_descriptor(soup)
+
     return sections
 
 
@@ -498,6 +529,8 @@ def html_to_md_content(html_path) -> str:
     lines.append(f"# {title}\n")
 
     sections = extract_v8sh_sections(soup)
+    if sections["page_descriptor"]:
+        lines.append(sections["page_descriptor"] + "\n\n")
     if sections["description"]:
         lines.append("## Описание\n\n")
         lines.append(sections["description"] + "\n\n")
