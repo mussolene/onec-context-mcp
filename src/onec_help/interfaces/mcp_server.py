@@ -1847,7 +1847,9 @@ def _build_mcp_app(help_path: Path) -> Any:
         limit: int = 20,
     ) -> str:
         """Exact-first metadata lookup by id/name/full_name/path.
-        Also accepts query-language style: Документ.Имя / Справочник.Имя → resolved to Document/Имя, Catalog/Имя."""
+        Index id uses EnglishType/Name (e.g. Document/РеализацияТоваровУслуг) — this is not 1C query syntax.
+        Also normalizes: Документ.Имя (queries), Документы.Имя or Метаданные.Документы.Имя (BSL metadata),
+        optional trailing .Реквизиты / .ТабличныеЧасти — to the same id."""
         err = _check_rate_limit()
         if err:
             return err

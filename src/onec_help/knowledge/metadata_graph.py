@@ -703,21 +703,44 @@ def _metadata_match_priority(payload: dict[str, Any], variants: list[str]) -> in
     return 3
 
 
-# Русские/английские префиксы как в языке запросов 1С (Документ.Имя) → id в графе (Document/Имя).
+# Русские/английские префиксы → id в графе KD2/Qdrant (Document/Имя).
+# Единственное число — как в языке запросов (вирт. таблицы: Документ.Имя, Справочник.Имя).
+# Множественное — как коллекции в BSL (Метаданные.Документы.Имя, Метаданные.Справочники.Имя, …).
 _METADATA_DOT_PREFIX_TO_ID_PREFIX: dict[str, str] = {
     "Документ": "Document",
+    "Документы": "Document",
     "Справочник": "Catalog",
+    "Справочники": "Catalog",
     "Перечисление": "Enum",
+    "Перечисления": "Enum",
     "РегистрСведений": "InformationRegister",
+    "РегистрыСведений": "InformationRegister",
     "РегистрНакопления": "AccumulationRegister",
+    "РегистрыНакопления": "AccumulationRegister",
     "РегистрБухгалтерии": "AccountingRegister",
+    "РегистрыБухгалтерии": "AccountingRegister",
     "РегистрРасчета": "CalculationRegister",
+    "РегистрыРасчета": "CalculationRegister",
     "ПланСчетов": "ChartOfAccounts",
+    "ПланыСчетов": "ChartOfAccounts",
     "ПланВидовХарактеристик": "ChartOfCharacteristicTypes",
+    "ПланыВидовХарактеристик": "ChartOfCharacteristicTypes",
     "ПланВидовРасчета": "ChartOfCalculationTypes",
+    "ПланыВидовРасчета": "ChartOfCalculationTypes",
     "ПланОбмена": "ExchangePlan",
+    "ПланыОбмена": "ExchangePlan",
     "БизнесПроцесс": "BusinessProcess",
+    "БизнесПроцессы": "BusinessProcess",
     "Задача": "Task",
+    "Задачи": "Task",
+    "Отчет": "Report",
+    "Отчёт": "Report",
+    "Отчеты": "Report",
+    "Отчёты": "Report",
+    "Обработка": "DataProcessor",
+    "Обработки": "DataProcessor",
+    "ОбщийМодуль": "CommonModule",
+    "ОбщиеМодули": "CommonModule",
 }
 
 _ENGLISH_METADATA_ID_PREFIXES: frozenset[str] = frozenset(
@@ -743,21 +766,33 @@ _ENGLISH_METADATA_ID_PREFIXES: frozenset[str] = frozenset(
 
 
 def _metadata_slash_aliases_from_query(query: str) -> list[str]:
-    """Документ.РеализацияТоваровУслуг → Document/РеализацияТоваровУслуг; Document.X уже с слэшем."""
+    """Префикс типа (до первой точки) → id вида Document/ИмяОбъекта.
+
+    Поддерживаются: язык запросов (Документ.Имя), коллекции BSL (Документы.Имя), полный корень
+    (Метаданные.Документы.Имя), англ. префиксы (Document.Имя). Если после имени объекта идёт
+    обращение к свойству (.Реквизиты, .ТабличныеЧасти), берётся только сегмент имени объекта.
+    """
     q = (query or "").strip()
+    if not q:
+        return []
+    if q.startswith("Метаданные."):
+        q = q[len("Метаданные.") :].strip()
     if "." not in q:
         return []
-    prefix, _, suffix = q.partition(".")
+    prefix, _, rest = q.partition(".")
     prefix = prefix.strip()
-    suffix = suffix.strip()
-    if not prefix or not suffix:
+    rest = rest.strip()
+    if not prefix or not rest:
+        return []
+    object_name = rest.split(".", 1)[0].strip()
+    if not object_name:
         return []
     out: list[str] = []
     mapped = _METADATA_DOT_PREFIX_TO_ID_PREFIX.get(prefix)
     if mapped:
-        out.append(f"{mapped}/{suffix}")
+        out.append(f"{mapped}/{object_name}")
     if prefix in _ENGLISH_METADATA_ID_PREFIXES:
-        out.append(f"{prefix}/{suffix}")
+        out.append(f"{prefix}/{object_name}")
     return list(dict.fromkeys(out))
 
 

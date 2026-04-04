@@ -134,6 +134,19 @@ def test_metadata_slash_aliases_from_dot_query() -> None:
     assert "Document/РеализацияТоваровУслуг" in metadata_graph._metadata_slash_aliases_from_query(
         "Документ.РеализацияТоваровУслуг"
     )
+    assert "Document/РеализацияТоваровУслуг" in metadata_graph._metadata_slash_aliases_from_query(
+        "Документы.РеализацияТоваровУслуг"
+    )
+    assert "Document/РеализацияТоваровУслуг" in metadata_graph._metadata_slash_aliases_from_query(
+        "Метаданные.Документы.РеализацияТоваровУслуг"
+    )
+    assert "Document/РеализацияТоваровУслуг" in metadata_graph._metadata_slash_aliases_from_query(
+        "Метаданные.Документы.РеализацияТоваровУслуг.Реквизиты"
+    )
+    assert (
+        "ChartOfCharacteristicTypes/ВидыСубконто"
+        in metadata_graph._metadata_slash_aliases_from_query("ПланыВидовХарактеристик.ВидыСубконто")
+    )
     assert "Document/Foo" in metadata_graph._metadata_slash_aliases_from_query("Document.Foo")
     assert metadata_graph._metadata_slash_aliases_from_query("no_dot") == []
 
