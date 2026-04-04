@@ -452,6 +452,18 @@ def test_mcp_tool_get_1c_api_answer_via_app(help_sample_dir: Path) -> None:
     assert "Синтаксис" in text
 
 
+def test_mcp_tool_get_1c_api_answer_no_member_same_wording(help_sample_dir: Path) -> None:
+    """get_1c_api_answer explains missing name as undocumented platform API, not reindex hint."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(mcp_server, "_get_api_member", return_value=[]):
+        result = asyncio.run(
+            app.call_tool("get_1c_api_answer", {"name": "СоздатьПустуюТаблицу"}),
+        )
+    text = result.content[0].text if result.content else ""
+    assert "нет в справке платформы" in text
+    assert "search_1c_api" in text
+
+
 def test_mcp_tool_get_1c_api_object_via_app(help_sample_dir: Path) -> None:
     """get_1c_api_object returns structured API payload from onec_help_api_objects."""
     app = mcp_server._build_mcp_app(help_sample_dir)
@@ -895,7 +907,7 @@ def test_mcp_tool_get_1c_function_info_uses_strict_member_lookup(help_sample_dir
     app = mcp_server._build_mcp_app(help_sample_dir)
     with patch.object(mcp_server, "_get_api_member") as mock_member:
         mock_member.return_value = []
-        asyncio.run(
+        result = asyncio.run(
             app.call_tool("get_1c_function_info", {"name": "СоздатьПустуюТаблицу"}),
         )
     mock_member.assert_called_once_with(
@@ -904,6 +916,9 @@ def test_mcp_tool_get_1c_function_info_uses_strict_member_lookup(help_sample_dir
         language=None,
         fallback_hybrid=False,
     )
+    text = result.content[0].text if result.content else ""
+    assert "нет в справке платформы" in text
+    assert "search_1c_api" in text
 
 
 @patch("onec_help.knowledge.metadata_graph.search_metadata_exact")

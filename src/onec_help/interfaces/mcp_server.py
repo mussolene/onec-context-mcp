@@ -644,6 +644,16 @@ def _structured_api_sort_key(query: str, item: dict[str, Any]) -> tuple[int, int
     )
 
 
+def _no_documented_api_member_message(name: str) -> str:
+    """When structured members have no exact row: clarify this is not a platform help API name."""
+    return (
+        f"«{name}» нет в справке платформы как задокументированный метод или функция встроенного API. "
+        "Такого имени в модели платформы обычно не существует: проверьте орфографию и полное имя "
+        "в форме Тип.Метод, либо это прикладной/внешний символ (он не входит в справку платформы). "
+        "Поиск по смыслу по документации API — search_1c_api."
+    )
+
+
 def _format_structured_api_object(
     item: dict[str, Any],
     *,
@@ -1203,10 +1213,7 @@ def _build_mcp_app(help_path: Path) -> Any:
             if detail == "full" and best_item.get("topic_path"):
                 return _format_structured_api_object(best_item, include_rich_sections=True)
             return _format_structured_api_object(best_item, include_rich_sections=detail == "full")
-        return (
-            f"No structured API match found for «{name_clean}». "
-            "Rebuild structured help index or уточните точное API-имя/version."
-        )
+        return _no_documented_api_member_message(name_clean)
 
     @mcp.tool()
     @_record_mcp_tool
@@ -2436,10 +2443,7 @@ def _build_mcp_app(help_path: Path) -> Any:
                 lines.append(_format_structured_api_object(best[0], include_rich_sections=True))
                 return "\n".join(lines)
             return _format_structured_api_object(best[0], include_rich_sections=True)
-        return (
-            f"No structured API match found for «{name_clean}». "
-            "Use get_1c_api_answer for exact API names or search_1c_api for broader lookup."
-        )
+        return _no_documented_api_member_message(name_clean)
 
     @mcp.tool()
     @_record_mcp_tool
