@@ -25,7 +25,7 @@ docs/cursor-examples/
 │   ├── SKILL.md
 │   ├── README.md
 │   └── .gitignore
-├── 1c-platform-cli/          # Skill: ragent/rac/ras, ibsrv/ibcmd, SSH к автономному серверу, CREATEINFOBASE, 1cv8 (см. руководство администратора)
+├── 1c-platform-cli/          # Skill: CLI платформы (ragent/rac/ras, ibsrv/ibcmd/SSH, отладка vs СУБД, инкремент XML, CREATEINFOBASE, временная ИБ, ibases.v8i)
 │   └── SKILL.md
 └── rules/                    # Rules (.mdc)
     ├── 1c-bsl-standards.mdc
