@@ -741,6 +741,23 @@ _METADATA_DOT_PREFIX_TO_ID_PREFIX: dict[str, str] = {
     "Обработки": "DataProcessor",
     "ОбщийМодуль": "CommonModule",
     "ОбщиеМодули": "CommonModule",
+    # Английские коллекции (как в дереве метаданных / синтакс-помощнике на EN-клиенте)
+    "Documents": "Document",
+    "Catalogs": "Catalog",
+    "Enums": "Enum",
+    "InformationRegisters": "InformationRegister",
+    "AccumulationRegisters": "AccumulationRegister",
+    "AccountingRegisters": "AccountingRegister",
+    "CalculationRegisters": "CalculationRegister",
+    "ChartsOfAccounts": "ChartOfAccounts",
+    "ChartsOfCharacteristicTypes": "ChartOfCharacteristicTypes",
+    "ChartsOfCalculationTypes": "ChartOfCalculationTypes",
+    "ExchangePlans": "ExchangePlan",
+    "BusinessProcesses": "BusinessProcess",
+    "Tasks": "Task",
+    "Reports": "Report",
+    "DataProcessors": "DataProcessor",
+    "CommonModules": "CommonModule",
 }
 
 _ENGLISH_METADATA_ID_PREFIXES: frozenset[str] = frozenset(
@@ -765,18 +782,63 @@ _ENGLISH_METADATA_ID_PREFIXES: frozenset[str] = frozenset(
 )
 
 
+def _collapse_dotted_path_segments(path: str) -> str:
+    """Убирает пустые сегменты и пробелы вокруг точек: 'Документы . Авансы' → 'Документы.Авансы'."""
+    parts = [p.strip() for p in (path or "").split(".") if p.strip()]
+    return ".".join(parts)
+
+
+def _strip_leading_metadata_roots(path: str) -> str:
+    """Снимает повторяющиеся корни Метаданные. / Metadata. (копипаста из BSL)."""
+    q = (path or "").strip()
+    while True:
+        if q.startswith("Метаданные."):
+            q = q[len("Метаданные.") :].strip()
+            continue
+        if q.startswith("Metadata."):
+            q = q[len("Metadata.") :].strip()
+            continue
+        if q.startswith("ГлобальныйКонтекст."):
+            q = q[len("ГлобальныйКонтекст.") :].strip()
+            continue
+        if q.startswith("Глобальный контекст."):
+            q = q[len("Глобальный контекст.") :].strip()
+            continue
+        if q.startswith("Global context."):
+            q = q[len("Global context.") :].strip()
+            continue
+        break
+    return q
+
+
+def _metadata_object_name_from_accessor_rest(rest: str) -> str:
+    """Имя объекта метаданных — первый идентификатор после типа.
+
+    В типовой конфигурации имя объекта не содержит точку. Дальнейшие сегменты — это методы менеджера
+    (СоздатьДокумент, НайтиПоНомеру), коллекции (Реквизиты, ТабличныеЧасти), значение перечисления
+    (Перечисления.ИмяПеречисления.ИмяЗначения) и т.п.; для поиска в графе конфигурации нужен только объект.
+    """
+    rest = _collapse_dotted_path_segments(rest)
+    if not rest:
+        return ""
+    first = rest.split(".", 1)[0].strip()
+    if "(" in first:
+        first = first.split("(", 1)[0].strip()
+    return first
+
+
 def _metadata_slash_aliases_from_query(query: str) -> list[str]:
     """Префикс типа (до первой точки) → id вида Document/ИмяОбъекта.
 
-    Поддерживаются: язык запросов (Документ.Имя), коллекции BSL (Документы.Имя), полный корень
-    (Метаданные.Документы.Имя), англ. префиксы (Document.Имя). Если после имени объекта идёт
-    обращение к свойству (.Реквизиты, .ТабличныеЧасти), берётся только сегмент имени объекта.
+    Поддерживаются: язык запросов (Документ.Имя), коллекции BSL (Документы.Имя, Справочники.Имя),
+    Метаданные.*/Metadata.*, EN-коллекции (Documents.Имя). Хвосты (.СоздатьДокумент(), .Реквизиты,
+    .НайтиПоНомеру, третий сегмент у перечислений) отбрасываются — в индексе один объект на имя+тип.
     """
-    q = (query or "").strip()
+    q = _collapse_dotted_path_segments(query or "")
     if not q:
         return []
-    if q.startswith("Метаданные."):
-        q = q[len("Метаданные.") :].strip()
+    q = _strip_leading_metadata_roots(q)
+    q = _collapse_dotted_path_segments(q)
     if "." not in q:
         return []
     prefix, _, rest = q.partition(".")
@@ -784,7 +846,7 @@ def _metadata_slash_aliases_from_query(query: str) -> list[str]:
     rest = rest.strip()
     if not prefix or not rest:
         return []
-    object_name = rest.split(".", 1)[0].strip()
+    object_name = _metadata_object_name_from_accessor_rest(rest)
     if not object_name:
         return []
     out: list[str] = []

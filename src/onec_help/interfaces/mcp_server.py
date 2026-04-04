@@ -1847,9 +1847,10 @@ def _build_mcp_app(help_path: Path) -> Any:
         limit: int = 20,
     ) -> str:
         """Exact-first metadata lookup by id/name/full_name/path.
-        Index id uses EnglishType/Name (e.g. Document/РеализацияТоваровУслуг) — this is not 1C query syntax.
-        Also normalizes: Документ.Имя (queries), Документы.Имя or Метаданные.Документы.Имя (BSL metadata),
-        optional trailing .Реквизиты / .ТабличныеЧасти — to the same id."""
+        Index id uses EnglishType/Name (e.g. Document/РеализацияТоваровУслуг) — KD2/Qdrant convention, not query language.
+        Normalizes dotted BSL/query-like strings: Документ.Имя, Документы.Имя, Метаданные.*, Metadata.Documents.*,
+        optional tails (.СоздатьДокумент(), .Реквизиты, .НайтиПоНомеру, Перечисления.Имя.Значение) to the object id.
+        Disambiguate Document/Name vs Catalog/Name with object_type. For platform Metadata API see get_1c_api_answer("Глобальный контекст.Метаданные")."""
         err = _check_rate_limit()
         if err:
             return err
@@ -2571,11 +2572,13 @@ def _build_mcp_app(help_path: Path) -> Any:
             "3. Official examples from platform help → search_1c_official_examples(query).\n"
             "4. Local task context → get_1c_task_context(query, file_uri=..., symbol_name=...).\n"
             "5. Standards only → search_1c_standards(query). Curated snippets only → search_1c_snippets(query).\n"
-            "6. Metadata exact → search_1c_metadata_exact(query). Metadata semantic → search_1c_metadata_semantic(query).\n"
-            "7. Field lookup → search_1c_metadata_fields(object_query, field_query).\n"
-            "8. Check index health: get_1c_help_index_status.\n"
-            "9. Code validation happens in external lsp-bsl-bridge via document_diagnostics(uri).\n"
-            "10. Save reusable verified code only: save_1c_snippet(code_snippet, description, title).\n"
+            "6. Config metadata (KD2 graph): search_1c_metadata_exact, search_1c_metadata_semantic, search_1c_metadata_fields. "
+            "BSL-style strings (Метаданные.Документы.Имя, Документы.Имя.Метод(), Перечисления.ИмяПеречисления.Значение) map to graph ids using the object name only (first segment after the type). "
+            "Same name under different types (Документы.Авансы vs Справочники.Авансы): pass object_type. "
+            'Platform help for the metadata object model: get_1c_api_answer("Глобальный контекст.Метаданные") or search_1c_api("ОбъектМетаданных").\n'
+            "7. Check index health: get_1c_help_index_status.\n"
+            "8. Code validation happens in external lsp-bsl-bridge via document_diagnostics(uri).\n"
+            "9. Save reusable verified code only: save_1c_snippet(code_snippet, description, title).\n"
             "Key pitfalls: ПрочитатьJSON→Структура (use ПрочитатьВСоответствие=Истина for Соответствие); "
             "HTTPСоединение.Получить server-only; НачатьТранзакцию needs Попытка+ОтменитьТранзакцию."
         )
