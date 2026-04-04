@@ -259,12 +259,10 @@ def _get_api_member(
     name: str,
     version: str | None = None,
     language: str | None = None,
-    *,
-    fallback_hybrid: bool = True,
 ) -> list[dict[str, Any]]:
     from ..knowledge.help_structured import get_api_member
 
-    return get_api_member(name, version=version, language=language, fallback_hybrid=fallback_hybrid)
+    return get_api_member(name, version=version, language=language)
 
 
 def _search_official_examples(
@@ -645,12 +643,20 @@ def _structured_api_sort_key(query: str, item: dict[str, Any]) -> tuple[int, int
 
 
 def _no_documented_api_member_message(name: str) -> str:
-    """When structured members have no exact row: clarify this is not a platform help API name."""
+    """Exact member lookup is only against ingested platform help (no fuzzy fill-in)."""
     return (
-        f"«{name}» нет в справке платформы как задокументированный метод или функция встроенного API. "
-        "Такого имени в модели платформы обычно не существует: проверьте орфографию и полное имя "
-        "в форме Тип.Метод, либо это прикладной/внешний символ (он не входит в справку платформы). "
-        "Поиск по смыслу по документации API — search_1c_api."
+        f"«{name}» нет в индексе справки платформы как метод или функция встроенного API "
+        "(используется только точное совпадение с выгруженной справкой). "
+        "Проверьте орфографию и полное имя Тип.Метод; прикладные символы в справку не входят. "
+        "Поиск по смыслу по статьям API — search_1c_api."
+    )
+
+
+def _no_documented_api_object_message(name: str) -> str:
+    """Exact object/type lookup is only against ingested platform help."""
+    return (
+        f"«{name}» нет в индексе справки платформы как объект или тип встроенного API "
+        "(точное совпадение имени в structured help). Проверьте написание; по смыслу — search_1c_api."
     )
 
 
@@ -1195,7 +1201,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         language: str | None = None,
         detail: str = "compact",
     ) -> str:
-        """Compact exact-first answer for a 1C API/function/method.
+        """Compact answer for a 1C API/function/method from structured help (exact name in index only).
         Use for exact API names like HTTPСоединение.Получить or Формат.
         detail: compact (default) or full."""
         err = _check_rate_limit()
@@ -1222,7 +1228,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         version: str | None = None,
         language: str | None = None,
     ) -> str:
-        """Structured exact-first truth-source for one API object/type from onec_help_api_objects."""
+        """Structured API object/type from onec_help_api_objects (exact name match to ingested help only)."""
         err = _check_rate_limit()
         if err:
             return err
@@ -1234,7 +1240,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         structured = _get_api_object(name_clean, version=version, language=language)
         structured = sorted(structured, key=lambda item: _structured_api_sort_key(name_clean, item))
         if not structured:
-            return f"No structured API object found for «{name_clean}»."
+            return _no_documented_api_object_message(name_clean)
         return _format_structured_api_object(structured[0])
 
     @mcp.tool()
@@ -2418,7 +2424,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         if not name_clean:
             return "Provide a function or method name."
         structured = sorted(
-            _get_api_member(name_clean, version=None, language=None, fallback_hybrid=False),
+            _get_api_member(name_clean, version=None, language=None),
             key=lambda item: _structured_api_sort_key(name_clean, item),
         )
         if structured:

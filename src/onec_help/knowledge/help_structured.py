@@ -1772,13 +1772,12 @@ def get_api_member(
     language: str | None = None,
     qdrant_host: str | None = None,
     qdrant_port: int | None = None,
-    fallback_hybrid: bool = True,
 ) -> list[dict[str, Any]]:
-    """Exact-first lookup in structured API member collection.
+    """Exact lookup in structured API members (platform help index).
 
-    When no exact row matches, optionally runs hybrid search (semantic + keyword).
-    Set ``fallback_hybrid=False`` for strict name-only resolution (e.g. MCP
-    ``get_1c_function_info``) to avoid unrelated template hits.
+    No hybrid fallback: if there is no row for this name, it is not documented
+    as that member in the ingested help (source of truth for syntax/API names).
+    Use ``search_api_members`` from callers that need semantic/broad search.
     """
     from qdrant_client import QdrantClient
 
@@ -1817,16 +1816,7 @@ def get_api_member(
                 )
                 dedup[key] = item
             return sorted(dedup.values(), key=lambda item: _member_exact_sort_key(name_clean, item))
-        if not fallback_hybrid:
-            return []
-        return search_api_members(
-            name_clean,
-            limit=10,
-            version=version,
-            language=language,
-            qdrant_host=host,
-            qdrant_port=port,
-        )
+        return []
     except Exception as exc:
         if is_qdrant_unreachable_error(exc):
             return []
@@ -1841,7 +1831,11 @@ def get_api_object(
     qdrant_host: str | None = None,
     qdrant_port: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Exact-first lookup in structured API object collection."""
+    """Exact lookup on ``name`` in structured API objects (platform help index).
+
+    No hybrid fallback; absent name means not in ingested object catalog for help.
+    Use ``search_api_objects`` where broad/semantic search is intended.
+    """
     from qdrant_client import QdrantClient
     from qdrant_client.models import FieldCondition, Filter, MatchValue
 
@@ -1875,14 +1869,7 @@ def get_api_object(
             results = []
         if results:
             return results
-        return search_api_objects(
-            name_clean,
-            limit=10,
-            version=version,
-            language=language,
-            qdrant_host=host,
-            qdrant_port=port,
-        )
+        return []
     except Exception as exc:
         if is_qdrant_unreachable_error(exc):
             return []

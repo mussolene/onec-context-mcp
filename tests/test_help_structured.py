@@ -8,6 +8,7 @@ from onec_help.knowledge.help_structured import (
     extract_structured_records_from_html_topic,
     extract_structured_records_from_topic,
     get_api_member,
+    get_api_object,
     index_structured_api_members,
     index_structured_api_objects,
     index_structured_help_snapshot,
@@ -664,8 +665,8 @@ def test_get_api_member_prefers_exact_member_name_for_bare_query() -> None:
     assert results[0]["full_name"] == "Глобальный контекст.Формат"
 
 
-def test_get_api_member_skips_hybrid_when_fallback_disabled() -> None:
-    """No semantic/keyword search when exact scroll is empty and fallback_hybrid=False."""
+def test_get_api_member_never_calls_hybrid_search() -> None:
+    """Exact member lookup only; empty scroll must not trigger search_api_members."""
     from unittest.mock import patch
 
     class _Client:
@@ -679,6 +680,26 @@ def test_get_api_member_skips_hybrid_when_fallback_disabled() -> None:
         with patch(
             "onec_help.knowledge.help_structured.search_api_members",
         ) as mock_hybrid:
-            results = get_api_member("СоздатьПустуюТаблицу", fallback_hybrid=False)
+            results = get_api_member("СоздатьПустуюТаблицу")
+    assert results == []
+    mock_hybrid.assert_not_called()
+
+
+def test_get_api_object_never_calls_hybrid_search() -> None:
+    """Exact object lookup only; empty scroll must not trigger search_api_objects."""
+    from unittest.mock import patch
+
+    class _Client:
+        def collection_exists(self, _name: str) -> bool:
+            return True
+
+        def scroll(self, **_kwargs):
+            return [], None
+
+    with patch("qdrant_client.QdrantClient", return_value=_Client()):
+        with patch(
+            "onec_help.knowledge.help_structured.search_api_objects",
+        ) as mock_hybrid:
+            results = get_api_object("NonexistentType")
     assert results == []
     mock_hybrid.assert_not_called()

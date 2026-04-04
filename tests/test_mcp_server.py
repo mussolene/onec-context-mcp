@@ -460,7 +460,7 @@ def test_mcp_tool_get_1c_api_answer_no_member_same_wording(help_sample_dir: Path
             app.call_tool("get_1c_api_answer", {"name": "СоздатьПустуюТаблицу"}),
         )
     text = result.content[0].text if result.content else ""
-    assert "нет в справке платформы" in text
+    assert "индексе справки платформы" in text
     assert "search_1c_api" in text
 
 
@@ -910,14 +910,9 @@ def test_mcp_tool_get_1c_function_info_uses_strict_member_lookup(help_sample_dir
         result = asyncio.run(
             app.call_tool("get_1c_function_info", {"name": "СоздатьПустуюТаблицу"}),
         )
-    mock_member.assert_called_once_with(
-        "СоздатьПустуюТаблицу",
-        version=None,
-        language=None,
-        fallback_hybrid=False,
-    )
+    mock_member.assert_called_once_with("СоздатьПустуюТаблицу", version=None, language=None)
     text = result.content[0].text if result.content else ""
-    assert "нет в справке платформы" in text
+    assert "индексе справки платформы" in text
     assert "search_1c_api" in text
 
 
