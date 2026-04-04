@@ -890,6 +890,22 @@ def test_mcp_tool_get_1c_function_info_empty_name(help_sample_dir: Path) -> None
     assert "Provide" in text or "name" in text
 
 
+def test_mcp_tool_get_1c_function_info_uses_strict_member_lookup(help_sample_dir: Path) -> None:
+    """get_1c_function_info disables hybrid fallback so bogus multi-matches are not listed."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(mcp_server, "_get_api_member") as mock_member:
+        mock_member.return_value = []
+        asyncio.run(
+            app.call_tool("get_1c_function_info", {"name": "СоздатьПустуюТаблицу"}),
+        )
+    mock_member.assert_called_once_with(
+        "СоздатьПустуюТаблицу",
+        version=None,
+        language=None,
+        fallback_hybrid=False,
+    )
+
+
 @patch("onec_help.knowledge.metadata_graph.search_metadata_exact")
 def test_mcp_tool_search_1c_metadata_exact_via_app(mock_search_meta, help_sample_dir: Path) -> None:
     """Call search_1c_metadata_exact tool via app."""

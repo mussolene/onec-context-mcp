@@ -662,3 +662,23 @@ def test_get_api_member_prefers_exact_member_name_for_bare_query() -> None:
     with patch("qdrant_client.QdrantClient", return_value=_Client()):
         results = get_api_member("Формат")
     assert results[0]["full_name"] == "Глобальный контекст.Формат"
+
+
+def test_get_api_member_skips_hybrid_when_fallback_disabled() -> None:
+    """No semantic/keyword search when exact scroll is empty and fallback_hybrid=False."""
+    from unittest.mock import patch
+
+    class _Client:
+        def collection_exists(self, _name: str) -> bool:
+            return True
+
+        def scroll(self, **_kwargs):
+            return [], None
+
+    with patch("qdrant_client.QdrantClient", return_value=_Client()):
+        with patch(
+            "onec_help.knowledge.help_structured.search_api_members",
+        ) as mock_hybrid:
+            results = get_api_member("СоздатьПустуюТаблицу", fallback_hybrid=False)
+    assert results == []
+    mock_hybrid.assert_not_called()

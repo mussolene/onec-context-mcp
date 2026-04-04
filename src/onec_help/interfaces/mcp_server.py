@@ -259,10 +259,12 @@ def _get_api_member(
     name: str,
     version: str | None = None,
     language: str | None = None,
+    *,
+    fallback_hybrid: bool = True,
 ) -> list[dict[str, Any]]:
     from ..knowledge.help_structured import get_api_member
 
-    return get_api_member(name, version=version, language=language)
+    return get_api_member(name, version=version, language=language, fallback_hybrid=fallback_hybrid)
 
 
 def _search_official_examples(
@@ -2409,7 +2411,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         if not name_clean:
             return "Provide a function or method name."
         structured = sorted(
-            _get_api_member(name_clean, version=None, language=None),
+            _get_api_member(name_clean, version=None, language=None, fallback_hybrid=False),
             key=lambda item: _structured_api_sort_key(name_clean, item),
         )
         if structured:

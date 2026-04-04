@@ -1772,8 +1772,14 @@ def get_api_member(
     language: str | None = None,
     qdrant_host: str | None = None,
     qdrant_port: int | None = None,
+    fallback_hybrid: bool = True,
 ) -> list[dict[str, Any]]:
-    """Exact-first lookup in structured API member collection."""
+    """Exact-first lookup in structured API member collection.
+
+    When no exact row matches, optionally runs hybrid search (semantic + keyword).
+    Set ``fallback_hybrid=False`` for strict name-only resolution (e.g. MCP
+    ``get_1c_function_info``) to avoid unrelated template hits.
+    """
     from qdrant_client import QdrantClient
 
     from ..shared.qdrant_errors import is_qdrant_unreachable_error
@@ -1811,6 +1817,8 @@ def get_api_member(
                 )
                 dedup[key] = item
             return sorted(dedup.values(), key=lambda item: _member_exact_sort_key(name_clean, item))
+        if not fallback_hybrid:
+            return []
         return search_api_members(
             name_clean,
             limit=10,
