@@ -29,6 +29,7 @@ def _coerce_str_to_list(v: Any) -> Any:
 
 _StrList = Annotated[list[str], BeforeValidator(_coerce_str_to_list)]
 
+from ..knowledge.platform_help_manager_templates import manager_help_hint_line  # noqa: E402
 from ..runtime.mcp_metrics import record_request as _record_mcp_request  # noqa: E402
 from ..shared._utils import format_duration, safe_error_message  # noqa: E402
 
@@ -1848,9 +1849,9 @@ def _build_mcp_app(help_path: Path) -> Any:
     ) -> str:
         """Exact-first metadata lookup by id/name/full_name/path.
         Index id uses EnglishType/Name (e.g. Document/РеализацияТоваровУслуг) — KD2/Qdrant convention, not query language.
-        Normalizes dotted BSL/query-like strings: Документ.Имя, Документы.Имя, Метаданные.*, Metadata.Documents.*,
-        optional tails (.СоздатьДокумент(), .Реквизиты, .НайтиПоНомеру, Перечисления.Имя.Значение) to the object id.
-        Disambiguate Document/Name vs Catalog/Name with object_type. For platform Metadata API see get_1c_api_answer("Глобальный контекст.Метаданные")."""
+        Normalizes dotted BSL/query-like strings; segments after the configuration object name are ignored for graph lookup.
+        Disambiguate same name across types with object_type. Manager methods/properties: get_1c_api_object with templates
+        in onec_help.knowledge.platform_help_manager_templates (synced to structured help api_objects). Root: get_1c_api_answer("Глобальный контекст.Метаданные")."""
         err = _check_rate_limit()
         if err:
             return err
@@ -2573,9 +2574,8 @@ def _build_mcp_app(help_path: Path) -> Any:
             "4. Local task context → get_1c_task_context(query, file_uri=..., symbol_name=...).\n"
             "5. Standards only → search_1c_standards(query). Curated snippets only → search_1c_snippets(query).\n"
             "6. Config metadata (KD2 graph): search_1c_metadata_exact, search_1c_metadata_semantic, search_1c_metadata_fields. "
-            "BSL-style strings (Метаданные.Документы.Имя, Документы.Имя.Метод(), Перечисления.ИмяПеречисления.Значение) map to graph ids using the object name only (first segment after the type). "
-            "Same name under different types (Документы.Авансы vs Справочники.Авансы): pass object_type. "
-            'Platform help for the metadata object model: get_1c_api_answer("Глобальный контекст.Метаданные") or search_1c_api("ОбъектМетаданных").\n'
+            "Dotted BSL/query-like strings map to graph ids using the configuration object name only (first segment after the type prefix). "
+            "Same name under different types: pass object_type. " + manager_help_hint_line() + "\n"
             "7. Check index health: get_1c_help_index_status.\n"
             "8. Code validation happens in external lsp-bsl-bridge via document_diagnostics(uri).\n"
             "9. Save reusable verified code only: save_1c_snippet(code_snippet, description, title).\n"

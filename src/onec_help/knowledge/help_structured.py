@@ -16,6 +16,7 @@ from ..search_store.indexer import get_collection_vector_size
 from ..shared import env_config
 
 API_OBJECTS_FILE = "api_objects.jsonl"
+# Имена менеджеров <ТипМенеджер.<…>> для подсказок MCP: platform_help_manager_templates (те же строки, что object_name здесь).
 API_MEMBERS_FILE = "api_members.jsonl"
 API_EXAMPLES_FILE = "api_examples.jsonl"
 API_LINKS_FILE = "api_links.jsonl"
