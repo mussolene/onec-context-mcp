@@ -25,6 +25,8 @@ docs/cursor-examples/
 │   ├── SKILL.md
 │   ├── README.md
 │   └── .gitignore
+├── 1c-platform-cli/          # Skill: ragent/rac/ras, ibsrv/ibcmd, SSH к автономному серверу, CREATEINFOBASE, 1cv8 (см. руководство администратора)
+│   └── SKILL.md
 └── rules/                    # Rules (.mdc)
     ├── 1c-bsl-standards.mdc
     ├── 1c-mcp-workflow.mdc
@@ -42,6 +44,7 @@ docs/cursor-examples/
    - `docs/cursor-examples/1c-mcp-tools-report/` → `.cursor/skills/1c-mcp-tools-report/`
    - `docs/cursor-examples/1c-explain-object/` → `.cursor/skills/1c-explain-object/`
    - `docs/cursor-examples/bsl-language-server-local/` → `.cursor/skills/bsl-language-server-local/` (и положите туда `bsl-language-server-exec.jar`, см. README в каталоге)
+   - `docs/cursor-examples/1c-platform-cli/` → `.cursor/skills/1c-platform-cli/`
    - `docs/cursor-examples/rules/*.mdc` → `.cursor/rules/`
 
 2. **Обновление после изменений:** если вы изменили skill или rules в `.cursor/` и хотите зафиксировать их в репозитории — скопируйте обратно в `docs/cursor-examples/` и закоммитьте.
