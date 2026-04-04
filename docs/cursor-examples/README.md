@@ -6,7 +6,7 @@
 
 - **Индексация:** содержимое `docs/cursor-examples/` в репозитории и доступно для поиска по кодовой базе; папка `.cursor/` полностью исключена из git (см. `.gitignore`).
 - **Синхронизация:** при изменении поведения MCP или workflow в проекте обновите эти примеры — они служат эталоном и исходником для копирования в `.cursor/skills/` и `.cursor/rules/`.
-- **JSON-схемы инструментов в Cursor:** кэш дескрипторов в `~/.cursor/.../mcps/<server>/tools/*.json` может отставать от сигнатур FastMCP в `src/onec_help/interfaces/mcp_server.py`. Канон параметров — код сервера и [mcp-tools-reference.md](../reference/mcp-tools-reference.md); при `Internal error` / validation errors сверяйте аргументы с reference (например `get_module_info` → только `uri_or_path`, `get_form_metadata` → `xml_content`, `get_1c_context_bundle` без `domains`).
+- **JSON-схемы инструментов в Cursor:** кэш дескрипторов в `~/.cursor/.../mcps/<server>/tools/*.json` может отставать от сигнатур FastMCP в `src/onec_help/interfaces/mcp_server.py`. Канон параметров — код сервера и [mcp-tools-reference.md](../reference/mcp-tools-reference.md); эталонные снимки для частых расхождений — [docs/reference/mcp-cursor-tool-schemas/](../reference/mcp-cursor-tool-schemas/README.md). При `Internal error` / validation errors сверяйте аргументы с reference (например `get_module_info` → только `uri_or_path`, `get_form_metadata` → `xml_content`, `get_1c_context_bundle` без `domains`).
 - **Зависимость для доработки:** при доработке MCP, AGENTS.md или workflow разработки 1С проверьте соответствие с `docs/cursor-examples/` и при необходимости внесите правки.
 
 ## Структура

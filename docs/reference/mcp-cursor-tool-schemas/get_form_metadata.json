@@ -1,0 +1,28 @@
+{
+  "name": "get_form_metadata",
+  "description": "Parse Form.xml content and return attributes and commands.\nxml_content: raw XML of Form.xml — must be complete with all xmlns declarations\n(v8, cfg, xs, etc.). Parser expects elements with local names Attribute (form attributes)\nand Command (form commands); other formats (e.g. FormAttribute only) may yield empty lists.",
+  "arguments": {
+    "type": "object",
+    "properties": {
+      "xml_content": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "xml_content"
+    ],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "result": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "result"
+    ],
+    "x-fastmcp-wrap-result": true
+  }
+}

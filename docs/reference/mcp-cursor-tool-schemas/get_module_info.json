@@ -1,0 +1,28 @@
+{
+  "name": "get_module_info",
+  "description": "Infer module type and context from file path.\nuri_or_path: path or file URI to Module.bsl / ObjectModule.bsl.\nReturns: module_type (FormModule|ObjectModule|...), form_name, object_name if detectable.",
+  "arguments": {
+    "type": "object",
+    "properties": {
+      "uri_or_path": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "uri_or_path"
+    ],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "result": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "result"
+    ],
+    "x-fastmcp-wrap-result": true
+  }
+}
