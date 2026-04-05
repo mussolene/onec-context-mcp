@@ -230,7 +230,10 @@ def test_get_metadata_object_uses_scroll() -> None:
     assert obj is not None
     assert obj["name"] == "Sales"
     assert obj["id"] == "Document.Sales"
-    assert metadata_graph.get_metadata_object("Document.Sales", client=client)["id"] == "Document.Sales"
+    assert (
+        metadata_graph.get_metadata_object("Document.Sales", client=client)["id"]
+        == "Document.Sales"
+    )
 
 
 def test_get_metadata_config_summaries_returns_pairs() -> None:

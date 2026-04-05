@@ -172,17 +172,29 @@ def test_search_metadata_fields_finds_requisite_in_exact_object() -> None:
 
 
 def test_metadata_canonical_id_aliases_from_dot_query() -> None:
-    assert "Document.РеализацияТоваровУслуг" in metadata_graph._metadata_canonical_id_aliases_from_query(
-        "Документ.РеализацияТоваровУслуг"
+    assert (
+        "Document.РеализацияТоваровУслуг"
+        in metadata_graph._metadata_canonical_id_aliases_from_query(
+            "Документ.РеализацияТоваровУслуг"
+        )
     )
-    assert "Document.РеализацияТоваровУслуг" in metadata_graph._metadata_canonical_id_aliases_from_query(
-        "Документы.РеализацияТоваровУслуг"
+    assert (
+        "Document.РеализацияТоваровУслуг"
+        in metadata_graph._metadata_canonical_id_aliases_from_query(
+            "Документы.РеализацияТоваровУслуг"
+        )
     )
-    assert "Document.РеализацияТоваровУслуг" in metadata_graph._metadata_canonical_id_aliases_from_query(
-        "Метаданные.Документы.РеализацияТоваровУслуг"
+    assert (
+        "Document.РеализацияТоваровУслуг"
+        in metadata_graph._metadata_canonical_id_aliases_from_query(
+            "Метаданные.Документы.РеализацияТоваровУслуг"
+        )
     )
-    assert "Document.РеализацияТоваровУслуг" in metadata_graph._metadata_canonical_id_aliases_from_query(
-        "Метаданные.Документы.РеализацияТоваровУслуг.Реквизиты"
+    assert (
+        "Document.РеализацияТоваровУслуг"
+        in metadata_graph._metadata_canonical_id_aliases_from_query(
+            "Метаданные.Документы.РеализацияТоваровУслуг.Реквизиты"
+        )
     )
     assert (
         "ChartOfCharacteristicTypes.ВидыСубконто"
@@ -196,14 +208,23 @@ def test_metadata_canonical_id_aliases_from_dot_query() -> None:
     assert "Catalog.Авансы" in metadata_graph._metadata_canonical_id_aliases_from_query(
         "Справочники.Авансы"
     )
-    assert "Document.РеализацияТоваровУслуг" in metadata_graph._metadata_canonical_id_aliases_from_query(
-        "Документы.РеализацияТоваровУслуг.СоздатьДокумент()"
+    assert (
+        "Document.РеализацияТоваровУслуг"
+        in metadata_graph._metadata_canonical_id_aliases_from_query(
+            "Документы.РеализацияТоваровУслуг.СоздатьДокумент()"
+        )
     )
-    assert "Document.РеализацияТоваровУслуг" in metadata_graph._metadata_canonical_id_aliases_from_query(
-        "Метаданные.Метаданные.Документы.РеализацияТоваровУслуг"
+    assert (
+        "Document.РеализацияТоваровУслуг"
+        in metadata_graph._metadata_canonical_id_aliases_from_query(
+            "Метаданные.Метаданные.Документы.РеализацияТоваровУслуг"
+        )
     )
-    assert "Document.РеализацияТоваровУслуг" in metadata_graph._metadata_canonical_id_aliases_from_query(
-        "Глобальный контекст.Метаданные.Документы.РеализацияТоваровУслуг"
+    assert (
+        "Document.РеализацияТоваровУслуг"
+        in metadata_graph._metadata_canonical_id_aliases_from_query(
+            "Глобальный контекст.Метаданные.Документы.РеализацияТоваровУслуг"
+        )
     )
     assert "Document.Shipment" in metadata_graph._metadata_canonical_id_aliases_from_query(
         "Metadata.Documents.Shipment"
@@ -214,7 +235,9 @@ def test_metadata_canonical_id_aliases_from_dot_query() -> None:
     assert "Enum.Статусы" in metadata_graph._metadata_canonical_id_aliases_from_query(
         "Перечисления.Статусы.Оплачен"
     )
-    assert "Document.Foo" in metadata_graph._metadata_canonical_id_aliases_from_query("Document.Foo")
+    assert "Document.Foo" in metadata_graph._metadata_canonical_id_aliases_from_query(
+        "Document.Foo"
+    )
     assert metadata_graph._metadata_canonical_id_aliases_from_query("no_dot") == []
 
 
