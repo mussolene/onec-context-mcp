@@ -4,7 +4,7 @@
 
 Основной артефакт для метаданных 1С в этом репозитории:
 
-- [tools/1c/MetadataExport.epf](/Users/maxon/git/me/1c_hbk_helper/tools/1c/MetadataExport.epf)
+- [tools/1c/MetadataExport.epf](../../tools/1c/MetadataExport.epf)
 
 Использовать нужно **эту обработку**, а не выгрузку конфигурации в файлы (`data/config`).
 

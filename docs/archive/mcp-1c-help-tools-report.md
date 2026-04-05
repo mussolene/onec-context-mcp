@@ -92,7 +92,7 @@
 | **selection_range** | Диапазоны выбора для позиции (selectionRange). | `uri` (обяз.), `line`, `character` или `positions_json`. | URI + позиция. | Расширение выделения (слово → строка → блок). |
 | **did_change_watched_files** | Уведомить LSP об изменении файлов извне. | `language` (обяз.), `changes_json` (массив событий: uri, type 1=Created/2=Changed/3=Deleted). | После массовых правок вне редактора. | Переиндексация после batch-правок. |
 
-**Примечание по URI:** при работе через Docker (volume `.:/projects`) используйте URI вида `file:///projects/.nosync/cryptographiclib/...`. Локально может использоваться полный путь `file:///Users/.../1c_hbk_helper/.nosync/...`. `document_diagnostics` в прогоне успешно сработал с локальным file URI.
+**Примечание по URI:** при работе через Docker (volume `.:/projects`) используйте URI вида `file:///projects/.nosync/cryptographiclib/...`. Локально — `file://` + абсолютный путь к файлу в вашем клоне репозитория (без привязки к конкретному пользователю или каталогу в документации). `document_diagnostics` в прогоне успешно сработал с локальным file URI.
 
 ---
 

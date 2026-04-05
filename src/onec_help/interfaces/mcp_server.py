@@ -32,7 +32,7 @@ _StrList = Annotated[list[str], BeforeValidator(_coerce_str_to_list)]
 from ..knowledge.platform_help_manager_templates import manager_help_hint_line  # noqa: E402
 from ..runtime.mcp_metrics import record_request as _record_mcp_request  # noqa: E402
 from ..search_store.indexer import _version_sort_key  # noqa: E402
-from ..shared._utils import format_duration, safe_error_message  # noqa: E402
+from ..shared._utils import format_duration, mask_path_for_log, safe_error_message  # noqa: E402
 
 
 def _record_mcp_tool(f):
@@ -155,7 +155,7 @@ def _read_cursor_doc(relative: str) -> str:
     try:
         return path.read_text(encoding="utf-8")
     except OSError as e:
-        return f"Read error: {e}"
+        return f"Read error: {safe_error_message(e)}"
 
 
 def _get_help_path() -> Path:
@@ -1651,7 +1651,10 @@ def _build_mcp_app(help_path: Path) -> Any:
                     if out_path:
                         result = f"Snippet saved to memory and to {out_path}."
                     else:
-                        result = f"Snippet saved to memory. Could not write to SNIPPETS_DIR ({snippets_dir})."
+                        result = (
+                            "Snippet saved to memory. Could not write to SNIPPETS_DIR "
+                            f"({mask_path_for_log(snippets_dir)})."
+                        )
                 else:
                     result = "Snippet saved to memory. SNIPPETS_DIR not set — skip file write."
             return result
