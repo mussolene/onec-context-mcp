@@ -1434,10 +1434,13 @@ def search_hybrid(
         if k and k != "|":
             rrf_scores[k] = rrf_scores.get(k, 0) + 1 / (_RRF_K + rank)
             key_to_doc[k] = r
-    return sorted(
-        key_to_doc.values(),
-        key=lambda x: -rrf_scores.get(_rrf_doc_key(x), 0),
-    )[:limit]
+
+    def _hybrid_sort_key(x: dict[str, Any]) -> tuple[float, tuple[int, ...]]:
+        rrf = -rrf_scores.get(_rrf_doc_key(x), 0.0)
+        vkey = tuple(-p for p in _version_sort_key(str(x.get("version") or "")))
+        return (rrf, vkey)
+
+    return sorted(key_to_doc.values(), key=_hybrid_sort_key)[:limit]
 
 
 def get_topic_from_index(

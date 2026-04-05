@@ -29,7 +29,12 @@ def test_live_tool_list_matches_narrow_surface(mcp_client: StreamableHttpMcpClie
     assert "get_1c_api_object" in names
     assert "answer_1c_help_question" in names
     assert "search_1c_api" in names
-    assert "search_1c_official_examples" in names
+    assert "search_1c_snippets" in names
+    assert "search_1c_standards" in names
+    assert "search_1c_official_examples" not in names
+    assert "search_1c_memory" not in names
+    assert "get_1c_function_info" not in names
+    assert "get_1c_context_bundle" not in names
     assert "search_1c_metadata_exact" in names
     assert "search_1c_metadata_semantic" in names
     assert "search_1c_metadata_fields" in names

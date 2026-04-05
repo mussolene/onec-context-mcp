@@ -28,6 +28,39 @@ def test_snippet_max_chars_from_env() -> None:
         assert mcp_server._snippet_max_chars() == 5000
 
 
+def test_structured_api_sort_key_prefers_newer_platform_version() -> None:
+    """Tiebreak after name match: topic_path starts with 8.x so lexicographic order favored 8.2 over 8.5."""
+    old = {
+        "full_name": "Тип.Метод",
+        "name": "Метод",
+        "version": "8.2.19.130",
+        "topic_path": "8.2.19.130/shcntx_ru/a.html",
+    }
+    new = {
+        "full_name": "Тип.Метод",
+        "name": "Метод",
+        "version": "8.5.1.1236",
+        "topic_path": "8.5.1.1236/shcntx_ru/b.html",
+    }
+    q = "Тип.Метод"
+    ordered = sorted(
+        [old, new],
+        key=lambda item: mcp_server._structured_api_sort_key(q, item),
+    )
+    assert ordered[0]["version"] == "8.5.1.1236"
+
+
+def test_extract_fact_from_structured_includes_notes_compact() -> None:
+    item = {
+        "summary": "Кратко.",
+        "notes": "Важное примечание из поля notes.",
+        "source_sections": {"note": "Дубликат."},
+    }
+    fact = mcp_server._extract_fact_from_structured(item, "general", detail="compact")
+    assert "Важное примечание" in fact
+    assert "Примечание:" in fact
+
+
 def test_normalize_api_related_items_dedupes_and_drops_crumbs() -> None:
     raw = [
         {"target_name": "Foo", "link_kind": "see_also"},
@@ -523,30 +556,6 @@ def test_mcp_tool_get_1c_api_related_via_app(help_sample_dir: Path) -> None:
     assert "ПолучитьЗаголовки" in text
 
 
-def test_mcp_tool_search_1c_official_examples_via_app(help_sample_dir: Path) -> None:
-    """search_1c_official_examples returns official examples from the dedicated examples layer."""
-    app = mcp_server._build_mcp_app(help_sample_dir)
-    with patch.object(
-        mcp_server,
-        "_search_official_examples",
-        return_value=[
-            {
-                "api_name": "HTTPСоединение.Получить",
-                "title": "HTTPСоединение.Получить — пример 1",
-                "description": "GET",
-                "code": 'Ответ = Соединение.Получить("/");',
-                "topic_path": "Get.md",
-            }
-        ],
-    ):
-        result = asyncio.run(
-            app.call_tool("search_1c_official_examples", {"query": "HTTP GET", "limit": 3})
-        )
-    text = result.content[0].text if result.content else ""
-    assert "HTTPСоединение.Получить" in text
-    assert "Соединение.Получить" in text
-
-
 def test_mcp_tool_answer_1c_help_question_uses_structured_availability(
     help_sample_dir: Path,
 ) -> None:
@@ -693,32 +702,6 @@ def test_mcp_tool_compare_1c_help_via_app(help_sample_dir: Path) -> None:
     assert "8.3" in text or "Diff" in text
 
 
-def test_mcp_tool_get_1c_function_info_via_app(help_sample_dir: Path) -> None:
-    """Call get_1c_function_info tool via app."""
-    app = mcp_server._build_mcp_app(help_sample_dir)
-    with patch.object(
-        mcp_server,
-        "_get_api_member",
-        return_value=[
-            {
-                "name": "Формат",
-                "full_name": "ВстроенныеФункцииЯзыка.Формат",
-                "summary": "Описание функции.",
-                "syntax": "Формат(<Значение>, <ФорматнаяСтрока>)",
-            },
-        ],
-    ):
-        result = asyncio.run(
-            app.call_tool(
-                "get_1c_function_info",
-                {"name": "Формат"},
-            )
-        )
-    text = result.content[0].text if result.content else ""
-    assert "Формат" in text
-    assert "Описание" in text
-
-
 def test_mcp_tool_get_form_metadata_via_app(help_sample_dir: Path) -> None:
     """Call get_form_metadata tool via app."""
     app = mcp_server._build_mcp_app(help_sample_dir)
@@ -796,135 +779,6 @@ def test_mcp_tool_search_1c_snippets(help_sample_dir: Path) -> None:
     text = result.content[0].text if result.content else ""
     assert "Сниппеты" in text
     assert "Сообщить(1)" in text or "Пример" in text
-
-
-def test_mcp_tool_search_1c_memory(help_sample_dir: Path) -> None:
-    """search_1c_memory returns formatted blocks from memory (snippets/standards)."""
-    app = mcp_server._build_mcp_app(help_sample_dir)
-    memory_results = [
-        {
-            "payload": {
-                "title": "Стандарт именования",
-                "domain": "standards",
-                "description": "Правила именования",
-            }
-        },
-        {
-            "payload": {
-                "title": "Пример запроса",
-                "domain": "snippets",
-                "code_snippet": "ВЫБРАТЬ 1",
-                "description": "Пример",
-            }
-        },
-    ]
-    with patch("onec_help.knowledge.memory.get_memory_store") as mock_get_store:
-        mock_store = mock_get_store.return_value
-        mock_store.search_long.return_value = memory_results
-        result = asyncio.run(
-            app.call_tool(
-                "search_1c_memory",
-                {"query": "запрос 1С", "limit": 5},
-            )
-        )
-    text = result.content[0].text if result.content else ""
-    assert "Память (сниппеты и стандарты)" in text
-    assert "Стандарт именования" in text or "стандарт" in text
-    assert "Пример запроса" in text or "пример" in text
-
-
-def test_mcp_tool_search_1c_memory_with_domains(help_sample_dir: Path) -> None:
-    """search_1c_memory with domains=standards,snippets calls search_long per domain."""
-    app = mcp_server._build_mcp_app(help_sample_dir)
-    with patch("onec_help.knowledge.memory.get_memory_store") as mock_get_store:
-        mock_store = mock_get_store.return_value
-        mock_store.search_long.side_effect = [
-            [{"payload": {"title": "Стандарт", "domain": "standards"}}],
-            [
-                {
-                    "payload": {
-                        "title": "Сниппет",
-                        "domain": "snippets",
-                        "code_snippet": "Сообщить(1);",
-                    }
-                }
-            ],
-        ]
-        result = asyncio.run(
-            app.call_tool(
-                "search_1c_memory",
-                {"query": "тест", "limit": 4, "domains": "standards,snippets"},
-            )
-        )
-    text = result.content[0].text if result.content else ""
-    assert "Память (сниппеты и стандарты)" in text
-    assert mock_store.search_long.call_count == 2
-
-
-def test_mcp_tool_get_1c_function_info_choose_index(help_sample_dir: Path) -> None:
-    """get_1c_function_info with choose_index formats chosen structured member (no Qdrant)."""
-    app = mcp_server._build_mcp_app(help_sample_dir)
-    # topic_path breaks sort tie so order is stable without live onec_help_api_members.
-    members = [
-        {
-            "name": "Формат (функция)",
-            "version": "8.3.27",
-            "topic_path": "topics/a",
-            "summary": "FIRST_CHOSEN_SUMMARY",
-        },
-        {
-            "name": "Формат (страница)",
-            "version": "8.3.27",
-            "topic_path": "topics/b",
-            "summary": "SECOND_NOT_CHOSEN",
-        },
-    ]
-    with patch.object(mcp_server, "_get_api_member", return_value=list(members)):
-        result = asyncio.run(
-            app.call_tool(
-                "get_1c_function_info",
-                {"name": "Формат", "path": None, "choose_index": 1},
-            )
-        )
-    text = result.content[0].text if result.content else ""
-    assert "Формат" in text
-    assert "FIRST_CHOSEN_SUMMARY" in text
-    assert "SECOND_NOT_CHOSEN" not in text
-
-    with patch.object(mcp_server, "_get_api_member", return_value=list(members)):
-        result2 = asyncio.run(
-            app.call_tool(
-                "get_1c_function_info",
-                {"name": "Формат", "path": None, "choose_index": 2},
-            )
-        )
-    text2 = result2.content[0].text if result2.content else ""
-    assert "SECOND_NOT_CHOSEN" in text2
-    assert "FIRST_CHOSEN_SUMMARY" not in text2
-
-
-def test_mcp_tool_get_1c_function_info_empty_name(help_sample_dir: Path) -> None:
-    """get_1c_function_info returns message when name is empty."""
-    app = mcp_server._build_mcp_app(help_sample_dir)
-    result = asyncio.run(
-        app.call_tool("get_1c_function_info", {"name": "   ", "path": None, "choose_index": None})
-    )
-    text = result.content[0].text if result.content else ""
-    assert "Provide" in text or "name" in text
-
-
-def test_mcp_tool_get_1c_function_info_uses_strict_member_lookup(help_sample_dir: Path) -> None:
-    """get_1c_function_info disables hybrid fallback so bogus multi-matches are not listed."""
-    app = mcp_server._build_mcp_app(help_sample_dir)
-    with patch.object(mcp_server, "_get_api_member") as mock_member:
-        mock_member.return_value = []
-        result = asyncio.run(
-            app.call_tool("get_1c_function_info", {"name": "СоздатьПустуюТаблицу"}),
-        )
-    mock_member.assert_called_once_with("СоздатьПустуюТаблицу", version=None, language=None)
-    text = result.content[0].text if result.content else ""
-    assert "индексе справки платформы" in text
-    assert "search_1c_api" in text
 
 
 @patch("onec_help.knowledge.metadata_graph.search_metadata_exact")
@@ -1044,36 +898,6 @@ def test_mcp_tool_get_1c_metadata_object_via_app(mock_get_meta, help_sample_dir:
 
 
 @patch("onec_help.knowledge.context_builder.build_context")
-def test_mcp_tool_get_1c_context_bundle_via_app(mock_build_ctx, help_sample_dir: Path) -> None:
-    """Call get_1c_context_bundle tool via app."""
-    app = mcp_server._build_mcp_app(help_sample_dir)
-    mock_build_ctx.return_value = {
-        "request": {"query": "Тест", "config_version": "CfgVer"},
-        "help_topics": [{"title": "A", "path": "a.html", "text": "x"}],
-        "memory": [{"payload": {"title": "Snippet", "domain": "snippets", "description": "desc"}}],
-        "metadata_objects": [
-            {
-                "id": "Document.Sales",
-                "object_type": "Document",
-                "name": "Sales",
-                "full_name": "Реализация",
-                "path": "Documents/Sales",
-            }
-        ],
-    }
-    result = asyncio.run(
-        app.call_tool(
-            "get_1c_context_bundle",
-            {"query": "Тест", "config_version": "CfgVer", "file_uri": None, "symbol_name": None},
-        )
-    )
-    text = result.content[0].text if result.content else ""
-    assert "Из справки" in text
-    assert "Сниппеты" in text or "стандарты" in text
-    assert "Объекты конфигурации" in text
-
-
-@patch("onec_help.knowledge.context_builder.build_context")
 def test_mcp_tool_get_1c_task_context_via_app(mock_build_ctx, help_sample_dir: Path) -> None:
     """get_1c_task_context returns compact local context and top results."""
     app = mcp_server._build_mcp_app(help_sample_dir)
@@ -1126,7 +950,7 @@ def test_mcp_tool_get_1c_quick_guide_develop_via_app(help_sample_dir: Path) -> N
     text = result.content[0].text if result.content else ""
     assert "get_1c_api_answer" in text
     assert "get_1c_api_object" in text
-    assert "search_1c_official_examples" in text
+    assert "include_examples" in text
     assert "get_1c_task_context" in text
     assert "search_1c_standards" in text
     assert "search_1c_metadata_exact" in text

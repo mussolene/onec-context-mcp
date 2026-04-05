@@ -2,6 +2,8 @@
 
 Отчёт по результатам проверки полноты знаний MCP для понимания, разработки, поддержки и тестирования проекта 1С на примере **CryptographicLib** (`.nosync/cryptographiclib`). Прогон тестов выполнен для **13 инструментов 1c-help** и **14 инструментов lsp-bsl-bridge**.
 
+**Актуализация (2026-04):** из публичного MCP surface удалены `get_1c_context_bundle`, `get_1c_function_info`, `search_1c_memory`, `search_1c_official_examples`. Канонический актуальный список и порядок вызовов — [mcp-tools-reference.md](../reference/mcp-tools-reference.md) и промпт `get_1c_quick_guide`. Ниже сохранён исторический текст прогона; при использовании подставляйте текущие аналоги (`get_1c_api_answer` / `detail="full"`, `search_1c_api` с `include_examples`, `search_1c_standards` / `search_1c_snippets`, `get_1c_task_context`).
+
 ---
 
 ## 1. Резюме

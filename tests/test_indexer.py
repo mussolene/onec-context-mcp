@@ -171,6 +171,24 @@ def test_search_hybrid_rrf_merge(mock_search: MagicMock, mock_keyword: MagicMock
 
 @patch("onec_help.search_store.indexer.search_index_keyword")
 @patch("onec_help.search_store.indexer.search_index")
+def test_search_hybrid_tiebreak_prefers_newer_platform(
+    mock_search: MagicMock, mock_keyword: MagicMock
+) -> None:
+    """Equal RRF score: sort by platform version (newer first)."""
+    mock_search.return_value = [
+        {"full_name": "Тип.Метод", "version": "8.2.19.130"},
+        {"full_name": "Тип.Метод", "version": "8.5.1.1236"},
+    ]
+    mock_keyword.return_value = [
+        {"full_name": "Тип.Метод", "version": "8.5.1.1236"},
+        {"full_name": "Тип.Метод", "version": "8.2.19.130"},
+    ]
+    result = search_hybrid("query", limit=5, qdrant_host="localhost", qdrant_port=6333)
+    assert [r.get("version") for r in result] == ["8.5.1.1236", "8.2.19.130"]
+
+
+@patch("onec_help.search_store.indexer.search_index_keyword")
+@patch("onec_help.search_store.indexer.search_index")
 def test_search_hybrid_passes_query_vector(mock_search: MagicMock, mock_keyword: MagicMock) -> None:
     """search_hybrid forwards query_vector to search_index (one embed for multiple collections)."""
     mock_search.return_value = []

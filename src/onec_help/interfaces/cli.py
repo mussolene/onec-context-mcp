@@ -469,7 +469,7 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
         except OSError:
             pass
         progress_done(
-            f"metadata-graph-build │ ✓ {inserted} object(s) → onec_config_metadata (use config_version={cfg_ver!r} in search_1c_metadata / get_1c_context_bundle)"
+            f"metadata-graph-build │ ✓ {inserted} object(s) → onec_config_metadata (use config_version={cfg_ver!r} in search_1c_metadata_* / get_1c_metadata_object)"
         )
         if inserted > 0 and env_config.get_bm25_enabled():
             try:

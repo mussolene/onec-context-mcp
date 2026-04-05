@@ -985,9 +985,7 @@ def test_get_embedding_redis_short_circuit(monkeypatch) -> None:
     monkeypatch.setenv("EMBEDDING_REDIS_CACHE", "1")
     with patch.object(embedding_mod, "_EMBEDDING_BACKEND", "openai_api"):
         with patch.object(embedding_mod, "_embedding_cache_max_size", return_value=0):
-            with patch.object(
-                embedding_mod, "_embedding_redis_get", return_value=[0.2, 0.4, 0.6]
-            ):
+            with patch.object(embedding_mod, "_embedding_redis_get", return_value=[0.2, 0.4, 0.6]):
                 with patch.object(embedding_mod, "_get_embedding_api_single") as mock_api:
                     out = embedding_mod.get_embedding("only-redis", target_dimension=3)
                     assert out == [0.2, 0.4, 0.6]

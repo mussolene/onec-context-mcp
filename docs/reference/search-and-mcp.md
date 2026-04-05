@@ -26,8 +26,7 @@ Structured help search (`search_1c_api`, hybrid retrieval в `api_members|api_ob
 
 - exact API: `get_1c_api_answer`
 - natural-language factual question: `answer_1c_help_question`
-- broad structured lookup: `search_1c_api`
-- official examples: `search_1c_official_examples`
+- broad structured lookup и официальные примеры из справки: `search_1c_api` (параметр `include_examples`, по умолчанию включён)
 
 ### 3. Skill 1c-mcp-development
 
@@ -40,7 +39,7 @@ Structured help search (`search_1c_api`, hybrid retrieval в `api_members|api_ob
 - Для **точных имён** (`Тип.Метод`) — используйте **get_1c_api_answer**.
 - Для **общих вопросов по API** — **answer_1c_help_question**.
 - Для **широкого поиска по API и объектам** — **search_1c_api**.
-- Для **примеров** — **search_1c_official_examples** или **search_1c_snippets**.
+- Для **официальных примеров платформы** — **search_1c_api** с примерами; для **curated кода** — **search_1c_snippets**.
 
 ---
 
@@ -50,7 +49,7 @@ Structured help search (`search_1c_api`, hybrid retrieval в `api_members|api_ob
 
 1. **Статус индекса** — `get_1c_help_index_status`: число топиков, версии, языки, размер БД. Если индекс пуст — запустить ingest.
 2. **Natural-language question** — `answer_1c_help_question("как прочитать JSON в Соответствие")`.
-3. **Точное имя** — `get_1c_api_answer("Формат")` или `get_1c_function_info("ПрочитатьJSON")`.
+3. **Точное имя** — `get_1c_api_answer("Формат")` или `get_1c_api_answer("ПрочитатьJSON", detail="full")`.
 
 ### Скорость
 
@@ -67,7 +66,7 @@ Structured help search (`search_1c_api`, hybrid retrieval в `api_members|api_ob
 ### Рабочий код за несколько вызовов
 
 - **Один вызов:** `answer_1c_help_question(query)` — часто достаточно для factual API-вопросов.
-- **Два вызова:** `get_1c_api_answer("Тип.Метод", detail="full")` + `search_1c_official_examples("Тип.Метод")`.
-- **Третий вызов (по желанию):** `save_1c_snippet(code, description, title)` — сохранить рабочий пример в память, чтобы в следующих сессиях он попадал в «Из памяти» в get_1c_code_answer.
+- **Два вызова:** `get_1c_api_answer("Тип.Метод", detail="full")` + `search_1c_api("Тип.Метод", include_examples=True)`.
+- **Третий вызов (по желанию):** `save_1c_snippet(code, description, title)` — сохранить рабочий пример в память, чтобы в следующих сессиях он находился через `search_1c_snippets`.
 
 Итого: рабочий API-контекст теперь получается за 1–3 вызова по structured DB-first route без topic fallback.

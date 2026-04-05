@@ -686,6 +686,57 @@ def test_get_api_member_prefers_exact_member_name_for_bare_query() -> None:
     assert results[0]["full_name"] == "Глобальный контекст.Формат"
 
 
+def test_get_api_member_orders_newer_platform_first() -> None:
+    from unittest.mock import patch
+
+    class _Client:
+        def collection_exists(self, _name):
+            return True
+
+        def scroll(self, *, collection_name, scroll_filter, limit, with_payload, with_vectors):
+            field = scroll_filter.must[0].key
+            value = scroll_filter.must[0].match.value
+            rows = []
+            if (
+                collection_name == "onec_help_api_members"
+                and field == "full_name"
+                and value == "Тип.Метод"
+            ):
+                rows = [
+                    type(
+                        "P",
+                        (),
+                        {
+                            "payload": {
+                                "full_name": "Тип.Метод",
+                                "member_name": "Метод",
+                                "owner_name": "Тип",
+                                "version": "8.2.19.130",
+                                "topic_path": "v82.html",
+                            }
+                        },
+                    )(),
+                    type(
+                        "P",
+                        (),
+                        {
+                            "payload": {
+                                "full_name": "Тип.Метод",
+                                "member_name": "Метод",
+                                "owner_name": "Тип",
+                                "version": "8.5.1.1236",
+                                "topic_path": "v85.html",
+                            }
+                        },
+                    )(),
+                ]
+            return rows, None
+
+    with patch("qdrant_client.QdrantClient", return_value=_Client()):
+        results = get_api_member("Тип.Метод")
+    assert [r["version"] for r in results] == ["8.5.1.1236", "8.2.19.130"]
+
+
 def test_get_api_member_never_calls_hybrid_search() -> None:
     """Exact member lookup only; empty scroll must not trigger search_api_members."""
     from unittest.mock import patch

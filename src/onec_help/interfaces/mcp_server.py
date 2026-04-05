@@ -31,6 +31,7 @@ _StrList = Annotated[list[str], BeforeValidator(_coerce_str_to_list)]
 
 from ..knowledge.platform_help_manager_templates import manager_help_hint_line  # noqa: E402
 from ..runtime.mcp_metrics import record_request as _record_mcp_request  # noqa: E402
+from ..search_store.indexer import _version_sort_key  # noqa: E402
 from ..shared._utils import format_duration, safe_error_message  # noqa: E402
 
 
@@ -642,7 +643,14 @@ def _compact_api_answer(result: dict[str, Any], content: str, *, max_chars: int 
     return "\n\n".join(lines)
 
 
-def _structured_api_sort_key(query: str, item: dict[str, Any]) -> tuple[int, int, bool, str]:
+def _structured_platform_version_key(version_str: str) -> tuple[int, ...]:
+    """Ascending sort tiebreak: prefer newer ingested platform help version."""
+    return tuple(-p for p in _version_sort_key(version_str))
+
+
+def _structured_api_sort_key(
+    query: str, item: dict[str, Any]
+) -> tuple[int, int, bool, tuple[int, ...], str]:
     query_lower = (query or "").strip().lower()
     name_lower = str(item.get("name") or "").strip().lower()
     title_lower = str(item.get("title") or "").strip().lower()
@@ -675,6 +683,7 @@ def _structured_api_sort_key(query: str, item: dict[str, Any]) -> tuple[int, int
         priority,
         content_no_match,
         _member_sort_key(query_lower, name_lower or title_lower),
+        _structured_platform_version_key(str(item.get("version") or "")),
         str(item.get("topic_path") or item.get("path") or ""),
     )
 
@@ -841,7 +850,7 @@ def _question_structured_sort_key(
     question: str,
     intent: str,
     item: dict[str, Any],
-) -> tuple[int, int, int, bool, str]:
+) -> tuple[int, int, int, bool, tuple[int, ...], str]:
     query = (question or "").strip()
     if intent == "version":
         has_fact = bool(item.get("platform_since") or item.get("availability"))
@@ -880,6 +889,7 @@ def _question_structured_sort_key(
         content_no_match,
         best_member,
         not has_fact,
+        _structured_platform_version_key(str(item.get("version") or "")),
         str(item.get("topic_path") or ""),
     )
 
@@ -1011,6 +1021,14 @@ def _extract_fact_from_structured(
         return ""
     if detail == "full":
         return _format_structured_api_object(item, include_rich_sections=True)
+    note_top = str(item.get("notes") or "").strip()
+    note_src = str(source_sections.get("note") or "").strip()
+    note_parts: list[str] = []
+    if note_top:
+        note_parts.append(note_top)
+    if note_src and note_src != note_top:
+        note_parts.append(note_src)
+    note_block = "\n\n".join(note_parts).strip()
     parts = [
         str(item.get("summary") or "").strip(),
         str(item.get("description") or "").strip(),
@@ -1020,6 +1038,8 @@ def _extract_fact_from_structured(
         str(item.get("availability") or "").strip(),
         str(item.get("restrictions") or "").strip(),
     ]
+    if note_block:
+        parts.append(f"Примечание:\n{note_block}")
     text = "\n\n".join(part for part in parts if part).strip()
     return text[:1600] if text else ""
 
@@ -1399,42 +1419,6 @@ def _build_mcp_app(help_path: Path) -> Any:
 
     @mcp.tool()
     @_record_mcp_tool
-    def search_1c_official_examples(
-        query: str,
-        limit: int = 5,
-        version: str | None = None,
-        language: str | None = None,
-    ) -> str:
-        """Search official examples extracted from platform help topics only."""
-        err = _check_rate_limit()
-        if err:
-            return err
-        q, err = _truncate_if_needed(query or "", MAX_QUERY_CHARS, "query")
-        if err:
-            return err
-        if not q.strip():
-            return "Provide query, for example HTTPСоединение.Получить."
-        items = _search_official_examples(q, limit=limit, version=version, language=language)
-        if not items:
-            return "No official examples found."
-        lines: list[str] = []
-        for idx, item in enumerate(items, 1):
-            title = item.get("title") or item.get("api_name") or "Example"
-            path = item.get("topic_path") or ""
-            lines.append(f"{idx}. **{title}** (path: {path})")
-            if item.get("description"):
-                lines.append(f"   {item.get('description')}")
-            code_raw = str(item.get("code") or "").strip()
-            if len(code_raw) >= 3:
-                lines.append(f"```bsl\n{_compact_code(code_raw, 1200)}\n```")
-            else:
-                lines.append(
-                    "   (тело примера отсутствует в индексе; откройте topic по path или пересоберите structured help)"
-                )
-        return "\n".join(lines)
-
-    @mcp.tool()
-    @_record_mcp_tool
     def answer_1c_help_question(
         question: str,
         version: str | None = None,
@@ -1588,29 +1572,6 @@ def _build_mcp_app(help_path: Path) -> Any:
 
     @mcp.tool()
     @_record_mcp_tool
-    def search_1c_memory(
-        query: str,
-        limit: int = 5,
-        domains: str | None = None,
-    ) -> str:
-        """Search only memory (snippets and standards). Returns blocks [пример] / [стандарт] by hybrid BM25+semantic search.
-        query: search text. limit: max items (default 5). domains: optional filter — "standards", "snippets",
-        "community_help", or comma-separated e.g. "standards,snippets" to get both; if omitted, searches all.
-        Memory contains: BSP patterns, platform snippets, v8std coding standards.
-        Use when you need dedicated context from standards/snippets."""
-        err = _check_rate_limit()
-        if err:
-            return err
-        return _search_memory_blocks(
-            query,
-            limit=limit,
-            domains=domains,
-            title="## Память (сниппеты и стандарты)",
-            include_code=False,
-        )
-
-    @mcp.tool()
-    @_record_mcp_tool
     def search_1c_standards(query: str, limit: int = 5) -> str:
         """Search only standards in memory (v8std, v8-code-style, ITS articles loaded into memory)."""
         err = _check_rate_limit()
@@ -1650,7 +1611,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         """Save a 1C code snippet to user memory for future context.
         code_snippet: the code to remember. description: short explanation. title: optional short label for search.
         write_to_files: if True, also write to SNIPPETS_DIR as .md (default: SAVE_SNIPPET_TO_FILES env).
-        Note: snippet becomes searchable via search_1c_memory after memory flush (usually within seconds when MEMORY_ENABLED=1)."""
+        Note: snippet becomes searchable via search_1c_snippets / search_1c_standards after memory flush (usually within seconds when MEMORY_ENABLED=1)."""
         err = _check_rate_limit()
         if err:
             return err
@@ -2379,97 +2340,6 @@ def _build_mcp_app(help_path: Path) -> Any:
 
     @mcp.tool()
     @_record_mcp_tool
-    def get_1c_context_bundle(
-        query: str,
-        config_version: str | None = None,
-        file_uri: str | None = None,
-        symbol_name: str | None = None,
-        limit: int = 5,
-    ) -> str:
-        """Legacy broad context: combine help snippets, memory and configuration metadata objects.
-        Use when you need all three sources: structured help, memory (snippets/standards), AND config objects (Documents, Catalogs, Registers).
-        For AI work prefer get_1c_task_context and explicit narrow tools; this tool is intentionally broader and more verbose.
-        query: main search text or API name. config_version: e.g. '3.0.184.16'; optional if one config loaded.
-        file_uri, symbol_name: accepted for context narrowing.
-        limit: max items per source (default 5)."""
-        err = _check_rate_limit()
-        if err:
-            return err
-        q, err = _truncate_if_needed(query or "", MAX_QUERY_CHARS, "query")
-        if err:
-            return err
-        try:
-            from ..knowledge.context_builder import ContextRequest, build_context
-        except Exception as e:  # pragma: no cover - import/runtime guard
-            return f"Context builder is not available: {safe_error_message(e)}"
-
-        ctx = build_context(
-            ContextRequest(
-                query=q,
-                config_version=config_version,
-                file_uri=file_uri,
-                symbol_name=symbol_name,
-                limit=limit,
-            )
-        )
-
-        help_topics = ctx.get("help_topics") or []
-        memory_items = ctx.get("memory") or []
-        metadata_objects = ctx.get("metadata_objects") or []
-
-        if not (help_topics or memory_items or metadata_objects):
-            return "No context found: help index, memory and metadata graph returned no results."
-
-        parts: list[str] = [f"## Legacy context bundle: {q}"]
-
-        if help_topics:
-            lines = []
-            for i, h in enumerate(help_topics[:limit], 1):
-                title = h.get("title", "")
-                path = h.get("path", "")
-                text = (h.get("text") or "")[: _snippet_max_chars()]
-                lines.append(f"{i}. **{title}** — `{path}`\n   {text}...")
-            parts.append("\n### Из справки\n\n" + "\n".join(lines))
-
-        if memory_items:
-            lines = []
-            for i, m in enumerate(memory_items[:limit], 1):
-                payload = m.get("payload", {}) or m
-                title = payload.get("title", "") or payload.get("summary", "")[:80]
-                domain = payload.get("domain", "")
-                prefix = (
-                    "[пример]"
-                    if domain == "snippets"
-                    else "[стандарт]"
-                    if domain == "standards"
-                    else "[memory]"
-                )
-                desc = payload.get("description", "") or payload.get("instruction", "") or ""
-                lines.append(f"{i}. **{title}** {prefix}\n   {desc[: _snippet_max_chars()]}...")
-            parts.append("\n### Сниппеты и стандарты\n\n" + "\n".join(lines))
-
-        if metadata_objects:
-            lines = []
-            for i, obj in enumerate(metadata_objects[:limit], 1):
-                ot = obj.get("object_type", "")
-                name = obj.get("name", "")
-                full = obj.get("full_name") or ""
-                oid = obj.get("id", "")
-                path = obj.get("path", "")
-                line = f"{i}. **{ot} {name}**"
-                if full:
-                    line += f" — {full}"
-                if oid:
-                    line += f" (id: `{oid}`)"
-                if path:
-                    line += f" — `{path}`"
-                lines.append(line)
-            parts.append("\n### Объекты конфигурации\n\n" + "\n".join(lines))
-
-        return "\n".join(parts)
-
-    @mcp.tool()
-    @_record_mcp_tool
     def get_1c_task_context(
         query: str,
         file_uri: str | None = None,
@@ -2565,64 +2435,22 @@ def _build_mcp_app(help_path: Path) -> Any:
 
     @mcp.tool()
     @_record_mcp_tool
-    def get_1c_function_info(
-        name: str,
-        path: str | None = None,
-        choose_index: int | None = None,
-    ) -> str:
-        """Get structured description, syntax, parameters and return value for a 1C function/method.
-        name: e.g. 'Формат', 'МенеджерКриптографии.Подписать'.
-        For exact API names prefer full Тип.Метод (e.g. HTTPСоединение.Получить)."""
-        name_clean = name.strip()
-        if not name_clean:
-            return "Provide a function or method name."
-        structured = sorted(
-            _get_api_member(name_clean, version=None, language=None),
-            key=lambda item: _structured_api_sort_key(name_clean, item),
-        )
-        if structured:
-            best = structured
-            if choose_index is not None and 1 <= choose_index <= len(best):
-                return _format_structured_api_object(
-                    best[choose_index - 1], include_rich_sections=True
-                )
-            if len(best) > 1:
-                lines = [
-                    f"Several structured matches for «{name_clean}». Use choose_index (1–{len(best)}) to select:",
-                    "",
-                ]
-                for i, item in enumerate(best[:10], 1):
-                    lines.append(
-                        f"  {i}. {item.get('full_name') or item.get('name') or item.get('title', '')}"
-                        f" — {item.get('version') or 'unknown version'}"
-                    )
-                lines.append("")
-                lines.append("Example: get_1c_function_info(name=..., choose_index=2)")
-                lines.append("")
-                lines.append(_format_structured_api_object(best[0], include_rich_sections=True))
-                return "\n".join(lines)
-            return _format_structured_api_object(best[0], include_rich_sections=True)
-        return _no_documented_api_member_message(name_clean)
-
-    @mcp.tool()
-    @_record_mcp_tool
     def get_1c_quick_guide(task: str = "develop") -> str:
         """Returns a compact action guide for working with 1C/BSL using this MCP. Call this at the start of a 1C task to get the recommended workflow.
         task: 'develop' (default) — code examples, API lookup, snippets; 'refactor' — navigation and rename; 'test' — diagnostics and commit checklist; 'all' — full guide.
         This tool is designed for autonomous AI invocation (unlike the prompt version which targets user invocation)."""
         _guide_develop = (
             "1C-HELP DEVELOP WORKFLOW:\n"
-            "1. Exact API (Тип.Метод) → get_1c_api_answer(name). Natural-language help question → answer_1c_help_question(question). Structured object/type → get_1c_api_object(name). Related API → get_1c_api_related(name).\n"
-            "2. Broad structured lookup across members/objects/examples → search_1c_api(query).\n"
-            "3. Official examples from platform help → search_1c_official_examples(query).\n"
-            "4. Local task context → get_1c_task_context(query, file_uri=..., symbol_name=...).\n"
-            "5. Standards only → search_1c_standards(query). Curated snippets only → search_1c_snippets(query).\n"
-            "6. Config metadata (KD2 graph): search_1c_metadata_exact, search_1c_metadata_semantic, search_1c_metadata_fields. "
+            '1. Exact API (Тип.Метод) → get_1c_api_answer(name); full sections → get_1c_api_answer(name, detail="full"). Natural-language help → answer_1c_help_question(question). Structured object/type → get_1c_api_object(name). Related API → get_1c_api_related(name).\n'
+            "2. Broad structured lookup (members, objects, official examples) → search_1c_api(query); examples only → search_1c_api(query, include_examples=True).\n"
+            "3. Local task context → get_1c_task_context(query, file_uri=..., symbol_name=...).\n"
+            "4. Standards only → search_1c_standards(query). Curated snippets only → search_1c_snippets(query).\n"
+            "5. Config metadata (KD2 graph): search_1c_metadata_exact, search_1c_metadata_semantic, search_1c_metadata_fields. "
             "Dotted BSL/query-like strings map to graph ids using the configuration object name only (first segment after the type prefix). "
             "Same name under different types: pass object_type. " + manager_help_hint_line() + "\n"
-            "7. Check index health: get_1c_help_index_status.\n"
-            "8. Code validation happens in external lsp-bsl-bridge via document_diagnostics(uri).\n"
-            "9. Save reusable verified code only: save_1c_snippet(code_snippet, description, title).\n"
+            "6. Check index health: get_1c_help_index_status.\n"
+            "7. Code validation happens in external lsp-bsl-bridge via document_diagnostics(uri).\n"
+            "8. Save reusable verified code only: save_1c_snippet(code_snippet, description, title).\n"
             "Key pitfalls: ПрочитатьJSON→Структура (use ПрочитатьВСоответствие=Истина for Соответствие); "
             "HTTPСоединение.Получить server-only; НачатьТранзакцию needs Попытка+ОтменитьТранзакцию."
         )
@@ -2655,10 +2483,9 @@ def _build_mcp_app(help_path: Path) -> Any:
         Not the default AI route; for autonomous workflow use get_1c_quick_guide instead."""
         block_develop = """1c-HELP + external LSP — DEVELOP (human/onboarding prompt)
 - AI-first route: get_1c_quick_guide(task="develop") first.
-- Exact API: get_1c_api_answer(name). Natural-language question: answer_1c_help_question(question). Structured object: get_1c_api_object(name). Broad structured lookup: search_1c_api(query).
-- Official examples from platform help: search_1c_official_examples(query).
+- Exact API: get_1c_api_answer(name); rich sections: get_1c_api_answer(name, detail="full"). Natural-language question: answer_1c_help_question(question). Structured object: get_1c_api_object(name). Broad structured lookup: search_1c_api(query); official examples section: search_1c_api(query, include_examples=True).
 - Local anti-hallucination context: get_1c_task_context(query, file_uri=..., symbol_name=...).
-- Need standards/snippets explicitly: search_1c_standards(query), search_1c_snippets(query), or legacy search_1c_memory(query, domains="standards,snippets").
+- Standards: search_1c_standards(query). Curated snippets: search_1c_snippets(query).
 - Metadata exact: search_1c_metadata_exact(query). Metadata semantic: search_1c_metadata_semantic(query). Fields: search_1c_metadata_fields(object_query, field_query).
 - Empty or poor help results: first call get_1c_help_index_status to verify index.
 - Save reusable verified code only: save_1c_snippet(code_snippet, description, title).
@@ -2688,14 +2515,13 @@ def _build_mcp_app(help_path: Path) -> Any:
 
 ---
 2) 1c-HELP — ORDER OF CALLS
-- Exact API: get_1c_api_answer(name) first for Тип.Метод. Natural-language factual question: answer_1c_help_question(question, version=...). Structured truth-source: get_1c_api_object(name). Broad structured lookup: search_1c_api(query). Official examples: search_1c_official_examples(query).
+- Exact API: get_1c_api_answer(name) first for Тип.Метод; use detail="full" for full structured sections. Natural-language factual question: answer_1c_help_question(question, version=...). Structured truth-source: get_1c_api_object(name). Broad structured lookup: search_1c_api(query); examples block: search_1c_api(query, include_examples=True).
 - Task-local context: get_1c_task_context(query, file_uri=..., symbol_name=...).
-- Need explicit standards/snippets: search_1c_standards(query), search_1c_snippets(query), or legacy search_1c_memory(query, domains="standards,snippets").
+- Explicit standards/snippets: search_1c_standards(query), search_1c_snippets(query).
 - Empty or poor results: call get_1c_help_index_status first to check index health → then search_1c_api with exact Тип.Метод or short natural-language reformulation.
 - After working code: save_1c_snippet(code_snippet, description, title) only for reusable verified code.
 - get_form_metadata(xml_content): pass full Form.xml with all xmlns; truncated XML returns empty attributes. get_module_info(uri_or_path): path to Module.bsl or ObjectModule.bsl.
-- For methods always use full Тип.Метод in get_1c_api_answer and get_1c_function_info.
-- Use search_1c_memory(domains=...) only as umbrella legacy tool when separate standards/snippets routes are not enough.
+- For methods always use full Тип.Метод in get_1c_api_answer.
 
 ---
 3) LSP-BSL-BRIDGE — ORDER OF CALLS

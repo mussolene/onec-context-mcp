@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup
 
 from ..help_core.html2md import _read_html_file, extract_v8sh_sections, html_to_md_content
 from ..search_store import embedding
-from ..search_store.indexer import get_collection_vector_size
+from ..search_store.indexer import _version_sort_key, get_collection_vector_size
 from ..shared import env_config
 
 API_OBJECTS_FILE = "api_objects.jsonl"
@@ -1742,7 +1742,14 @@ def _scroll_exact_member_matches(
     return [getattr(point, "payload", None) or {} for point in points or []]
 
 
-def _member_exact_sort_key(query: str, item: dict[str, Any]) -> tuple[int, int, str, str]:
+def _member_version_sort_key(version_str: str) -> tuple[int, ...]:
+    """Ascending member sort: prefer newer platform when name match ties."""
+    return tuple(-p for p in _version_sort_key(version_str))
+
+
+def _member_exact_sort_key(
+    query: str, item: dict[str, Any]
+) -> tuple[int, int, tuple[int, ...], str]:
     query_clean = (query or "").strip().lower()
     full_name = str(item.get("full_name") or item.get("name") or "").strip().lower()
     member_name = str(item.get("member_name") or "").strip().lower()
@@ -1759,7 +1766,7 @@ def _member_exact_sort_key(query: str, item: dict[str, Any]) -> tuple[int, int, 
     return (
         priority,
         owner_priority,
-        str(item.get("version") or ""),
+        _member_version_sort_key(str(item.get("version") or "")),
         str(item.get("topic_path") or ""),
     )
 
@@ -1893,7 +1900,13 @@ def get_api_object(
         except Exception:
             results = []
         if results:
-            return results
+            return sorted(
+                results,
+                key=lambda item: (
+                    _member_version_sort_key(str(item.get("version") or "")),
+                    str(item.get("topic_path") or ""),
+                ),
+            )
         return []
     except Exception as exc:
         if is_qdrant_unreachable_error(exc):

@@ -16,7 +16,7 @@ alwaysApply: false
 
 **1c-help (наш MCP):**
 1. Точный API/идентификатор: `get_1c_api_answer("Тип.Метод")`.
-2. Structured truth-source и официальные примеры: `get_1c_api_object("Тип.Метод")`, `search_1c_official_examples(query)`.
+2. Structured truth-source и официальные примеры: `get_1c_api_object("Тип.Метод")`, `search_1c_api(query, include_examples=True)`.
 3. Общий API-вопрос / broad structured lookup: `answer_1c_help_question(question)` или `search_1c_api(query)`.
 4. Если нужны стандарты или сниппеты явно: `search_1c_standards(query)` / `search_1c_snippets(query)`.
 5. Если нужен объектный контекст: `search_1c_metadata_exact(query)` или `search_1c_metadata_semantic(query)` → `get_1c_metadata_object(object_id)`. Для реквизитов: `search_1c_metadata_fields(object_query, field_query)`.
@@ -26,7 +26,7 @@ alwaysApply: false
 1. После правок: `document_diagnostics(uri)` → исправлять до отсутствия ERROR/WARNING.
 2. **Навигация (основной способ):** `project_analysis(analysis_type="workspace_symbols", query="Имя")` → `symbol_explore(query="Имя")` или `get_range_content(uri, start_line, ...)`.
 3. `definition`, `hover`, `call_graph`, `call_hierarchy` считать вторичными probe-инструментами: они часто зависят от точной позиции и не входят в базовый маршрут.
-3. После массовых правок: `did_change_watched_files(language="bsl", changes_json=[...])`.
+4. После массовых правок: `did_change_watched_files(language="bsl", changes_json=[...])`.
 
 ## Чек-лист перед коммитом / ревью
 

@@ -3,6 +3,8 @@
 **Дата проверки:** 2025-03-09  
 **Проверено:** юнит-тесты MCP, интеграционные тесты (условия), соответствие skill и mcp-tools-reference.
 
+**Актуализация (2026-04):** состав tools и тестов изменился (structured route, удалены `get_1c_context_bundle`, `get_1c_function_info`, `search_1c_memory`, `search_1c_official_examples` и др.). Таблицы ниже — снимок 2025-03; ориентир для текущего surface — [mcp-tools-reference.md](../reference/mcp-tools-reference.md).
+
 ---
 
 ## 1. Резюме

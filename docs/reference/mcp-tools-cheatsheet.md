@@ -14,8 +14,7 @@
 | 1 | get_1c_api_answer | name | Exact-first compact ответ для `Тип.Метод`. |
 | 1 | get_1c_api_object | name | Structured API truth-source из `onec_help_api`. |
 | 1 | answer_1c_help_question | question | Естественный вопрос по справке через structured DB-first route. |
-| 1 | search_1c_api | query | Широкий structured lookup по API members/objects/examples. |
-| 1 | search_1c_official_examples | query | Только официальные примеры из платформенной справки. |
+| 1 | search_1c_api | query, include_examples | Широкий structured lookup по API members/objects/examples; примеры из справки — `include_examples=True` (по умолчанию). |
 | 1 | search_1c_standards | query | Только стандарты из памяти. |
 | 1 | search_1c_snippets | query | Только code snippets и community_help. |
 | 1 | search_1c_metadata_exact | query, config_version | Exact-first поиск объектов конфигурации. |
@@ -25,7 +24,6 @@
 | 1 | get_form_metadata | xml_content | Разбор Form.xml (атрибуты, команды). |
 | 1 | get_module_info | uri_or_path | Тип модуля по пути к `.bsl`. |
 | 1 | get_1c_help_index_status | — | Статус индекса и ingest. |
-| 2 | get_1c_function_info | name | Синтаксис и параметры точного метода/функции. |
 | 2 | compare_1c_help | topic_path_or_query, version_left, version_right | Сравнение топика между версиями. |
 | 2 | get_1c_api_related | name | Связанные API-элементы через structured links. |
 | 2 | save_1c_snippet | code_snippet | Сохранить проверенный переиспользуемый код. |
@@ -68,4 +66,4 @@
 
 ---
 
-**Канонический AI route:** `get_1c_quick_guide` → exact API: `get_1c_api_answer` / natural-language help: `answer_1c_help_question` / structured API: `get_1c_api_object` / broad structured lookup: `search_1c_api` / official examples: `search_1c_official_examples` → standards/snippets: `search_1c_standards` / `search_1c_snippets` → metadata: `search_1c_metadata_exact` / `search_1c_metadata_semantic` / `search_1c_metadata_fields` → внешний `document_diagnostics`. **URI для внешнего LSP:** Docker — `file:///projects/<путь>`; кириллица — URL-encoding. Координаты LSP: 0-based.
+**Канонический AI route:** `get_1c_quick_guide` → exact API: `get_1c_api_answer` (`detail="full"` при необходимости) / natural-language help: `answer_1c_help_question` / structured API: `get_1c_api_object` / broad structured lookup: `search_1c_api` (официальные примеры — `include_examples=True`) → standards/snippets: `search_1c_standards` / `search_1c_snippets` → metadata: `search_1c_metadata_exact` / `search_1c_metadata_semantic` / `search_1c_metadata_fields` → внешний `document_diagnostics`. **URI для внешнего LSP:** Docker — `file:///projects/<путь>`; кириллица — URL-encoding. Координаты LSP: 0-based.

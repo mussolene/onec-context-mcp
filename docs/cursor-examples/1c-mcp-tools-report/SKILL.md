@@ -12,7 +12,7 @@ description: Выжимка по роли MCP 1c-help и внешнего lsp-bs
 | Задача | 1c-help | внешний lsp-bsl-bridge | Комментарий |
 |--------|---------|----------------|-------------|
 | Понять проект (тип модуля, форма) | Да | — | `get_module_info`, `get_form_metadata` |
-| Разработка / дописывание (API, примеры) | Да | — | `get_1c_api_answer`, `answer_1c_help_question`, `search_1c_api`, `get_1c_function_info`, `search_1c_snippets` |
+| Разработка / дописывание (API, примеры) | Да | — | `get_1c_api_answer`, `get_1c_api_object`, `answer_1c_help_question`, `search_1c_api` (примеры — `include_examples=True`), `search_1c_snippets` |
 | Поддержка (рефакторинг, стандарты) | Частично | Да | 1c-help — справка; BSL LS и навигация — lsp-bsl-bridge |
 | Тестирование (проверка кода) | Нет | Да | `document_diagnostics`; запуск YaxUnit/Vanessa — вручную |
 | Сравнение версий платформы | Да | — | `compare_1c_help` |
@@ -28,7 +28,7 @@ description: Выжимка по роли MCP 1c-help и внешнего lsp-bs
 | Точный API / идентификатор | `get_1c_api_answer("Тип.Метод")` |
 | Общий API-вопрос / широкий structured lookup | `answer_1c_help_question(...)` или `search_1c_api(...)` |
 | Нужны объекты конфигурации тоже | `search_1c_metadata_exact` / `search_1c_metadata_semantic` → `get_1c_metadata_object` |
-| Только имя функции/метода | `get_1c_function_info("Тип.Метод")` |
+| Только имя функции/метода | `get_1c_api_answer("Тип.Метод")` или `detail="full"` |
 | Только стандарты/сниппеты | `search_1c_standards` / `search_1c_snippets` |
 | Внешняя проверка кода | `document_diagnostics(uri)` |
 | Внешняя навигация по проекту | `project_analysis` → `symbol_explore` → `get_range_content` |
