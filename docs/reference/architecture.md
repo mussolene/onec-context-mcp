@@ -46,7 +46,7 @@ docker compose up -d
 # или: make up
 ```
 
-Индексация: `make ingest-up` (поднять ingest-worker), затем `make ingest` или через watchdog.
+Индексация: **`make ingest-up`** — в **ingest-worker** уже работает **cron** (watchdog при старте и каждые 10 мин, полный ingest в 3:00). **`make ingest`** — опционально, если нужен немедленный полный прогон.
 
 ### Full (один контейнер)
 

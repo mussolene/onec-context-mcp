@@ -26,10 +26,11 @@
 ```bash
 make up
 make ingest-up
-make ingest
 ```
 
-После запуска MCP доступен по адресу `http://localhost:8050/mcp`.
+После **`make ingest-up`** индексация в **split**-режиме идёт **по расписанию в ingest-worker**: при старте контейнера — **`watchdog --once`**, затем **каждые 10 минут** watchdog, полный **`ingest` — раз в сутки в 3:00** (см. `crontab` в образе). Чтобы запустить полный ingest **сразу**, не дожидаясь cron: **`make ingest`** (нужен запущенный ingest-worker).
+
+После **`make up`** MCP доступен по адресу `http://localhost:8050/mcp`.
 
 Для метаданных 1С основной route теперь такой:
 

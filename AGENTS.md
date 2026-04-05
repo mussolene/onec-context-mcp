@@ -12,7 +12,7 @@
 - **Локально:** `python -m onec_help ingest|reinit|init|dashboard|mcp|unpack|build-index|load-snippets|load-standards|watchdog ...`
 - **init** — ingest, load-snippets и load-standards запускаются **параллельно** (асинхронно). Не стирает данные.
 - **reinit --force** — очистка коллекций и cache, затем init. Для перезапуска «с нуля».
-- **Docker:** по умолчанию `make up` — только **qdrant** и **mcp**. Для индексации и watchdog: **`make ingest-up`** (поднимает ingest-worker с watchdog). Индексация вручную: `make ingest` (требует запущенный ingest-worker). Полная перезагрузка: `make reinit ARGS='--force'`. Cron в 3:00 — в full-режиме. BSL LS — `make bsl-start`.
+- **Docker:** по умолчанию `make up` — только **qdrant** и **mcp**. Для индексации и watchdog: **`make ingest-up`** (профиль **ingest**: контейнер **ingest-worker** с **cron** — при старте **`watchdog --once`**, далее **`watchdog --once` каждые 10 мин**, полный **`ingest` раз в сутки в 3:00**). **`make ingest`** — опционально: немедленный полный ingest в уже запущенный ingest-worker, без ожидания cron. Полная перезагрузка: `make reinit ARGS='--force'`. В **full**-режиме фоновые задачи живут в одном контейнере **mcp**. BSL LS — `make bsl-start`.
 - **dashboard** — дашборд (Tasks, Errors, Qdrant, версии 1С): `--once` один кадр, иначе Live с `--interval`.
 - **read-hbk-container** — чтение .hbk как бинарного контейнера (alkoleft/hbk-viewer): сущности, извлечение в каталог, TOC в JSON (вспомогательная команда).
 - **Сниппеты:** ./data/snippets, parse-fastcode/parse-helpf пишут туда, `load-snippets` загружает. `make snippets` — оба сайта; `make parse-helpf` — только FAQ.
@@ -40,7 +40,7 @@
 Если **dashboard** показывает «embedding», 4500/25503 pts и **Summary: 13 tasks │ 0 done** долго без изменений:
 
 1. **Проверить, жив ли процесс и логи:** Docker — основной лог ingest в контейнере: `docker exec <ingest-worker-container> tail -200 /app/var/log/ingest.log`. Ищите ошибки: **Bus error / exit -7** (SIGBUS — не только OOM: возможны mmap, диск/NFS, SQLite; см. `docs/ingest-troubleshooting.md` §7), 429 (rate limit), timeout, connection refused.
-2. **Если воркер упал** — статус в кэше (ingest_current) остаётся последним записанным; новый запуск ingest перезапишет его. Запустите ingest заново: `make ingest` (или `make ingest-up` и дождитесь выполнения).
+2. **Если воркер упал** — статус в кэше (ingest_current) остаётся последним записанным; новый запуск ingest перезапишет его. Поднимите **`make ingest-up`** снова (при старте снова отработает **watchdog --once**), либо выполните **`make ingest`** для немедленного полного прогона, когда контейнер уже запущен.
 3. **Rate limit (429)** — уменьшите `EMBEDDING_BATCH_SIZE` (например 32) и/или `EMBEDDING_WORKERS` (1–2); при необходимости увеличьте `EMBEDDING_TIMEOUT`.
 4. **Долгая пауза на одном файле** — API эмбеддингов может отвечать медленно или с Retry-After; после 3 попыток и fallback на deterministic индексация продолжается. Если процесс не пишет логи — возможен deadlock (редко при семафоре 300 с).
 5. Подробнее: `docs/ingest-troubleshooting.md`.

@@ -34,6 +34,7 @@ INGEST_SERVICE = ingest-worker
 INDEX_STATUS_SERVICE = mcp
 
 .PHONY: build build-nocache build-full fetch-bsl-ls-docker-deps parse-fastcode parse-helpf load-snippets load-snippets-from-project load-standards snippets
+.PHONY: ordinary-form-extract ordinary-form-pack ordinary-form-verify
 .PHONY: up down ingest-up ingest-down ingest-worker up-full down-full bsl-start bsl-stop qdrant-logs ingest-logs ollama-logs qdrant-reset qdrant-backup qdrant-restore ensure-data
 
 # Docker BSL LS stack: vendored git clone as build context (Docker cannot always use remote URL)
@@ -57,6 +58,21 @@ build-nocache:
 # Сборка образа (full, один контейнер mcp)
 build-full:
 	$(COMPOSE_FULL) build mcp
+
+# Обычная форма: FROM=.../Forms/.../Ext TO=build/...  EXTRA='--token-xml --copy-original'
+ordinary-form-extract:
+	@test -n "$(FROM)" && test -n "$(TO)" || (echo "Usage: make ordinary-form-extract FROM=path/to/Ext TO=out/dir [EXTRA=--token-xml]"; exit 1)
+	python3 tools/1c/ordinary_form_roundtrip.py extract "$(FROM)" "$(TO)" $(EXTRA)
+
+# DIR=каталог extract, DEST=путь к Form.bin  EXTRA=--from-token-xml (если правили tokens XML)
+ordinary-form-pack:
+	@test -n "$(DIR)" && test -n "$(DEST)" || (echo "Usage: make ordinary-form-pack DIR=out/dir DEST=path/Form.bin [EXTRA=--from-token-xml]"; exit 1)
+	python3 tools/1c/ordinary_form_roundtrip.py pack "$(DIR)" "$(DEST)" $(EXTRA)
+
+# FROM=Form.bin или каталог Ext/
+ordinary-form-verify:
+	@test -n "$(FROM)" || (echo "Usage: make ordinary-form-verify FROM=path/to/Form.bin-or-Ext [EXTRA=--with-stream-tokens]"; exit 1)
+	python3 tools/1c/ordinary_form_roundtrip.py verify "$(FROM)" $(EXTRA)
 
 # Parse FastCode.im templates → data/snippets/fastcode_snippets.json (в контейнере: /data/snippets)
 parse-fastcode:
@@ -271,6 +287,7 @@ help:
 	@echo "  make load-snippets-from-project  Load from 1C project"
 	@echo "  make load-standards   Load standards (STANDARDS_REPOS)"
 	@echo "  make snippets         parse-fastcode + parse-helpf (FAQ) + load-snippets"
+	@echo "  make ordinary-form-extract / ordinary-form-pack / ordinary-form-verify  Обычная форма Form.bin ↔ текст (FROM/TO/DIR/DEST/EXTRA; см. docs/reference/ordinary-form-text-roundtrip.md)"
 	@echo "  make init             ingest + load-snippets + load-standards (не стирает)"
 	@echo "  make reinit           init (если индекс есть — без стирания). reinit ARGS='--force' — стереть и init"
 	@echo "  make unpack-help      Распаковка .hbk без индексации"

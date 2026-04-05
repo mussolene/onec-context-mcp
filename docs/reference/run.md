@@ -36,12 +36,14 @@ python -m onec_help mcp . --transport streamable-http --host 0.0.0.0 --port 8050
 
 ## Docker Compose
 
-- Данные справки: монтируется `/opt/1cv8` в контейнер mcp, подпапки = версии 1С. Индексация вручную: `docker compose exec mcp python -m onec_help ingest`; по расписанию в mcp запущен cron (раз в сутки в 3:00). На Windows при монтировании `C:\Program Files\1cv8` учтите подпапку `bin` — поиск `.hbk` рекурсивный. После ingest канонический runtime-layer лежит в `data/help_structured`.
-- Запуск: `make up` или `docker compose -f docker-compose.base.yml -f docker-compose.yml up -d` — поднимает Qdrant и MCP-сервер (mcp; в нём же cron для индексации). Без `-f` base-файла команда `docker compose up -d` выдаст ошибку.
+- Данные справки: монтируется **`HELP_SOURCE_BASE`** (по умолчанию `/opt/1cv8`) в контейнеры **mcp** и **ingest-worker**, подпапки = версии 1С. На Windows при монтировании `C:\Program Files\1cv8` учтите подпапку `bin` — поиск `.hbk` рекурсивный. После ingest канонический runtime-layer лежит в `data/help_structured`.
+- **Split (по умолчанию):** `make up` — Qdrant, Redis, **mcp** с **`MCP_MODE=api`** (только API, без фонового ingest/cron). **`make ingest-up`** — добавляет **ingest-worker** (профиль **ingest**): внутри него **cron** — при старте **`watchdog --once`**, далее **`watchdog --once` каждые 10 мин**, полный **`ingest` в 3:00** (см. `crontab` в репозитории). Разовый полный ingest без ожидания cron: **`make ingest`** (exec в **ingest-worker**).
+- **Full:** `make up-full` — один контейнер **mcp** с **`MCP_MODE=full`**, фоновый ingest, cron и watchdog в том же образе (см. `entrypoint.sh`).
+- Запуск split: `make up` или `docker compose -f docker-compose.base.yml -f docker-compose.yml up -d`. Без `-f` base-файла команда `docker compose up -d` выдаст ошибку.
 - Порты по умолчанию: 8050 (MCP, streamable-http), 6333 (Qdrant).
 - **Только распаковка:** тот же образ `mcp`, команда `unpack-dir`. Запуск вручную:  
   `docker compose run --rm -v /opt/1cv8:/input:ro -v $(pwd)/unpacked:/output mcp python -m onec_help unpack-dir /input -o /output -l ru`
-- **Логи ingest:** `docker compose exec mcp tail -f /app/var/log/ingest.log`
+- **Логи ingest / watchdog (split):** `make ingest-logs` или `docker compose ... exec ingest-worker tail -f /app/var/log/ingest.log` и `.../watchdog.log`
 
 ## Подключение MCP к Cursor
 
@@ -67,8 +69,7 @@ MCP работает **в контейнере** по протоколу **strea
 
 1. **Создать каталоги и поднять сервисы:**  
    `make ensure-data && make up`
-2. **Запустить ingest-worker и заново проиндексировать:**  
-   `make ingest-up` затем `make ingest` (или дождаться watchdog)
+2. **Запустить ingest-worker:** **`make ingest-up`**. Индексация подхватится **watchdog при старте** и по **cron**; для немедленного полного ingest без ожидания расписания — **`make ingest`**.
 
 Если делали снапшот ранее: `make qdrant-restore` (восстановит из data/backup/), затем при необходимости `make up`.
 
