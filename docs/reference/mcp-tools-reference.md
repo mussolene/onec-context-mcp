@@ -130,8 +130,8 @@
 
 ## См. также
 
-- [../archive/mcp-1c-help-tools-report.md](../archive/mcp-1c-help-tools-report.md) — исчерпывающий отчёт по всем инструментам 1c-help и lsp-bsl-bridge, результаты прогона, полнота знаний для проекта 1С.
-- [../../AGENTS.md](../../AGENTS.md) — порядок вызовов, два MCP (1c-help + lsp-bsl-bridge), workflow.
+- [../archive/mcp-1c-help-tools-report.md](../archive/mcp-1c-help-tools-report.md) — исторический отчёт по инструментам и прогонам (в т.ч. BSL LS).
+- [../../AGENTS.md](../../AGENTS.md) — порядок вызовов: MCP 1c-help + BSL LS (CLI/IDE).
 - [../cursor-examples/README.md](../cursor-examples/README.md) — Skill и Rules для Cursor.
 - [../archive/mcp-analysis.md](../archive/mcp-analysis.md) — анализ использования и типовые просадки.
 - [../archive/quality-and-pitfalls-analysis.md](../archive/quality-and-pitfalls-analysis.md) — влияние индексации, обрезка эмбеддингов, как получать готовый код и типичные подводные камни.

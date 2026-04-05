@@ -1,5 +1,5 @@
 ---
-description: Дополнения по отчёту о полноте MCP: пустые ответы, URI, координаты. Основной порядок вызовов — в правиле 1c-mcp-workflow.
+description: Дополнения по отчёту о полноте MCP: пустые ответы, пути к .bsl. Основной порядок вызовов — в правиле 1c-mcp-workflow.
 globs: "**/*.bsl,**/Form.xml"
 alwaysApply: false
 ---
@@ -14,16 +14,15 @@ alwaysApply: false
 2. `get_1c_api_answer` с **точным** именем API (`Тип.Метод`).
 3. Если exact route не хватило — `search_1c_api(query)` или `answer_1c_help_question(question)`.
 
-## URI для lsp-bsl-bridge (единый формат)
+## Пути и файлы .bsl
 
-- **Docker:** `file:///projects/<путь>` (volume `.:/projects`). Пути с кириллицей — **обязательно URL-encoding**. Примеры: `/Менеджер/` → `/%D0%9C%D0%B5%D0%BD%D0%B5%D0%B4%D0%B6%D0%B5%D1%80/`, `/МойМодуль/` → `/%D0%9C%D0%BE%D0%B9%D0%9C%D0%BE%D0%B4%D1%83%D0%BB%D1%8C/`. URI из выдачи `project_analysis` уже URL-encoded — использовать как есть.
-- **Локально:** полный file URI. При пустом ответе document_diagnostics/definition — проверить URL-encoding кириллицы.
-- **Координаты:** 0-based (первая строка = 0, первый символ = 0). Из `project_analysis` берётся "Recommended hover coordinate".
+- Используйте пути в workspace; для `get_module_info` и чтения исходников — относительные или абсолютные пути к `Module.bsl` / `ObjectModule.bsl`.
+- При необходимости `file://` URI с кириллицей — URL-encoding сегментов пути.
 
-## Навигация и позиционные инструменты
+## Навигация по коду без отдельного MCP
 
-**Основной способ:** `project_analysis` → `symbol_explore` или `get_range_content`. Инструменты `definition`, `hover`, `call_graph`, `call_hierarchy` часто возвращают пустой результат даже при корректных координатах — считать опциональными; при необходимости координаты брать из выдачи project_analysis (Recommended hover coordinate), 0-based.
+**Основной способ:** поиск по проекту (rg, git grep), символы в IDE, чтение файлов по известным путям выгрузки 1С.
 
 ## После массовых правок
 
-`did_change_watched_files(language="bsl", changes_json=[{"uri":"file:///...", "type":2}])`.
+Повторный прогон BSL LS `analyze` на затронутые каталоги или перезагрузка/сохранение в IDE, чтобы диагностики обновились.

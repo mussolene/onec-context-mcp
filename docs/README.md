@@ -23,7 +23,7 @@
 - [reference/embedding.md](reference/embedding.md) - embedding pipeline, backends и retry
 - [reference/help-formats.md](reference/help-formats.md) - форматы `.hbk`, HTML и structured JSONL
 - [reference/search-and-mcp.md](reference/search-and-mcp.md) - рекомендации по качеству поиска и MCP usage
-- [reference/bsl-ls-mcp-setup.md](reference/bsl-ls-mcp-setup.md) - подключение внешнего `lsp-bsl-bridge`
+- [reference/bsl-ls-mcp-setup.md](reference/bsl-ls-mcp-setup.md) - BSL Language Server (CLI, IDE, опционально Docker)
 - [reference/mcp.json.example](reference/mcp.json.example) - пример Cursor MCP config
 
 ## Разработка и тесты

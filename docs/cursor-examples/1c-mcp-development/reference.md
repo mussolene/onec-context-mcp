@@ -1,23 +1,14 @@
 # Справка: разработка 1С с MCP
 
-## Соответствие URI (хост ↔ контейнер)
+## Пути к .bsl
 
-Когда bsl-bridge в Docker с `.:/projects`:
+Используйте пути в workspace (относительные или абсолютные). Для BSL LS CLI:
 
-| Путь на хосте | URI в контейнере (для document_diagnostics) |
-|---------------|---------------------------------------------|
-| `./src/.../Module.bsl` | `file:///projects/src/.../Module.bsl` |
-| `./DataProcessors/X/Module.bsl` | `file:///projects/DataProcessors/X/Module.bsl` |
-
-Правило: хост `./` → `/projects`; добавлять префикс `file://`.
-
-## Пример вызова document_diagnostics
-
+```bash
+java -jar "$JAR" analyze -s ./Documents/MyDoc/Ext/ObjectModule.bsl -r console -q
 ```
-document_diagnostics(
-  uri="file:///projects/src/DataProcessors/.../Forms/.../Ext/Form/Module.bsl"
-)
-```
+
+Опционально `make bsl-start` монтирует `.:/projects:ro` — пути внутри контейнера `/projects/...`.
 
 ## Пример вызова get_1c_api_answer
 
@@ -69,12 +60,12 @@ save_1c_snippet(
 - Разбить длинные строки или добавить `// BSLLS:LineLength-off` с кратким обоснованием
 - Использовать `#Область` / `#КонецОбласти` для структуры
 
-## Два MCP вместе
+## 1c-help и BSL LS
 
-- **1c-help**: справка, сниппеты, память
-- **lsp-bsl-bridge**: навигация, диагностика, рефакторинг
+- **1c-help** (MCP): справка, сниппеты, память, метаданные.
+- **BSL LS**: CLI `analyze`/`format`, IDE, опционально Docker в этом репо.
 
-Если 1c-help недоступен (нет индекса): опираться только на lsp-bsl-bridge и memory.
+Если индекса справки нет: опираться на BSL LS и локальные файлы проекта.
 
 ## Python-тесты (onec_help)
 
@@ -95,7 +86,7 @@ ruff check src tests && ruff format src tests
 
 Подробно: `docs/reference/1c-testing-guide.md` в репозитории.
 
-- **BSL LS** (`document_diagnostics`): статический анализ — ошибки, предупреждения, стиль. Вызывать после каждой правки; это не runtime-тесты.
+- **BSL LS** (`analyze` / IDE): статический анализ — ошибки, предупреждения, стиль. После правок по BSL; это не runtime-тесты.
 - **YaxUnit** (или xUnitFor1C): unit-тесты процедур/функций 1С. **Где искать:** `Tests/`, подсистемы тестов, модули `*Тест*`. Запуск через 1С:Предприятие, EDT или CLI.
 - **Vanessa-Automation** (xdd, UI): BDD (Gherkin `.feature`), data-driven (xdd), UI-автоматизация, приёмочные тесты. **Где искать:** `features/`, `BDD/`, каталоги с `.feature` и шагами.
 - **CoverageBSL**: измерение покрытия кода BSL в 1С:Предприятие и OneScript.

@@ -1,4 +1,4 @@
-# MCP 1c-help и внешний lsp-bsl-bridge — шпаргалка
+# MCP 1c-help — шпаргалка
 
 Читайте этот файл, если нужна короткая памятка по выбору инструмента без полного reference.
 
@@ -30,20 +30,9 @@
 
 ---
 
-## Внешний lsp-bsl-bridge
+## BSL Language Server (не MCP этого репозитория)
 
-Этот MCP подключается дополнительно. Он **не разрабатывается** в этом репозитории; здесь фиксируется только рекомендуемый маршрут использования.
-
-| Роль | Инструмент | Назначение |
-|------|------------|------------|
-| Основной | document_diagnostics | Проверка кода после каждой правки. |
-| Основной | project_analysis | Поиск символов и файлов. |
-| Основной | symbol_explore | Детали по символу без позиционной хрупкости. |
-| Основной | get_range_content | Фрагмент кода по диапазону. |
-| Основной | did_change_watched_files | Синхронизация после batch-правок. |
-| Основной | prepare_rename / rename | Управляемое переименование. |
-| Вторичный | lsp_status | Health-check. |
-| Опциональный | definition / hover / call_graph / call_hierarchy / code_actions / selection_range | Использовать как дополнительный probe, не как базовый маршрут. |
+Проверка `.bsl`: exec-JAR `analyze` / `format` ([bsl-language-server-local](../cursor-examples/bsl-language-server-local/SKILL.md)), расширение IDE или опционально `make bsl-start`. См. [bsl-ls-mcp-setup.md](bsl-ls-mcp-setup.md).
 
 ---
 
@@ -57,7 +46,7 @@
 
 | Промпт | Назначение |
 |--------|------------|
-| how_to_use_1c_help_and_bsl_bridge | Человеко-ориентированная инструкция по `1c-help` и внешнему `lsp-bsl-bridge`. |
+| how_to_use_1c_help_and_bsl_ls | Длинная human/onboarding инструкция: 1c-help + BSL LS (CLI/IDE). |
 | get_1c_common_pitfalls | Типичные ловушки 1С/BSL с wrong/right примерами кода (11+ паттернов). |
 | get_mcp_workflow_guide | Текст руководства по порядку вызовов (workflow). |
 | get_mcp_tools_tips | Подсказки: пустые ответы, URI, координаты. |
@@ -66,4 +55,4 @@
 
 ---
 
-**Канонический AI route:** `get_1c_quick_guide` → exact API: `get_1c_api_answer` (`detail="full"` при необходимости) / natural-language help: `answer_1c_help_question` / structured API: `get_1c_api_object` / broad structured lookup: `search_1c_api` (официальные примеры — `include_examples=True`) → standards/snippets: `search_1c_standards` / `search_1c_snippets` → metadata: `search_1c_metadata_exact` / `search_1c_metadata_semantic` / `search_1c_metadata_fields` → внешний `document_diagnostics`. **URI для внешнего LSP:** Docker — `file:///projects/<путь>`; кириллица — URL-encoding. Координаты LSP: 0-based.
+**Канонический AI route:** `get_1c_quick_guide` → exact API: `get_1c_api_answer` (`detail="full"` при необходимости) / natural-language help: `answer_1c_help_question` / structured API: `get_1c_api_object` / broad structured lookup: `search_1c_api` (официальные примеры — `include_examples=True`) → standards/snippets: `search_1c_standards` / `search_1c_snippets` → metadata: `search_1c_metadata_exact` / `search_1c_metadata_semantic` / `search_1c_metadata_fields` → BSL LS `analyze` или IDE. Пути к `.bsl` — обычные пути в workspace.

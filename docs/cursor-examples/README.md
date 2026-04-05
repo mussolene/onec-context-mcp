@@ -1,6 +1,6 @@
 # Cursor: Skill и Rules — примеры для индексации
 
-Примеры Skill и Rules для Cursor, используемые при работе с 1c-help и lsp-bsl-bridge MCP.
+Примеры Skill и Rules для Cursor при работе с MCP **1c-help** и проверке **BSL Language Server** (CLI/IDE).
 
 ## Назначение
 
@@ -49,11 +49,11 @@ docs/cursor-examples/
 
 2. **Обновление после изменений:** если вы изменили skill или rules в `.cursor/` и хотите зафиксировать их в репозитории — скопируйте обратно в `docs/cursor-examples/` и закоммитьте.
 
-3. **Инструкция по умолчанию и MCP entry point:** при открытии/редактировании `.bsl` правило **1c-mcp-workflow** подставляет краткий порядок вызовов в контекст. **В новом AI-чате по 1С:** начать с `get_1c_quick_guide(task="develop"|"refactor"|"test")`. Промпт **how_to_use_1c_help_and_bsl_bridge** оставлен как длинная human/onboarding инструкция, а не как default AI route.
+3. **Инструкция по умолчанию и MCP entry point:** при открытии/редактировании `.bsl` правило **1c-mcp-workflow** подставляет краткий порядок вызовов в контекст. **В новом AI-чате по 1С:** начать с `get_1c_quick_guide(task="develop"|"refactor"|"test")`. Промпт **how_to_use_1c_help_and_bsl_ls** — длинная human/onboarding инструкция, не default AI route.
 
 4. **Самодокументируемый MCP:** если MCP запущен с путём к docs (в Docker по умолчанию `MCP_CURSOR_DOCS_PATH=/app/docs`), руководства можно получить из самого MCP. Для AI по умолчанию использовать `get_1c_quick_guide`; `get_mcp_workflow_guide`, `get_mcp_tools_tips`, `get_mcp_tools_summary`, `get_mcp_guides_bundle` нужны для human/onboarding и восстановления IDE-конфига.
 
-5. **Использование в другом проекте (вне 1c_hbk_helper):** правила и скилл не привязаны к путям этого репозитория. В своём проекте 1С/BSL: подключите 1c-help и lsp-bsl-bridge по URL; скопируйте правила и скилл из этого каталога в свой `.cursor/` или получите их через промпты MCP (get_mcp_guides_bundle и др.). URI для LSP — `file:///projects/<ваш_путь>` (Docker) или полный file URI. Подробнее: отчёт § «Использование вне репозитория 1c_hbk_helper».
+5. **Использование в другом проекте (вне 1c_hbk_helper):** подключите MCP 1c-help по URL; скопируйте правила и скилл в свой `.cursor/` или получите текст через промпты MCP (get_mcp_guides_bundle и др.). BSL LS — отдельно (JAR, IDE). Подробнее: отчёт в archive и `docs/reference/bsl-ls-mcp-setup.md`.
 
 ## Связь с проектом
 
@@ -62,5 +62,5 @@ docs/cursor-examples/
 - См. [embedding.md](../reference/embedding.md) — пайплайн embedding (batch/single, retry, 429), точки интеграции.
 - См. [mcp-tools-cheatsheet.md](../reference/mcp-tools-cheatsheet.md) — одностраничная шпаргалка по инструментам и промптам.
 - См. [mcp-tools-reference.md](../reference/mcp-tools-reference.md) — справочник MCP-инструментов 1c-help (параметры, лимиты, порядок вызовов).
-- См. [mcp-1c-help-tools-report.md](../archive/mcp-1c-help-tools-report.md) — отчёт о полноте 1c-help и lsp-bsl-bridge, результаты прогона, рекомендации; оформлен как skill и правило в 1c-mcp-tools-report.
-- См. [bsl-ls-mcp-setup.md](../reference/bsl-ls-mcp-setup.md) — подключение BSL LS как MCP.
+- См. [mcp-1c-help-tools-report.md](../archive/mcp-1c-help-tools-report.md) — отчёт о полноте 1c-help и контекст BSL LS; оформлен как skill и правило в 1c-mcp-tools-report.
+- См. [bsl-ls-mcp-setup.md](../reference/bsl-ls-mcp-setup.md) — BSL LS: CLI, IDE, опционально Docker.

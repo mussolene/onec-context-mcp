@@ -11,7 +11,7 @@
 | **qdrant** | Векторная БД (structured help, onec_help_memory, metadata) | Хранилище | 6333 |
 | **mcp** | MCP API — structured API search/answers, memory, metadata | I/O, embedding для memory | 8050 |
 | **ingest-worker** | Batch ETL: ingest, cron, load-snippets, watchdog | CPU, RAM, embedding API | — |
-| **bsl-bridge** | BSL LS MCP — диагностика, рефакторинг (отдельно: `make bsl-start`) | Java/BSL LS | — |
+| **bsl (compose)** | Опционально: BSL Language Server в Docker (`make bsl-start`) | Java/BSL LS | — |
 
 ## Коллекции Qdrant
 

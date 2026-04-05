@@ -2449,25 +2449,24 @@ def _build_mcp_app(help_path: Path) -> Any:
             "Dotted BSL/query-like strings map to graph ids using the configuration object name only (first segment after the type prefix). "
             "Same name under different types: pass object_type. " + manager_help_hint_line() + "\n"
             "6. Check index health: get_1c_help_index_status.\n"
-            "7. Code validation happens in external lsp-bsl-bridge via document_diagnostics(uri).\n"
+            "7. Validate .bsl with BSL Language Server: CLI `java -jar … analyze` (see docs/cursor-examples/bsl-language-server-local) or `make bsl-start` for optional Docker; IDE BSL extension also works.\n"
             "8. Save reusable verified code only: save_1c_snippet(code_snippet, description, title).\n"
             "Key pitfalls: ПрочитатьJSON→Структура (use ПрочитатьВСоответствие=Истина for Соответствие); "
             "HTTPСоединение.Получить server-only; НачатьТранзакцию needs Попытка+ОтменитьТранзакцию."
         )
         _guide_refactor = (
             "1C-HELP REFACTOR WORKFLOW:\n"
-            "1. project_analysis(analysis_type='workspace_symbols', query='Name') — find symbol.\n"
-            "2. symbol_explore(query='Name') or get_range_content(uri, start_line, ...) — see code.\n"
-            "3. document_diagnostics(uri) — check after each edit.\n"
-            "4. Rename: prepare_rename(uri, line, char) → rename(..., apply=True). Coords are 0-based.\n"
-            "5. Batch edits: did_change_watched_files(language='bsl', changes_json=[{uri, type:2}]).\n"
-            "URI: Docker → file:///projects/<path>. Cyrillic → URL-encode."
+            "1. Find symbols: IDE go-to-symbol, or search repo (rg/git grep) for procedure/function names.\n"
+            "2. Read/edit modules with clear paths (Documents/…/ObjectModule.bsl, Forms/…/Module.bsl).\n"
+            "3. After edits: run BSL LS analyze on changed paths (CLI JAR or `make bsl-start` stack).\n"
+            "4. Rename/refactor in Configurator or IDE; keep modules consistent with metadata from 1c-help.\n"
+            "5. Prefer small commits; re-run analyze on touched .bsl trees."
         )
         _guide_test = (
             "1C-HELP TEST WORKFLOW:\n"
-            "1. document_diagnostics(uri) after every code edit — fix all ERROR/WARNING.\n"
-            "2. URI: Docker → file:///projects/<path>; local → full file URI. Cyrillic → URL-encode.\n"
-            "3. Before commit: (a) справка использована? (b) diagnostics без ERROR? (c) save_1c_snippet для нового кода?"
+            "1. After every .bsl edit: BSL LS `analyze` (or IDE diagnostics) — fix Error/Warning per team policy.\n"
+            "2. Paths: use workspace-relative paths; Cyrillic paths are fine on disk — encode only if you embed file URIs.\n"
+            "3. Before commit: (a) справка использована? (b) BSL LS clean enough? (c) save_1c_snippet только для проверенного переиспользуемого кода?"
         )
         if task == "develop":
             return _guide_develop
@@ -2478,10 +2477,10 @@ def _build_mcp_app(help_path: Path) -> Any:
         return f"{_guide_develop}\n\n{_guide_refactor}\n\n{_guide_test}"
 
     @mcp.prompt
-    def how_to_use_1c_help_and_bsl_bridge(task: str = "all") -> str:
-        """Human/onboarding prompt for using 1c-help with external lsp-bsl-bridge.
+    def how_to_use_1c_help_and_bsl_ls(task: str = "all") -> str:
+        """Human/onboarding prompt: 1c-help MCP + BSL Language Server (CLI/IDE), not a second MCP.
         Not the default AI route; for autonomous workflow use get_1c_quick_guide instead."""
-        block_develop = """1c-HELP + external LSP — DEVELOP (human/onboarding prompt)
+        block_develop = """1c-HELP + BSL LS — DEVELOP (human/onboarding prompt)
 - AI-first route: get_1c_quick_guide(task="develop") first.
 - Exact API: get_1c_api_answer(name); rich sections: get_1c_api_answer(name, detail="full"). Natural-language question: answer_1c_help_question(question). Structured object: get_1c_api_object(name). Broad structured lookup: search_1c_api(query); official examples section: search_1c_api(query, include_examples=True).
 - Local anti-hallucination context: get_1c_task_context(query, file_uri=..., symbol_name=...).
@@ -2490,28 +2489,26 @@ def _build_mcp_app(help_path: Path) -> Any:
 - Empty or poor help results: first call get_1c_help_index_status to verify index.
 - Save reusable verified code only: save_1c_snippet(code_snippet, description, title).
 - get_form_metadata(xml_content): pass full Form.xml with all xmlns declarations. get_module_info(uri_or_path): path to Module.bsl or ObjectModule.bsl.
-- URI (external lsp-bsl-bridge): Docker → file:///projects/<path>; Cyrillic in path → URL-encoding. After edit: document_diagnostics(uri) until no ERROR/WARNING."""
-        block_refactor = """external LSP-BSL-BRIDGE — REFACTOR (human/onboarding prompt)
-- URI: file:///projects/<path> (Docker). Cyrillic in path must be URL-encoded (e.g. /МойМодуль/ → /%D0%9C%D0%BE%D0%B9%D0%9C%D0%BE%D0%B4%D1%83%D0%BB%D1%8C/).
-- Main navigation: project_analysis(analysis_type="workspace_symbols", query="Name") → symbol_explore(query="Name") or get_range_content(uri, start_line, ...). definition/hover/call_graph often return empty — they require exact symbol position (0-based line/character) and may not find all symbols; use as optional, not primary.
-- Coordinates are 0-based (line 0 = first line). Use "Recommended hover coordinate" from project_analysis output.
-- Flow: project_analysis → edit one file → document_diagnostics(uri) → after batch: did_change_watched_files(language="bsl", changes_json=[{"uri":"file:///...", "type":2}]).
-- Rename: prepare_rename(uri, line, character) then rename(..., new_name, apply=True). Coordinates 0-based from project_analysis."""
-        block_test = """external LSP-BSL-BRIDGE — TEST (human/onboarding prompt)
-- After any code edit: document_diagnostics(uri) → fix until no ERROR/WARNING. URI: file:///projects/<path> (Docker) or full file URI locally; Cyrillic paths → URL-encoding.
-- Checklist before commit: get_1c_quick_guide used? document_diagnostics clean (no ERROR/WARNING)? save_1c_snippet only for reusable verified code?"""
+- After editing .bsl: run BSL Language Server — CLI `java -jar … analyze` (see docs/cursor-examples/bsl-language-server-local/SKILL.md), or your IDE’s BSL extension, or optional Docker `make bsl-start` in this repo."""
+        block_refactor = """BSL LS + репозиторий — REFACTOR (human/onboarding prompt)
+- Навигация: поиск по проекту (rg/git grep), «перейти к символу» в IDE, чтение модулей по путям выгрузки (Documents/…/ObjectModule.bsl, Forms/…/Module.bsl).
+- После правок: `analyze` на затронутые каталоги или файлы .bsl (JAR BSL LS) либо диагностики IDE.
+- Рефакторинг имён и структуры — в конфигураторе или инструментах IDE; метаданные сверяйте с 1c-help (search_1c_metadata_*, get_1c_metadata_object)."""
+        block_test = """BSL LS — TEST (human/onboarding prompt)
+- После правок .bsl: прогон BSL LS analyze (или панель проблем IDE) — устранить Error и значимые Warning по политике команды.
+- Чеклист перед коммитом: использован get_1c_quick_guide? BSL LS без критичных замечаний? save_1c_snippet только для проверенного переиспользуемого кода?"""
         if task == "develop":
             return block_develop
         if task == "refactor":
             return block_refactor
         if task == "test":
             return block_test
-        return """Human/onboarding guide for 1c-help + external lsp-bsl-bridge. For AI work prefer get_1c_quick_guide and call this prompt only when you need a long manual reference. For a shorter block pass task=develop|refactor|test.
+        return """Human/onboarding guide for 1c-help + BSL Language Server (CLI/IDE). For AI work prefer get_1c_quick_guide; use this prompt for a long manual. Shorter blocks: task=develop|refactor|test.
 
 ---
-1) WHEN TO USE WHICH MCP
-- Only 1c-help: API reference, code examples, form/module metadata (get_module_info, get_form_metadata), version comparison (compare_1c_help), saving snippets (save_1c_snippet).
-- Also use external lsp-bsl-bridge: after editing code (document_diagnostics), navigation (project_analysis, symbol_explore), refactoring (prepare_rename, rename), after batch edits (did_change_watched_files).
+1) ЧТО ГДЕ
+- Только MCP 1c-help: справка платформы, примеры, метаданные конфигурации (KD2), сниппеты, стандарты, compare_1c_help, save_1c_snippet.
+- BSL LS не входит в MCP этого репозитория: статический анализ и форматирование — через exec-JAR (`analyze`/`format`), расширение IDE или опционально `make bsl-start` (Docker).
 
 ---
 2) 1c-HELP — ORDER OF CALLS
@@ -2524,12 +2521,10 @@ def _build_mcp_app(help_path: Path) -> Any:
 - For methods always use full Тип.Метод in get_1c_api_answer.
 
 ---
-3) LSP-BSL-BRIDGE — ORDER OF CALLS
-- After any code edit: document_diagnostics(uri) → fix until no ERROR/WARNING.
-- URI (single format): Docker (volume .:/projects) → file:///projects/<path>; locally → full file URI. Paths with Cyrillic MUST be URL-encoded: /МойМодуль/ → /%D0%9C%D0%BE%D0%B9%D0%9C%D0%BE%D0%B4%D1%83%D0%BB%D1%8C/
-- Coordinates are 0-based (first line = 0, first character = 0). Use "Recommended hover coordinate" from project_analysis output for definition/hover/call_graph.
-- Navigation (primary): project_analysis(analysis_type="workspace_symbols", query="SymbolName") → symbol_explore(query="SymbolName") or get_range_content(uri, start_line, start_character, end_line, end_character). definition, hover, call_graph, call_hierarchy often return empty — they require exact symbol position and may fail even with correct coords; treat as optional.
-- Refactoring: project_analysis first → edit one file → document_diagnostics → after batch: did_change_watched_files(language="bsl", changes_json=[{"uri":"file:///...", "type":2}]).
+3) BSL LANGUAGE SERVER — ПРАКТИКА
+- JAR: см. docs/cursor-examples/bsl-language-server-local/SKILL.md (`analyze -s <dir> -r json -o <existing-dir>`, `format -s <path>`).
+- В репозитории 1c_hbk_helper: опционально `make fetch-bsl-ls-docker-deps` затем `make bsl-start` — отдельный контейнер с BSL LS (не путать с MCP 1c-help на :8050).
+- Семантику платформы при спорах сверяйте с 1c-help, а не только с замечаниями LS.
 
 ---
 4) COMMON 1C PITFALLS

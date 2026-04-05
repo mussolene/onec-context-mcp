@@ -107,10 +107,10 @@
 2. **Фильтр по типу контента** — для `get_1c_function_info` сужать поиск до «функции/методы» при наличии такого payload.
 3. **Синонимы API** — таблица частых синонимов (ПакетПолучения → ВыполнитьПакет) в skill; при необходимости — в коде.
 
-### 5.3 Связка с BSL LS / lsp-bsl-bridge
+### 5.3 Связка с BSL LS / BSL LS
 
 - **1c-help** — справка, примеры, поиск по API.
-- **lsp-bsl-bridge** — статический анализ, diagnostics, code actions.
+- **BSL LS** — статический анализ, diagnostics, code actions.
 
 Рекомендуемый порядок: `get_1c_code_answer` → код → `document_diagnostics` → исправления.
 

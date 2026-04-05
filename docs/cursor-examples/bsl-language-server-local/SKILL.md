@@ -7,7 +7,7 @@ description: Локальный CLI BSL Language Server (диагностика 
 
 ## Назначение
 
-Запуск **bsl-language-server** в режимах `analyze` и `format` из **exec-JAR** рядом со скиллом (или по `BSL_LS_JAR`). Дополняет MCP **lsp-bsl-bridge** и **1c-help**: справочные факты и API — через **1c-help**; статический анализ и стиль — через BSL LS.
+Запуск **bsl-language-server** в режимах `analyze` и `format` из **exec-JAR** рядом со скиллом (или по `BSL_LS_JAR`). Сочетается с MCP **1c-help**: справка и API — **1c-help**; статический анализ и стиль — **BSL LS** (этот скилл).
 
 ## Расположение JAR
 

@@ -21,7 +21,7 @@
 
 ---
 
-## 2. Что даёт lsp-bsl-bridge (проект и диагностика)
+## 2. Что даёт BSL LS (проект и диагностика)
 
 | Инструмент | Для рефакторинга даёт |
 |------------|------------------------|
@@ -33,7 +33,7 @@
 | **prepare_rename / rename** | Безопасное переименование после анализа call_graph. |
 | **did_change_watched_files** | Уведомление LSP об изменениях после batch-правок. |
 
-Итого по lsp-bsl-bridge: агент получает **где что лежит и кто кого вызывает**, а также **что не так в коде** (диагностика) и частично **как это исправить** (code_actions).
+Итого по BSL LS: агент получает **где что лежит и кто кого вызывает**, а также **что не так в коде** (диагностика) и частично **как это исправить** (code_actions).
 
 ---
 
@@ -46,9 +46,9 @@
   **1c-help** — `get_1c_code_answer`, `get_1c_help_topic`; при нерелевантности — `search_1c_help_keyword("Тип.Метод")` + `get_1c_help_topic`. После удачного решения — `save_1c_snippet`.
 
 - **Где** (в кодовой базе):  
-  **lsp-bsl-bridge** — `project_analysis`, `symbol_explore`, `call_graph`. Для переименований — `call_graph` → `prepare_rename` → `rename`.
+  **BSL LS** — `project_analysis`, `symbol_explore`, `call_graph`. Для переименований — `call_graph` → `prepare_rename` → `rename`.
 
-Рефакторинг опирается на оба MCP: 1c-help — чтобы не сломать смысл API; lsp-bsl-bridge — чтобы видеть зависимости и проверять код.
+Рефакторинг опирается на оба MCP: 1c-help — чтобы не сломать смысл API; BSL LS — чтобы видеть зависимости и проверять код.
 
 ---
 
@@ -57,17 +57,17 @@
 **Да, достаточно**, если использовать оба MCP по назначению:
 
 1. **Перед рефакторингом**  
-   - `call_graph` + `project_analysis` (lsp-bsl-bridge) — границы влияния, места вызовов.  
+   - `call_graph` + `project_analysis` (BSL LS) — границы влияния, места вызовов.  
    - При сомнениях в API: `get_1c_function_info` или `search_1c_help_keyword` + `get_1c_help_topic` (1c-help) — что метод делает и как его правильно вызывать.
 
 2. **Во время рефакторинга**  
    - Правка по одному файлу.  
-   - После правки: `document_diagnostics(uri)` (lsp-bsl-bridge).  
+   - После правки: `document_diagnostics(uri)` (BSL LS).  
    - При необходимости заменить вызов на другой API: `get_1c_code_answer` / `get_1c_function_info` (1c-help).
 
 3. **После правок**  
    - Цикл: исправление → `document_diagnostics` до отсутствия ERROR.  
-   - После batch: `did_change_watched_files` (lsp-bsl-bridge).  
+   - После batch: `did_change_watched_files` (BSL LS).  
    - Удачный новый код → `save_1c_snippet` (1c-help).
 
 Ограничения, о которых агенту нужно помнить (из `quality-and-pitfalls-analysis.md`):
@@ -88,4 +88,4 @@
 - [ ] После batch-правок: **did_change_watched_files**.
 - [ ] Если введён новый удачный паттерн кода: **save_1c_snippet**.
 
-Итого: информации по MCP 1c-help и lsp-bsl-bridge **достаточно**, чтобы выполнять рефакторинг и понимать, что должно работать, как и где. Важно не ограничиваться одним MCP: 1c-help — для справки и примеров, lsp-bsl-bridge — для структуры проекта и диагностики.
+Итого: информации по MCP 1c-help и BSL LS **достаточно**, чтобы выполнять рефакторинг и понимать, что должно работать, как и где. Важно не ограничиваться одним MCP: 1c-help — для справки и примеров, BSL LS — для структуры проекта и диагностики.

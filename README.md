@@ -69,7 +69,7 @@ make reinit ARGS='--force'
 
 - [docs/reference/architecture.md](docs/reference/architecture.md) - deployment-режимы и сервисы
 - [docs/reference/embedding.md](docs/reference/embedding.md) - embedding pipeline и backends
-- [docs/reference/bsl-ls-mcp-setup.md](docs/reference/bsl-ls-mcp-setup.md) - подключение внешнего BSL LS MCP
+- [docs/reference/bsl-ls-mcp-setup.md](docs/reference/bsl-ls-mcp-setup.md) - BSL Language Server (CLI / IDE / опционально Docker)
 - [docs/cursor-examples/README.md](docs/cursor-examples/README.md) - skill и rules для Cursor
 
 Исторические планы, анализы и отчеты вынесены из основного маршрута в [docs/archive/README.md](docs/archive/README.md).

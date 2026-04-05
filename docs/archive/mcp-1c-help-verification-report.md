@@ -119,7 +119,7 @@
 
 - [docs/reference/mcp-tools-reference.md](../reference/mcp-tools-reference.md) — параметры и лимиты всех инструментов.
 - [docs/archive/mcp-1c-help-tools-report.md](mcp-1c-help-tools-report.md) — полнота знаний и примеры прогона по проекту (.nosync).
-- [AGENTS.md](../../AGENTS.md) — порядок вызовов, два MCP (1c-help + lsp-bsl-bridge).
+- [AGENTS.md](../../AGENTS.md) — порядок вызовов: MCP 1c-help + BSL Language Server (CLI/IDE).
 - Skill: `.cursor/skills/1c-mcp-development/SKILL.md` — матрица выбора инструментов и циклы (написание кода, рефакторинг).
 
 *(Раздел 6 добавлен по результатам повторной проверки вызовов всех инструментов в чате.)*

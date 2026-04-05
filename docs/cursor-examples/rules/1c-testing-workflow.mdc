@@ -11,12 +11,12 @@ alwaysApply: false
 
 # 1C Testing Workflow
 
-Подробнее: `docs/reference/1c-testing-guide.md` (в репозитории 1c_hbk_helper). При написании/правке тестов 1С использовать MCP: **1c-help** (примеры API, поиск по справке), **lsp-bsl-bridge** (`document_diagnostics` по модулю теста/шагов).
+Подробнее: `docs/reference/1c-testing-guide.md` (в репозитории 1c_hbk_helper). При написании/правке тестов 1С: MCP **1c-help** (примеры API, справка) и **BSL LS** (`analyze` или IDE на модулях теста/шагов).
 
 ## BSL LS (статический анализ)
 
-- `document_diagnostics` — не runtime-тесты; ловит ошибки, предупреждения, стиль. Вызывать после каждой правки BSL.
-- Цикл до чистоты: исправить → `document_diagnostics` → повторить при ERROR/WARNING.
+- Не runtime-тесты; ловит ошибки, предупреждения, стиль. После каждой правки BSL — `java -jar … analyze` на каталог тестов или диагностики IDE.
+- Цикл: исправить → снова analyze до приемлемого уровня замечаний.
 
 ## Python (onec_help)
 

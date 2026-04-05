@@ -1,7 +1,7 @@
-# BSL LS bridge — только по команде make bsl-start (не с up/up-full).
+# Опциональный BSL Language Server в Docker — только по make bsl-start (не с up/up-full).
 # usage: docker compose -f docker-compose.bsl.yml up -d   или   make bsl-start
 #
-# Требует deps/mcp-bsl-lsp-bridge (make fetch-bsl-bridge).
+# Требует deps/mcp-bsl-lsp-bridge (make fetch-bsl-ls-docker-deps).
 
 services:
   bsl-bridge:

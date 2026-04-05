@@ -33,14 +33,14 @@ endif
 INGEST_SERVICE = ingest-worker
 INDEX_STATUS_SERVICE = mcp
 
-.PHONY: build build-nocache build-full fetch-bsl-bridge parse-fastcode parse-helpf load-snippets load-snippets-from-project load-standards snippets
+.PHONY: build build-nocache build-full fetch-bsl-ls-docker-deps parse-fastcode parse-helpf load-snippets load-snippets-from-project load-standards snippets
 .PHONY: up down ingest-up ingest-down ingest-worker up-full down-full bsl-start bsl-stop qdrant-logs ingest-logs ollama-logs qdrant-reset qdrant-backup qdrant-restore ensure-data
 
-# bsl-bridge: локальный клон (Git URL в context не работает на Docker Windows)
+# Docker BSL LS stack: vendored git clone as build context (Docker cannot always use remote URL)
 deps/mcp-bsl-lsp-bridge/.git/HEAD:
 	git clone --depth 1 https://github.com/SteelMorgan/mcp-bsl-lsp-bridge.git deps/mcp-bsl-lsp-bridge
 
-fetch-bsl-bridge: deps/mcp-bsl-lsp-bridge/.git/HEAD
+fetch-bsl-ls-docker-deps: deps/mcp-bsl-lsp-bridge/.git/HEAD
 .PHONY: init init-full reinit reinit-full ingest ingest-full build-index build-index-full add-bm25 add-bm25-full
 .PHONY: dashboard unpack-help help
 
@@ -164,7 +164,7 @@ down-full:
 	$(COMPOSE_FULL) down
 
 # BSL LS bridge only (отдельный compose, не с up)
-bsl-start: deps/mcp-bsl-lsp-bridge/.git/HEAD
+bsl-start: fetch-bsl-ls-docker-deps
 	$(BSL_SET) $(COMPOSE_BSL) up -d
 
 bsl-stop:
@@ -279,14 +279,14 @@ help:
 	@echo "  make build-index      Построение structured help из unpacked HTML (ARGS=путь)"
 	@echo "  make add-bm25         Добавить BM25 sparse. ARGS='--collection onec_config_metadata' — только эта коллекция"
 	@echo "  make dashboard        Дашборд (Tasks, Errors, Qdrant). ARGS='--once' — один кадр"
-	@echo "  make fetch-bsl-bridge  Клонировать mcp-bsl-lsp-bridge (для Windows)"
+	@echo "  make fetch-bsl-ls-docker-deps  Клонировать зависимость для docker-compose.bsl.yml"
 	@echo "  make up               Start qdrant + mcp (по умолчанию только эти два)"
 	@echo "  make ingest-up        Start + ingest-worker (watchdog, индексация)"
 	@echo "  make ingest-down      Stop ingest-worker"
 	@echo "  make up-full          Start full (один контейнер mcp)"
 	@echo "  make down             Stop все сервисы"
-	@echo "  make bsl-start        BSL LS bridge only (отдельно от up)"
-	@echo "  make bsl-stop         Stop BSL bridge"
+	@echo "  make bsl-start        Опционально: BSL LS в Docker (отдельно от up)"
+	@echo "  make bsl-stop         Stop BSL LS compose"
 	@echo "  make ensure-data      Создать data/qdrant и др. (после потери базы)"
 	@echo "  make qdrant-logs      Логи qdrant (при exit 101)"
 	@echo "  make ingest-logs     Логи ingest-worker (эмбеддинги, fallback)"

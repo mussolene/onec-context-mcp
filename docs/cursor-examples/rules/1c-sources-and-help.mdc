@@ -1,5 +1,5 @@
 ---
-description: Работа с исходниками 1С (BSL) и вопросами по платформе — обязательная справка 1c-help, локальный BSL LS, MCP lsp-bsl-bridge.
+description: Работа с исходниками 1С (BSL) и вопросами по платформе — справка 1c-help MCP и проверка BSL LS (CLI/IDE).
 globs: "**/*.bsl,**/*.os,**/Form.xml,**/Module.bsl"
 alwaysApply: false
 ---
@@ -13,7 +13,7 @@ alwaysApply: false
 
 ## Статический анализ и формат
 
-- В IDE с **lsp-bsl-bridge** — цикл правок с `document_diagnostics` (как в skill 1c-mcp-development).
+- После правок `.bsl` — BSL LS `analyze` или диагностики IDE (как в skill 1c-mcp-development).
 - Вне MCP / офлайн — skill **bsl-language-server-local**: `java -jar … analyze` и `format` (см. `docs/cursor-examples/bsl-language-server-local/SKILL.md`).
 
 ## Выгрузка метаданных (KD2)

@@ -1,6 +1,6 @@
-# Отчёт: полнота MCP 1c-help и lsp-bsl-bridge по инструментам
+# Отчёт: полнота MCP 1c-help и BSL LS по инструментам
 
-Отчёт по результатам проверки полноты знаний MCP для понимания, разработки, поддержки и тестирования проекта 1С на примере **CryptographicLib** (`.nosync/cryptographiclib`). Прогон тестов выполнен для **13 инструментов 1c-help** и **14 инструментов lsp-bsl-bridge**.
+Отчёт по результатам проверки полноты знаний MCP для понимания, разработки, поддержки и тестирования проекта 1С на примере **CryptographicLib** (`.nosync/cryptographiclib`). Прогон тестов выполнен для **13 инструментов 1c-help** и отдельного стека проверки BSL (исторически — набор LSP-инструментов в обёртке; в актуальной документации репозитория — CLI `analyze` / IDE).
 
 **Актуализация (2026-04):** из публичного MCP surface удалены `get_1c_context_bundle`, `get_1c_function_info`, `search_1c_memory`, `search_1c_official_examples`. Канонический актуальный список и порядок вызовов — [mcp-tools-reference.md](../reference/mcp-tools-reference.md) и промпт `get_1c_quick_guide`. Ниже сохранён исторический текст прогона; при использовании подставляйте текущие аналоги (`get_1c_api_answer` / `detail="full"`, `search_1c_api` с `include_examples`, `search_1c_standards` / `search_1c_snippets`, `get_1c_task_context`).
 
@@ -14,20 +14,20 @@
 |--------|------------------|-------------|
 | **Понять проект** | Да | `get_module_info`, `get_form_metadata` — тип модуля по пути, атрибуты и команды формы. |
 | **Разработка / дописывание** | Да | `get_1c_code_answer`, `search_1c_help_keyword`, `get_1c_help_topic`, `get_1c_function_info` — справка по API, примеры кода, сигнатуры (в т.ч. МенеджерКриптографии, Подписать, сертификаты). |
-| **Поддержка (рефакторинг, стандарты)** | Частично | 1c-help даёт справку и примеры; статический анализ и рефакторинг — **lsp-bsl-bridge**. |
-| **Тестирование (проверка кода)** | Нет | Диагностика BSL LS — **lsp-bsl-bridge** (`document_diagnostics`). Запуск YaxUnit/Vanessa — вручную или скриптами. |
+| **Поддержка (рефакторинг, стандарты)** | Частично | 1c-help даёт справку и примеры; статический анализ и рефакторинг — **BSL LS**. |
+| **Тестирование (проверка кода)** | Нет | Диагностика BSL LS — **BSL LS** (`analyze` / IDE). Запуск YaxUnit/Vanessa — вручную или скриптами. |
 | **Сравнение версий платформы** | Да | `compare_1c_help` — сравнение топика между версиями. |
 | **Сохранение переиспользуемого кода** | Да | `save_1c_snippet` — улучшает последующие ответы `get_1c_code_answer`. |
 
-**Вывод:** для **понимания** и **разработки/дописывания** проекта 1С знаний 1c-help **достаточно**. Для **поддержки** (рефакторинг, соответствие стандартам) и **тестирования** (проверка кода, навигация по коду) нужна связка **1c-help + lsp-bsl-bridge**; запуск runtime-тестов 1С остаётся вне MCP.
+**Вывод:** для **понимания** и **разработки/дописывания** проекта 1С знаний 1c-help **достаточно**. Для **поддержки** (рефакторинг, соответствие стандартам) и **тестирования** (проверка кода, навигация по коду) нужна связка **1c-help + BSL LS**; запуск runtime-тестов 1С остаётся вне MCP.
 
-### Роль lsp-bsl-bridge
+### Роль BSL LS (как в этом репозитории сейчас)
 
-- **Проверка кода:** `document_diagnostics(uri)` — ошибки, предупреждения и подсказки BSL LS по файлу.
-- **Навигация:** `project_analysis`, `symbol_explore` — поиск символов, файлов, контекст по проекту.
-- **Граф вызовов / иерархия:** `call_graph`, `call_hierarchy` — зависят от позиции (на символе); для части модулей могут не находить элемент.
-- **Рефакторинг:** `prepare_rename`, `rename` — переименование с превью; `code_actions` — быстрые исправления по диагностикам.
-- **Контент кода:** `get_range_content` — извлечение фрагмента по диапазону строк.
+- **Проверка кода:** exec-JAR `analyze` (`-s` файл или каталог, `-r console`) или панель проблем в IDE с подключённым BSL LS.
+- **Навигация и чтение кода:** поиск по проекту (`rg`, IDE), без отдельного MCP для LSP.
+- **Форматирование:** при необходимости — JAR `format`.
+
+Дальше в документе в таблицах и цитатах прогона **сохранены старые имена вызовов** внешнего LSP-MCP (`document_diagnostics`, `project_analysis`, …) — это архив проверки 2025–2026, а не актуальный список инструментов Cursor.
 
 ---
 
@@ -73,7 +73,7 @@
 
 ---
 
-### 2.2. MCP lsp-bsl-bridge (14 инструментов)
+### 2.2. MCP BSL LS (14 инструментов)
 
 | Инструмент | Назначение | Параметры | Пример вызова для .nosync | Сценарий |
 |------------|------------|-----------|---------------------------|----------|
@@ -121,7 +121,7 @@
 
 ---
 
-### 3.2. lsp-bsl-bridge (14 инструментов)
+### 3.2. BSL LS (14 инструментов)
 
 | № | Инструмент | Вызов | Результат | Замечания |
 |---|------------|-------|-----------|-----------|
@@ -141,14 +141,14 @@
 | 14 | selection_range | uri, line 35, character 4 | OK | Ответ "ok". |
 | 15 | did_change_watched_files | language=bsl, changes_json=[{uri, type:2}] | OK | Уведомление об изменении файла принято. |
 
-**Итог lsp-bsl-bridge:** `lsp_status`, `document_diagnostics`, `project_analysis`, `symbol_explore`, `get_range_content`, `selection_range`, `did_change_watched_files` работают стабильно. `call_graph`, `call_hierarchy`, `definition`, `hover`, `code_actions`, `prepare_rename` в прогоне дали пустой результат или ошибку — зависят от точной позиции (символ в BSL) и, возможно, от формата URI (projects vs локальный путь); при работе в реальном сценарии координаты из `project_analysis` (Recommended hover coordinate) стоит подставлять в definition/hover/call_graph.
+**Итог BSL LS:** `lsp_status`, `document_diagnostics`, `project_analysis`, `symbol_explore`, `get_range_content`, `selection_range`, `did_change_watched_files` работают стабильно. `call_graph`, `call_hierarchy`, `definition`, `hover`, `code_actions`, `prepare_rename` в прогоне дали пустой результат или ошибку — зависят от точной позиции (символ в BSL) и, возможно, от формата URI (projects vs локальный путь); при работе в реальном сценарии координаты из `project_analysis` (Recommended hover coordinate) стоит подставлять в definition/hover/call_graph.
 
 ---
 
 ## 4. Рекомендации
 
 1. **Только 1c-help:** использовать для справки по API, примеров кода, метаданных форм и модулей, сравнения версий и сохранения сниппетов. При пустых или нерелевантных результатах — проверять `get_1c_help_index_status` и переходить на `search_1c_help_keyword` с точным именем API.
-2. **Подключение lsp-bsl-bridge:** при проверке кода после правок — вызывать `document_diagnostics(uri)` и доводить до отсутствия ERROR/WARNING. Перед рефакторингом — `project_analysis` (workspace_symbols) и при необходимости `symbol_explore`; для графа вызовов использовать координаты из выдачи `project_analysis` в `call_graph`/`call_hierarchy`.
+2. **Подключение BSL LS:** при проверке кода после правок — вызывать `document_diagnostics(uri)` и доводить до отсутствия ERROR/WARNING. Перед рефакторингом — `project_analysis` (workspace_symbols) и при необходимости `symbol_explore`; для графа вызовов использовать координаты из выдачи `project_analysis` в `call_graph`/`call_hierarchy`.
 3. **URI для .nosync:** при Docker (volume `.:/projects`) — `file:///projects/.nosync/cryptographiclib/...`; локально — полный file URI до файла. `document_diagnostics` в тесте сработал с локальным путём.
 4. **Использование отчёта:** онбординг (какой инструмент когда вызывать), отладка (почему пустой ответ — индекс, позиция, URI), поддержка (напоминание лимитов и подводных камней из раздела 2).
 
@@ -156,23 +156,23 @@
 
 ## 5. Повторный прогон после правок (скилл, правило, промпт MCP)
 
-После добавления скилла **1c-mcp-tools-report**, правила **1c-mcp-tools-report.mdc** и промпта MCP **how_to_use_1c_help_and_bsl_bridge** выполнен повторный тест по тому же плану.
+После добавления скилла **1c-mcp-tools-report**, правила **1c-mcp-tools-report.mdc** и промпта MCP **how_to_use_1c_help_and_bsl_ls** выполнен повторный тест по тому же плану.
 
 ### Результаты сравнения
 
 | Область | Было (первый прогон) | Стало (повторный) | Вывод |
 |--------|----------------------|-------------------|--------|
 | **1c-help** | Все 13 инструментов OK | Без изменений: get_1c_help_index_status, get_1c_code_answer, search_1c_help_keyword и остальные работают стабильно. Память 4064 pts. | Ответы инструментов не изменились — это ожидаемо. |
-| **lsp-bsl-bridge: стабильные** | lsp_status, document_diagnostics, project_analysis, symbol_explore, get_range_content, selection_range, did_change_watched_files — OK | То же: работают с URI `file:///projects/...` (в т.ч. URL-encoded путь). document_diagnostics: 136 замечаний по ObjectModule.bsl. | Без изменений, всё в норме. |
-| **lsp-bsl-bridge: позиционные** | definition, hover, call_graph, call_hierarchy — пусто/ошибка при line 33–35, character 5 | Проверено с **рекомендованными координатами** из project_analysis (line=34, character=5, URI с %D0%9C...). Результат: по-прежнему «No definitions found», «No call hierarchy item found». | Ограничение со стороны BSL LS / lsp-bsl-bridge для данного символа/файла; скилл и правило не меняют поведение этих вызовов. |
+| **BSL LS: стабильные** | lsp_status, document_diagnostics, project_analysis, symbol_explore, get_range_content, selection_range, did_change_watched_files — OK | То же: работают с URI `file:///projects/...` (в т.ч. URL-encoded путь). document_diagnostics: 136 замечаний по ObjectModule.bsl. | Без изменений, всё в норме. |
+| **BSL LS: позиционные** | definition, hover, call_graph, call_hierarchy — пусто/ошибка при line 33–35, character 5 | Проверено с **рекомендованными координатами** из project_analysis (line=34, character=5, URI с %D0%9C...). Результат: по-прежнему «No definitions found», «No call hierarchy item found». | Ограничение со стороны BSL LS / BSL LS для данного символа/файла; скилл и правило не меняют поведение этих вызовов. |
 
 ### Что реально улучшилось
 
 1. **Порядок действий:** скилл и правило явно задают цепочку: при пустых ответах 1c-help → `get_1c_help_index_status` → `search_1c_help_keyword` с точным API; для навигации по коду → сначала `project_analysis`, затем `symbol_explore` и при необходимости `get_range_content`. Агент не «застревает» на одном нерелевантном вызове.
 2. **Ожидания от позиционных инструментов:** в отчёте и правиле зафиксировано, что definition/hover/call_graph/call_hierarchy могут давать пустой результат даже при координатах из project_analysis; предпочтительная навигация — symbol_explore + get_range_content. Меньше ложных ожиданий.
-3. **Промпт MCP:** клиент может вызвать `how_to_use_1c_help_and_bsl_bridge` и получить готовый блок инструкции для контекста чата — не нужно каждый раз восстанавливать порядок вызовов по документации.
+3. **Промпт MCP:** клиент может вызвать `how_to_use_1c_help_and_bsl_ls` и получить готовый блок инструкции для контекста чата — не нужно каждый раз восстанавливать порядок вызовов по документации.
 
-**Итог:** сами ответы MCP не изменились; улучшились **руководство по использованию** (скилл + правило) и **доступность подсказки** (промпт в MCP). Для позиционных инструментов lsp-bsl-bridge ограничение остаётся на стороне LSP/BSL; альтернативы (project_analysis, symbol_explore, get_range_content) работают и закреплены в рекомендациях.
+**Итог:** сами ответы MCP не изменились; улучшились **руководство по использованию** (скилл + правило) и **доступность подсказки** (промпт в MCP). Для позиционных инструментов BSL LS ограничение остаётся на стороне LSP/BSL; альтернативы (project_analysis, symbol_explore, get_range_content) работают и закреплены в рекомендациях.
 
 ---
 
@@ -192,7 +192,7 @@
 | document_diagnostics(uri ObjectModule.bsl) | OK — 136 замечаний (WARNING/INFO/HINT). |
 | get_range_content(диапазон 33–45) | OK — фрагмент кода ПолучитьВсе(). |
 
-**Вывод:** после пересборки 1c-help и lsp-bsl-bridge ведут себя стабильно; регрессий не выявлено.
+**Вывод:** после пересборки 1c-help и BSL LS ведут себя стабильно; регрессий не выявлено.
 
 ---
 
@@ -200,9 +200,9 @@
 
 ### Улучшить
 
-- **Позиционные инструменты lsp-bsl-bridge:** при пустом definition/hover/call_graph — в правилах и промпте явно указано: **навигация (основной способ)** — project_analysis → symbol_explore или get_range_content; definition/hover/call_graph считать опциональными. *Реализовано в 1c-mcp-workflow и 1c-mcp-tools-report.*
+- **Позиционные инструменты BSL LS:** при пустом definition/hover/call_graph — в правилах и промпте явно указано: **навигация (основной способ)** — project_analysis → symbol_explore или get_range_content; definition/hover/call_graph считать опциональными. *Реализовано в 1c-mcp-workflow и 1c-mcp-tools-report.*
 - **Единый формат URI:** в правиле 1c-mcp-workflow и в промпте MCP зафиксирован формат `file:///projects/<путь>` (Docker) и примечание про URL-encoding путей с кириллицей. *Реализовано.*
-- **Промпт при новом чате:** в правиле 1c-mcp-workflow и в README добавлена инструкция: в новом чате по 1С вызвать промпт how_to_use_1c_help_and_bsl_bridge и вставить результат в первое сообщение (опционально — параметр task=develop|refactor|test для короткого блока). *Реализовано.*
+- **Промпт при новом чате:** в правиле 1c-mcp-workflow и в README добавлена инструкция: в новом чате по 1С вызвать промпт how_to_use_1c_help_and_bsl_ls и вставить результат в первое сообщение (опционально — параметр task=develop|refactor|test для короткого блока). *Реализовано.*
 
 ### Упростить
 
@@ -212,8 +212,8 @@
 ### Добавить
 
 - **Чек-лист перед коммитом/ревью:** добавлен в 1c-mcp-workflow (три пункта: справка использована? diagnostics без ERROR/WARNING? save_1c_snippet после нового кода?). *Реализовано.*
-- **Ссылка на отчёт в AGENTS.md:** добавлена в раздел MCP (отчёт + промпт how_to_use_1c_help_and_bsl_bridge). *Реализовано ранее.*
-- **Параметризованный промпт:** промпт how_to_use_1c_help_and_bsl_bridge принимает параметр `task`: "all" (по умолчанию — полный текст), "develop" | "refactor" | "test" — только релевантный блок. *Реализовано.*
+- **Ссылка на отчёт в AGENTS.md:** добавлена в раздел MCP (отчёт + промпт how_to_use_1c_help_and_bsl_ls). *Реализовано ранее.*
+- **Параметризованный промпт:** промпт how_to_use_1c_help_and_bsl_ls принимает параметр `task`: "all" (по умолчанию — полный текст), "develop" | "refactor" | "test" — только релевантный блок. *Реализовано.*
 
 ---
 
@@ -221,7 +221,7 @@
 
 - **Skill:** [docs/cursor-examples/1c-mcp-tools-report/SKILL.md](../cursor-examples/1c-mcp-tools-report/SKILL.md) — выжимка по полноте знаний, порядку вызовов и подводным камням. Копировать в `.cursor/skills/1c-mcp-tools-report/`.
 - **Правила:** [docs/cursor-examples/rules/1c-mcp-tools-report.mdc](../cursor-examples/rules/1c-mcp-tools-report.mdc), [docs/cursor-examples/rules/1c-mcp-workflow.mdc](../cursor-examples/rules/1c-mcp-workflow.mdc) — рекомендации при работе с .bsl и Form.xml. Копировать в `.cursor/rules/`.
-- **Промпт MCP:** сервер 1c-help экспонирует промпт `how_to_use_1c_help_and_bsl_bridge(task)` — возвращает инструкцию по 1c-help и lsp-bsl-bridge. Параметр **task** (необязательный): `"all"` (по умолчанию) — полный текст; `"develop"` | `"refactor"` | `"test"` — только релевантный блок (меньше токенов). Вызвать из клиента MCP и вставить результат в чат.
+- **Промпт MCP:** сервер 1c-help экспонирует промпт `how_to_use_1c_help_and_bsl_ls(task)` — возвращает инструкцию по 1c-help и BSL LS. Параметр **task** (необязательный): `"all"` (по умолчанию) — полный текст; `"develop"` | `"refactor"` | `"test"` — только релевантный блок (меньше токенов). Вызвать из клиента MCP и вставить результат в чат.
 
 ### Как получить инструкцию по умолчанию и когда вызывать промпт
 
@@ -229,7 +229,7 @@
 Правило **1c-mcp-workflow** привязано к `**/*.bsl`. При открытии или редактировании `.bsl` Cursor подставляет в контекст краткий порядок вызовов, единый формат URI и чек-лист перед коммитом. Правило **1c-mcp-tools-report** (globs: `**/*.bsl`, `**/Form.xml`, `.nosync/**`) добавляет отличия по отчёту (пустые ответы, URI, навигация).
 
 **Когда вызывать промпт вручную:**  
-- **Новый чат по 1С:** вызвать промпт **how_to_use_1c_help_and_bsl_bridge** и вставить возвращённый текст в первое сообщение. Для короткого блока передать `task=develop`, `task=refactor` или `task=test`.  
+- **Новый чат по 1С:** вызвать промпт **how_to_use_1c_help_and_bsl_ls** и вставить возвращённый текст в первое сообщение. Для короткого блока передать `task=develop`, `task=refactor` или `task=test`.  
 - Правило не сработало (чат не привязан к .bsl) — вызов промпта дублирует инструкцию в чат.
 
 **Итог:** скопировать правила в `.cursor/rules/` и при работе с .bsl инструкция подставляется автоматически. Промпт — для новой сессии или явной вставки (с опцией task для экономии токенов).
@@ -240,7 +240,7 @@
 
 | Промпт | Назначение |
 |--------|------------|
-| **get_mcp_workflow_guide** | Руководство по порядку вызовов (1c-help + lsp-bsl-bridge при работе с .bsl). Вставить в чат или в правила IDE. |
+| **get_mcp_workflow_guide** | Руководство по порядку вызовов (1c-help + BSL LS при работе с .bsl). Вставить в чат или в правила IDE. |
 | **get_mcp_tools_tips** | Подсказки: пустые ответы, формат URI, координаты LSP. Вставить в чат или правила. |
 | **get_mcp_tools_summary** | Выжимка отчёта: когда какой MCP, лимиты, подводные камни. Вставить в чат или скиллы IDE. |
 | **get_mcp_guides_bundle** | Все три руководства одним блоком — онбординг или восстановление конфига IDE. |
@@ -253,7 +253,7 @@
 
 ## 8. Повторное тестирование: возможности и справочная информация
 
-Проведён повторный прогон (1c-help и lsp-bsl-bridge) и оценка: хватает ли агенту возможностей и справочной информации при использовании MCP.
+Проведён повторный прогон (1c-help и BSL LS) и оценка: хватает ли агенту возможностей и справочной информации при использовании MCP.
 
 ### Результаты прогона
 
@@ -262,9 +262,9 @@
 | **1c-help** get_1c_help_index_status | OK — 117696 топиков, память 4064 pts, версии 8.2–8.5, последний ingest завершён. |
 | **1c-help** get_1c_code_answer("Подписание данных криптографией") | OK — релевантные топики (МенеджерКриптографии.НачатьПодписывание, подпись CMS/PKCS#7). |
 | **1c-help** search_1c_help_keyword("МенеджерКриптографии.Подписать") | OK — точные совпадения с путями и контентом (8.3, 8.2). |
-| **lsp-bsl-bridge** lsp_status | OK — ready, индексация 11/11, BSL и bsl-language-server подключены. |
-| **lsp-bsl-bridge** project_analysis(workspace_symbols, "ПолучитьВсе") | OK — 5 результатов с URI (в т.ч. URL-encoded кириллица), Range и Recommended hover coordinate. |
-| **lsp-bsl-bridge** document_diagnostics(uri ObjectModule.bsl) | OK — 136 замечаний (83 WARNING, 12 INFO, 41 HINT): когнитивная/цикломатическая сложность, экспортные переменные, описание возвращаемого значения, BSL LS ссылки. |
+| **BSL LS** lsp_status | OK — ready, индексация 11/11, BSL и bsl-language-server подключены. |
+| **BSL LS** project_analysis(workspace_symbols, "ПолучитьВсе") | OK — 5 результатов с URI (в т.ч. URL-encoded кириллица), Range и Recommended hover coordinate. |
+| **BSL LS** document_diagnostics(uri ObjectModule.bsl) | OK — 136 замечаний (83 WARNING, 12 INFO, 41 HINT): когнитивная/цикломатическая сложность, экспортные переменные, описание возвращаемого значения, BSL LS ссылки. |
 
 **Вывод по стабильности:** регрессий нет; оба MCP отвечают корректно.
 
@@ -284,7 +284,7 @@
 ### Оценка: хватает ли справочной информации
 
 - **В репозитории:** отчёт `docs/archive/mcp-1c-help-tools-report.md` (таблицы по всем инструментам, лимиты, подводные камни, порядок вызовов), скилл `docs/cursor-examples/1c-mcp-tools-report/SKILL.md` (выжимка), правила `1c-mcp-workflow.mdc` и `1c-mcp-tools-report.mdc`. Агент может читать эти файлы — этого достаточно, чтобы выбирать нужный инструмент, формат URI и обходить типичные ошибки (topic_path не path, keyword для точного API, URL-encoding для кириллицы).
-- **В MCP:** промпты how_to_use_1c_help_and_bsl_bridge(task), get_mcp_workflow_guide, get_mcp_tools_tips, get_mcp_tools_summary, get_mcp_guides_bundle отдают актуальный текст при настроенном MCP_CURSOR_DOCS_PATH; вызов промптов — со стороны клиента (пользователь вставляет в чат). Агент при необходимости может опереться на файлы в docs/.
+- **В MCP:** промпты how_to_use_1c_help_and_bsl_ls(task), get_mcp_workflow_guide, get_mcp_tools_tips, get_mcp_tools_summary, get_mcp_guides_bundle отдают актуальный текст при настроенном MCP_CURSOR_DOCS_PATH; вызов промптов — со стороны клиента (пользователь вставляет в чат). Агент при необходимости может опереться на файлы в docs/.
 - **Шпаргалка:** [docs/reference/mcp-tools-cheatsheet.md](../reference/mcp-tools-cheatsheet.md) — одна страница: инструмент, ключевой параметр, одна строка назначения; плюс промпты и кратко URI/порядок вызовов.
 
 **Итог по справочной информации:** для использования данного MCP справочной информации **хватает** (отчёт + скилл + правила в репозитории; при необходимости — промпты MCP для вставки в чат).
@@ -294,7 +294,7 @@
 При разработке **в другом репозитории** (проект 1С/BSL без клонирования 1c_hbk_helper):
 
 - **MCP 1c-help** подключается по URL (например `http://localhost:8050/mcp`). Индекс справки и инструменты не зависят от вашего проекта — сервер может работать в Docker или на другой машине.
-- **MCP lsp-bsl-bridge** должен видеть ваш рабочий каталог с `.bsl`: при Docker — volume с вашим проектом (например `.:/projects`), тогда URI модулей — `file:///projects/<путь_в_вашем_проекте>`. Локально — полный file URI до файлов вашего проекта.
+- **MCP BSL LS** должен видеть ваш рабочий каталог с `.bsl`: при Docker — volume с вашим проектом (например `.:/projects`), тогда URI модулей — `file:///projects/<путь_в_вашем_проекте>`. Локально — полный file URI до файлов вашего проекта.
 - **Правила и скилл:** скопируйте из `docs/cursor-examples/` репозитория 1c_hbk_helper в `.cursor/rules/` и `.cursor/skills/` вашего проекта **или** получите текст через промпты 1c-help: **get_mcp_workflow_guide**, **get_mcp_tools_tips**, **get_mcp_tools_summary**, **get_mcp_guides_bundle** — и вставьте в чат или сохраните в свой .cursor/. Содержимое правил не привязано к путям 1c_hbk_helper (используются общие формулировки: «путь к .bsl», «uri модуля», `file:///projects/<путь>`).
 - **Globs правил** заданы как `**/*.bsl` и `**/Form.xml` — срабатывают в любом репозитории с такими файлами.
 

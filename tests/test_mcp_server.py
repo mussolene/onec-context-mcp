@@ -944,7 +944,7 @@ def test_mcp_tool_get_1c_task_context_via_app(mock_build_ctx, help_sample_dir: P
 
 
 def test_mcp_tool_get_1c_quick_guide_develop_via_app(help_sample_dir: Path) -> None:
-    """Quick guide should expose the AI-first route and external LSP boundary."""
+    """Quick guide should expose the AI-first route and BSL LS validation hint."""
     app = mcp_server._build_mcp_app(help_sample_dir)
     result = asyncio.run(app.call_tool("get_1c_quick_guide", {"task": "develop"}))
     text = result.content[0].text if result.content else ""
@@ -954,4 +954,4 @@ def test_mcp_tool_get_1c_quick_guide_develop_via_app(help_sample_dir: Path) -> N
     assert "get_1c_task_context" in text
     assert "search_1c_standards" in text
     assert "search_1c_metadata_exact" in text
-    assert "external lsp-bsl-bridge" in text
+    assert "BSL Language Server" in text or "bsl-language-server" in text.lower()

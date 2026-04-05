@@ -1,24 +1,24 @@
 ---
 name: 1c-mcp-tools-report
-description: Выжимка по роли MCP 1c-help и внешнего lsp-bsl-bridge. Применять при вопросах «какой tool когда», при настройке AI-first workflow и при отделении нашего MCP от внешнего LSP dependency.
+description: Выжимка по роли MCP 1c-help и проверке BSL через Language Server (CLI/IDE). Применять при вопросах «какой tool когда» и настройке workflow.
 ---
 
 # Отчёт по инструментам MCP (выжимка)
 
-Основано на [docs/archive/mcp-1c-help-tools-report.md](../../archive/mcp-1c-help-tools-report.md). Полный отчёт — таблицы по инструментам 1c-help и внешнего lsp-bsl-bridge, результаты прогона, лимиты и подводные камни.
+Основано на [docs/archive/mcp-1c-help-tools-report.md](../../archive/mcp-1c-help-tools-report.md). Полный отчёт — таблицы по инструментам 1c-help и исторический контекст BSL LS, лимиты и подводные камни.
 
 ## Полнота знаний: когда чего хватает
 
-| Задача | 1c-help | внешний lsp-bsl-bridge | Комментарий |
-|--------|---------|----------------|-------------|
+| Задача | 1c-help | BSL LS (CLI/IDE) | Комментарий |
+|--------|---------|------------------|-------------|
 | Понять проект (тип модуля, форма) | Да | — | `get_module_info`, `get_form_metadata` |
 | Разработка / дописывание (API, примеры) | Да | — | `get_1c_api_answer`, `get_1c_api_object`, `answer_1c_help_question`, `search_1c_api` (примеры — `include_examples=True`), `search_1c_snippets` |
-| Поддержка (рефакторинг, стандарты) | Частично | Да | 1c-help — справка; BSL LS и навигация — lsp-bsl-bridge |
-| Тестирование (проверка кода) | Нет | Да | `document_diagnostics`; запуск YaxUnit/Vanessa — вручную |
+| Поддержка (рефакторинг, стандарты) | Частично | Да | 1c-help — справка; анализ и стиль — BSL LS |
+| Тестирование (проверка кода) | Нет | Да | `analyze` / IDE; YaxUnit/Vanessa — вручную |
 | Сравнение версий платформы | Да | — | `compare_1c_help` |
 | Сохранение переиспользуемого кода | Да | — | `save_1c_snippet` |
 
-**Вывод:** `1c-help` — основной MCP этого репозитория. `lsp-bsl-bridge` — внешний dependency, который подключается для навигации и проверки кода.
+**Вывод:** `1c-help` — MCP справки этого репозитория. BSL LS — отдельно (см. `bsl-language-server-local`, `docs/reference/bsl-ls-mcp-setup.md`).
 
 ## Иерархия выбора инструментов
 
@@ -30,8 +30,8 @@ description: Выжимка по роли MCP 1c-help и внешнего lsp-bs
 | Нужны объекты конфигурации тоже | `search_1c_metadata_exact` / `search_1c_metadata_semantic` → `get_1c_metadata_object` |
 | Только имя функции/метода | `get_1c_api_answer("Тип.Метод")` или `detail="full"` |
 | Только стандарты/сниппеты | `search_1c_standards` / `search_1c_snippets` |
-| Внешняя проверка кода | `document_diagnostics(uri)` |
-| Внешняя навигация по проекту | `project_analysis` → `symbol_explore` → `get_range_content` |
+| Проверка .bsl | BSL LS `analyze` или диагностики IDE |
+| Навигация по коду | Поиск (rg), символы IDE, чтение файлов |
 
 ## Порядок вызовов (кратко)
 
@@ -40,8 +40,8 @@ description: Выжимка по роли MCP 1c-help и внешнего lsp-bs
 3. **Общий API-вопрос:** `answer_1c_help_question(query)` или `search_1c_api(query)`.
 4. **Стандарты/сниппеты:** `search_1c_standards(query)` / `search_1c_snippets(query)`.
 5. **Метаданные:** `search_1c_metadata_exact` / `search_1c_metadata_semantic` / `search_1c_metadata_fields` → `get_1c_metadata_object`.
-6. **Проверка кода во внешнем MCP:** `document_diagnostics(uri)` → цикл до отсутствия ERROR/WARNING.
-7. **Навигация во внешнем MCP:** `project_analysis` → `symbol_explore` → `get_range_content`.
+6. **Проверка .bsl:** BSL LS `analyze` (или IDE) → цикл до приемлемого уровня замечаний.
+7. **Навигация:** rg/IDE/чтение модулей по путям выгрузки.
 8. **После рабочего кода:** `save_1c_snippet` только для действительно переиспользуемого результата.
 
 ## Подводные камни (из отчёта)
@@ -49,12 +49,10 @@ description: Выжимка по роли MCP 1c-help и внешнего lsp-bs
 - **Пустые/нерелевантные ответы 1c-help:** проверить `get_1c_help_index_status`; перейти на `get_1c_api_answer` с точным именем API (`Тип.Метод`) или `search_1c_api`.
 - **compare_1c_help:** специализированный low-level tool поверх внутреннего topic index; не использовать как основной runtime route.
 - **get_form_metadata:** передавать полный XML формы с xmlns; усечённый без namespace даёт ошибку разбора.
-- **symbol_explore:** без `file_context` надёжнее; с `file_context="ObjectModule"` может быть «file not found».
-- **call_graph / call_hierarchy / definition / hover:** зависят от точной позиции на символе (0-based line, character); подставлять координаты из `project_analysis`.
-- **URI (единый формат):** Docker — `file:///projects/<путь>`; кириллица в путях — URL-encoding в URI. Локально — полный file URI.
-- **Навигация:** основной способ — `project_analysis` → `symbol_explore` или `get_range_content`; definition/hover/call_graph часто пусты — опциональны.
+- **Пути:** для `get_module_info` — путь к `.bsl` в workspace; при `file://` с кириллицей — URL-encoding.
+- **Навигация:** поиск по репозиторию и IDE надёжнее, чем позиционные LSP-вызовы из сторонних MCP.
 
-**Чек-лист перед коммитом/ревью:** правило 1c-mcp-workflow: справка использована? document_diagnostics без ERROR/WARNING? save_1c_snippet после нового кода?
+**Чек-лист перед коммитом/ревью:** правило 1c-mcp-workflow: справка использована? BSL LS без критичных замечаний? `save_1c_snippet` только для проверенного кода?
 
 ## Лимиты 1c-help
 

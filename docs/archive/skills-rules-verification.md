@@ -11,7 +11,7 @@
   1. Вызов `get_1c_code_answer(query)` для примеров.
   2. При скудном/нерелевантном результате — `search_1c_help_keyword("МенеджерКриптографии")` или точное имя API, затем `get_1c_help_topic(topic_path)`.
   3. Реализация или адаптация кода.
-  4. Вызов `document_diagnostics(uri)` (lsp-bsl-bridge).
+  4. Вызов `document_diagnostics(uri)` (BSL LS).
   5. При ERROR/WARNING — исправить и повторить diagnostics до чистоты.
   6. При переиспользуемом коде — вызов `save_1c_snippet(code_snippet, description, title)`.
 - **Фиксировать:** какие инструменты вызывались, в каком порядке; соответствие матрице выбора инструментов из SKILL.

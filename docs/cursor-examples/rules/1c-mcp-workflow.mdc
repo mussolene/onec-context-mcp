@@ -1,16 +1,16 @@
 ---
-description: AI-first workflow при редактировании кода 1С: наш 1c-help + внешний lsp-bsl-bridge. Минимальный маршрут без лишних ветвлений.
+description: AI-first workflow при редактировании кода 1С: MCP 1c-help + BSL Language Server (CLI/IDE). Минимальный маршрут без лишних ветвлений.
 globs: "**/*.bsl"
 alwaysApply: false
 ---
 
 # 1C MCP Workflow (инструкция по умолчанию при работе с .bsl)
 
-При редактировании `.bsl` этот rule даёт агенту минимальный маршрут: `1c-help` как основной MCP этого репозитория и внешний `lsp-bsl-bridge` только как сервер проверки/навигации.
+При редактировании `.bsl`: **1c-help** (MCP этого репозитория) — справка и метаданные; **BSL LS** — статический анализ и форматирование (не через второй MCP здесь).
 
 **Новый чат по 1С (AI-агент):** вызвать только `get_1c_quick_guide(task="develop"|"refactor"|"test")`. Длинные prompt-based guides не считать обязательной частью AI workflow.
 
-**URI (единый формат):** Docker — `file:///projects/<путь>` (volume `.:/projects`). Локально — полный file URI. Пути с кириллицей в URI **обязательно** URL-encoding: «Менеджер» → `%D0%9C%D0%B5%D0%BD%D0%B5%D0%B4%D0%B6%D0%B5%D1%80`, «МойМодуль» → `%D0%9C%D0%BE%D0%B9%D0%9C%D0%BE%D0%B4%D1%83%D0%BB%D1%8C`. Координаты LSP **0-based** (строка 0 = первая строка).
+**Пути:** работайте с путями файлов в workspace. Для встраивания в `file://` URI при необходимости кодируйте кириллицу.
 
 ## Канонический маршрут
 
@@ -22,15 +22,14 @@ alwaysApply: false
 5. Если нужен объектный контекст: `search_1c_metadata_exact(query)` или `search_1c_metadata_semantic(query)` → `get_1c_metadata_object(object_id)`. Для реквизитов: `search_1c_metadata_fields(object_query, field_query)`.
 6. Если ответы кажутся неполными: `get_1c_help_index_status`.
 
-**Внешний lsp-bsl-bridge:**
-1. После правок: `document_diagnostics(uri)` → исправлять до отсутствия ERROR/WARNING.
-2. **Навигация (основной способ):** `project_analysis(analysis_type="workspace_symbols", query="Имя")` → `symbol_explore(query="Имя")` или `get_range_content(uri, start_line, ...)`.
-3. `definition`, `hover`, `call_graph`, `call_hierarchy` считать вторичными probe-инструментами: они часто зависят от точной позиции и не входят в базовый маршрут.
-4. После массовых правок: `did_change_watched_files(language="bsl", changes_json=[...])`.
+**BSL Language Server:**
+1. После правок: `java -jar … analyze -s <каталог или файл> -r json -o <существующий каталог>` (см. `docs/cursor-examples/bsl-language-server-local/SKILL.md`) или диагностики панели IDE.
+2. **Навигация:** поиск по репозиторию (rg, git grep), «перейти к символу» в IDE, чтение модулей по путям выгрузки.
+3. Опционально в этом репозитории: `make fetch-bsl-ls-docker-deps` и `make bsl-start` — отдельный контейнер с BSL LS (не MCP 1c-help).
 
 ## Чек-лист перед коммитом / ревью
 
 - [ ] Использован минимальный route `1c-help` без broad/legacy tools по умолчанию?
 - [ ] При необходимости использованы узкие tools (`get_1c_api_answer`, `answer_1c_help_question`, `search_1c_api`, `search_1c_standards`, `search_1c_snippets`, metadata exact/semantic/fields)?
-- [ ] Вызван `document_diagnostics(uri)` по изменённым модулям — нет ERROR и WARNING?
+- [ ] BSL LS (`analyze` или IDE) по изменённым `.bsl` — нет критичных Error/нужных Warning устранены?
 - [ ] `save_1c_snippet` вызывался только для действительно переиспользуемого и проверенного кода?
