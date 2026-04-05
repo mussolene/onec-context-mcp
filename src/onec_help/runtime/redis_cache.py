@@ -91,8 +91,11 @@ class _NoOpRedis:
     def zcount(self, name: str, min_: float | str, max_: float | str) -> int:
         return 0
 
-    def scan_iter(self, match: str) -> Iterator[str]:
+    def scan_iter(self, match: str = "*", **kwargs: Any) -> Iterator[str]:
         return iter([])
+
+    def object(self, subcommand: str, key: str) -> None:
+        return None
 
 
 def get_redis():

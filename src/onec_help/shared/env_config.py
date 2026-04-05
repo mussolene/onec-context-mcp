@@ -124,6 +124,9 @@ EMBEDDING_BATCH_SIZE_DEFAULT = 32
 EMBEDDING_WORKERS_DEFAULT = 6
 EMBEDDING_FORCE_BATCH_DEFAULT = "0"
 EMBEDDING_CACHE_SIZE_DEFAULT = "10000"
+EMBEDDING_REDIS_CACHE_DEFAULT = "0"
+EMBEDDING_REDIS_CACHE_TTL_DEFAULT = 300
+EMBEDDING_REDIS_CACHE_MAX_KEYS_DEFAULT = 0
 
 
 def get_embedding_backend() -> str:
@@ -192,6 +195,39 @@ def get_embedding_max_concurrent_raw() -> str:
 
 def get_embedding_cache_size() -> str:
     return (os.environ.get("EMBEDDING_CACHE_SIZE") or EMBEDDING_CACHE_SIZE_DEFAULT).strip()
+
+
+def get_embedding_redis_cache_enabled() -> bool:
+    """When True, get_embedding also reads/writes a Redis cache (same REDIS_URL as ingest/MCP)."""
+    v = (os.environ.get("EMBEDDING_REDIS_CACHE") or EMBEDDING_REDIS_CACHE_DEFAULT).strip().lower()
+    return v in ("1", "true", "yes", "on")
+
+
+def get_embedding_redis_cache_ttl_sec() -> int:
+    try:
+        return max(
+            30,
+            int(
+                os.environ.get("EMBEDDING_REDIS_CACHE_TTL", str(EMBEDDING_REDIS_CACHE_TTL_DEFAULT))
+            ),
+        )
+    except ValueError:
+        return EMBEDDING_REDIS_CACHE_TTL_DEFAULT
+
+
+def get_embedding_redis_cache_max_keys() -> int:
+    """If > 0, watchdog may trim oldest keys (OBJECT IDLETIME) to stay under this count."""
+    try:
+        return max(
+            0,
+            int(
+                os.environ.get(
+                    "EMBEDDING_REDIS_CACHE_MAX_KEYS", str(EMBEDDING_REDIS_CACHE_MAX_KEYS_DEFAULT)
+                )
+            ),
+        )
+    except ValueError:
+        return EMBEDDING_REDIS_CACHE_MAX_KEYS_DEFAULT
 
 
 # --- BM25 ---

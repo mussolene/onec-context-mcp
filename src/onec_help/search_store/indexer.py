@@ -1266,6 +1266,7 @@ def search_index(
     language: str | None = None,
     entity_type: str | None = None,
     full_payload: bool = False,
+    query_vector: list[float] | None = None,
 ):
     """Search Qdrant; return list of payloads with path, title, text snippet.
     version, language, entity_type: optional payload filters.
@@ -1282,9 +1283,16 @@ def search_index(
         coll_dim = get_collection_vector_size(
             collection=collection, qdrant_host=host, qdrant_port=port
         )
-        vector = embedding.get_embedding(
-            query, target_dimension=coll_dim if coll_dim is not None else None
-        )
+        if query_vector is not None:
+            vector = list(query_vector)
+            if coll_dim is not None and len(vector) != coll_dim:
+                vector = embedding.get_embedding(
+                    query, target_dimension=coll_dim if coll_dim is not None else None
+                )
+        else:
+            vector = embedding.get_embedding(
+                query, target_dimension=coll_dim if coll_dim is not None else None
+            )
 
         must = []
         if version and Filter and FieldCondition and MatchValue:
@@ -1386,6 +1394,7 @@ def search_hybrid(
     qdrant_port: int | None = None,
     collection: str = COLLECTION_NAME,
     full_payload: bool = False,
+    query_vector: list[float] | None = None,
 ) -> list[dict[str, Any]]:
     """Semantic + keyword search merged with RRF (Reciprocal Rank Fusion).
     Used by MCP and can be reused elsewhere.
@@ -1400,6 +1409,7 @@ def search_hybrid(
         language=language,
         entity_type=entity_type,
         full_payload=full_payload,
+        query_vector=query_vector,
     )
     keyword_list = search_index_keyword(
         query,

@@ -1650,6 +1650,7 @@ def search_official_examples(
     limit: int = 5,
     version: str | None = None,
     language: str | None = None,
+    query_vector: list[float] | None = None,
 ) -> list[dict[str, Any]]:
     """Qdrant-backed search over official examples extracted from help topics."""
     if snapshot_dir is None:
@@ -1661,6 +1662,7 @@ def search_official_examples(
             version=version,
             language=language,
             collection=API_EXAMPLES_COLLECTION_NAME,
+            query_vector=query_vector,
         )
         if results:
             return results
@@ -1696,6 +1698,7 @@ def search_api_members(
     language: str | None = None,
     qdrant_host: str | None = None,
     qdrant_port: int | None = None,
+    query_vector: list[float] | None = None,
 ) -> list[dict[str, Any]]:
     """Hybrid search over structured API member collection."""
     from ..search_store.indexer import search_hybrid
@@ -1709,6 +1712,7 @@ def search_api_members(
         version=version,
         language=language,
         full_payload=True,
+        query_vector=query_vector,
     )
 
 
@@ -1768,6 +1772,7 @@ def search_api_objects(
     language: str | None = None,
     qdrant_host: str | None = None,
     qdrant_port: int | None = None,
+    query_vector: list[float] | None = None,
 ) -> list[dict[str, Any]]:
     """Hybrid search over structured API object collection."""
     from ..search_store.indexer import search_hybrid
@@ -1781,6 +1786,7 @@ def search_api_objects(
         version=version,
         language=language,
         full_payload=True,
+        query_vector=query_vector,
     )
 
 

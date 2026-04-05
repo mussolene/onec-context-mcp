@@ -229,10 +229,13 @@ def _search_api_objects(
     limit: int = 10,
     version: str | None = None,
     language: str | None = None,
+    query_vector: list[float] | None = None,
 ) -> list[dict[str, Any]]:
     from ..knowledge.help_structured import search_api_objects
 
-    return search_api_objects(query, limit=limit, version=version, language=language)
+    return search_api_objects(
+        query, limit=limit, version=version, language=language, query_vector=query_vector
+    )
 
 
 def _search_api_members(
@@ -240,10 +243,13 @@ def _search_api_members(
     limit: int = 10,
     version: str | None = None,
     language: str | None = None,
+    query_vector: list[float] | None = None,
 ) -> list[dict[str, Any]]:
     from ..knowledge.help_structured import search_api_members
 
-    return search_api_members(query, limit=limit, version=version, language=language)
+    return search_api_members(
+        query, limit=limit, version=version, language=language, query_vector=query_vector
+    )
 
 
 def _get_api_object(
@@ -271,10 +277,13 @@ def _search_official_examples(
     limit: int = 5,
     version: str | None = None,
     language: str | None = None,
+    query_vector: list[float] | None = None,
 ) -> list[dict[str, Any]]:
     from ..knowledge.help_structured import search_official_examples
 
-    return search_official_examples(query, limit=limit, version=version, language=language)
+    return search_official_examples(
+        query, limit=limit, version=version, language=language, query_vector=query_vector
+    )
 
 
 def _get_api_related(
@@ -1224,17 +1233,42 @@ def _build_mcp_app(help_path: Path) -> Any:
         if err:
             return err
 
+        from ..knowledge.help_structured import API_MEMBERS_COLLECTION_NAME
+        from ..search_store import embedding
+        from ..search_store.indexer import get_collection_vector_size
+
+        _coll_dim = get_collection_vector_size(collection=API_MEMBERS_COLLECTION_NAME)
+        _qv = embedding.get_embedding(
+            q, target_dimension=_coll_dim if _coll_dim is not None else None
+        )
+
         members = sorted(
-            _search_api_members(q, limit=max(limit, 5), version=version, language=language),
+            _search_api_members(
+                q,
+                limit=max(limit, 5),
+                version=version,
+                language=language,
+                query_vector=_qv,
+            ),
             key=lambda item: _structured_api_sort_key(q, item),
         )
         objects = sorted(
-            _search_api_objects(q, limit=max(4, limit // 2), version=version, language=language),
+            _search_api_objects(
+                q,
+                limit=max(4, limit // 2),
+                version=version,
+                language=language,
+                query_vector=_qv,
+            ),
             key=lambda item: _structured_api_sort_key(q, item),
         )
         examples = (
             _search_official_examples(
-                q, limit=max(2, min(limit, 4)), version=version, language=language
+                q,
+                limit=max(2, min(limit, 4)),
+                version=version,
+                language=language,
+                query_vector=_qv,
             )
             if include_examples
             else []

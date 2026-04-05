@@ -393,6 +393,23 @@ def run_watchdog(
             last_pending = now
             _process_pending_memory()
 
+        if (
+            env_config.get_embedding_redis_cache_max_keys() > 0
+            and env_config.get_embedding_redis_cache_enabled()
+        ):
+            try:
+                from ..search_store import embedding as _embedding_mod
+
+                n_trim = _embedding_mod.trim_redis_embedding_cache()
+                if n_trim:
+                    print(
+                        f"[watchdog] embedding Redis cache trim: removed {n_trim} key(s)",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+            except Exception:
+                pass
+
     # Один цикл сразу (при --once выходим после него).
     try:
         _one_cycle()

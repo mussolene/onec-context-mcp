@@ -169,6 +169,18 @@ def test_search_hybrid_rrf_merge(mock_search: MagicMock, mock_keyword: MagicMock
     mock_keyword.assert_called_once()
 
 
+@patch("onec_help.search_store.indexer.search_index_keyword")
+@patch("onec_help.search_store.indexer.search_index")
+def test_search_hybrid_passes_query_vector(mock_search: MagicMock, mock_keyword: MagicMock) -> None:
+    """search_hybrid forwards query_vector to search_index (one embed for multiple collections)."""
+    mock_search.return_value = []
+    mock_keyword.return_value = []
+    qv = [0.25] * 8
+    search_hybrid("query", limit=3, qdrant_host="localhost", qdrant_port=6333, query_vector=qv)
+    mock_search.assert_called_once()
+    assert mock_search.call_args.kwargs.get("query_vector") == qv
+
+
 def test_infer_entity_type() -> None:
     """_infer_entity_type infers from section_path and breadcrumb."""
     assert _infer_entity_type("obj/Запрос/Методы/Выполнить", []) == "method"

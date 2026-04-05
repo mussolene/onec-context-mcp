@@ -937,3 +937,58 @@ def test_placeholder_handles_invalid_unicode() -> None:
     vec = embedding_mod._get_embedding_placeholder("\udc80invalid", dimension=8)
     assert len(vec) == 8
     assert all(isinstance(x, float) for x in vec)
+
+
+def test_embedding_cache_key_includes_target_dimension() -> None:
+    """Memory cache key must differ when target_dimension changes (final vector can differ)."""
+    k1 = embedding_mod._embedding_cache_key("hello", None)
+    k2 = embedding_mod._embedding_cache_key("hello", 768)
+    k3 = embedding_mod._embedding_cache_key("hello", 512)
+    assert k1 != k2
+    assert k2 != k3
+
+
+def test_trim_redis_embedding_cache_noop_when_disabled(monkeypatch) -> None:
+    monkeypatch.delenv("EMBEDDING_REDIS_CACHE", raising=False)
+    monkeypatch.setenv("EMBEDDING_REDIS_CACHE_MAX_KEYS", "1")
+    assert embedding_mod.trim_redis_embedding_cache() == 0
+
+
+def test_trim_redis_embedding_cache_trims_highest_idle_first(monkeypatch) -> None:
+    monkeypatch.setenv("EMBEDDING_REDIS_CACHE", "1")
+    monkeypatch.setenv("EMBEDDING_REDIS_CACHE_MAX_KEYS", "1")
+
+    deleted: list[str] = []
+
+    class FakeRedis:
+        def scan_iter(self, match="*", count=None):
+            return iter(["1c:emb:v1:aa", "1c:emb:v1:bb"])
+
+        def object(self, subcommand, key):
+            if key.endswith("aa"):
+                return 100
+            return 10
+
+        def delete(self, *keys):
+            deleted.extend(keys)
+            return len(keys)
+
+    with patch("onec_help.runtime.redis_cache.is_runtime_redis_available", return_value=True):
+        with patch("onec_help.runtime.redis_cache.get_redis", return_value=FakeRedis()):
+            n = embedding_mod.trim_redis_embedding_cache()
+    assert n == 1
+    assert deleted == ["1c:emb:v1:aa"]
+
+
+def test_get_embedding_redis_short_circuit(monkeypatch) -> None:
+    """When Redis returns a vector, do not call the API backend."""
+    monkeypatch.setenv("EMBEDDING_REDIS_CACHE", "1")
+    with patch.object(embedding_mod, "_EMBEDDING_BACKEND", "openai_api"):
+        with patch.object(embedding_mod, "_embedding_cache_max_size", return_value=0):
+            with patch.object(
+                embedding_mod, "_embedding_redis_get", return_value=[0.2, 0.4, 0.6]
+            ):
+                with patch.object(embedding_mod, "_get_embedding_api_single") as mock_api:
+                    out = embedding_mod.get_embedding("only-redis", target_dimension=3)
+                    assert out == [0.2, 0.4, 0.6]
+                    mock_api.assert_not_called()

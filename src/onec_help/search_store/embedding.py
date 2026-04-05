@@ -192,10 +192,107 @@ def _embedding_cache_max_size() -> int:
     return _EMBEDDING_CACHE_MAX
 
 
-def _embedding_cache_key(text: str) -> str:
-    """Cache key from sanitized and truncated text (same as sent to backend)."""
+def _embedding_cache_key(text: str, target_dimension: int | None = None) -> str:
+    """Cache key: sanitized truncated text + optional target dim (final vector may differ by dim)."""
     t = sanitize_text_for_embedding(text)[:MAX_EMBEDDING_INPUT_CHARS]
-    return hashlib.sha256(t.encode("utf-8", errors="replace")).hexdigest()
+    base = hashlib.sha256(t.encode("utf-8", errors="replace")).hexdigest()
+    if target_dimension is None:
+        return f"{base}:auto"
+    return f"{base}:{target_dimension}"
+
+
+EMBEDDING_REDIS_KEY_PREFIX = "1c:emb:v1:"
+
+
+def _embedding_redis_cache_key(text: str, target_dimension: int | None) -> str:
+    """Redis key: text + dim + backend + model so model switches do not reuse stale vectors."""
+    t = sanitize_text_for_embedding(text)[:MAX_EMBEDDING_INPUT_CHARS]
+    dim = target_dimension if target_dimension is not None else -1
+    payload = f"{t}\0{dim}\0{_EMBEDDING_BACKEND}\0{_EMBEDDING_MODEL}".encode(
+        "utf-8", errors="replace"
+    )
+    h = hashlib.sha256(payload).hexdigest()
+    return f"{EMBEDDING_REDIS_KEY_PREFIX}{h}"
+
+
+def _embedding_redis_get(key: str) -> list[float] | None:
+    if not _env_config.get_embedding_redis_cache_enabled():
+        return None
+    try:
+        from ..runtime import redis_cache
+    except ImportError:
+        return None
+    if not redis_cache.is_runtime_redis_available():
+        return None
+    try:
+        r = redis_cache.get_redis()
+        raw = r.get(key)
+        if not raw:
+            return None
+        data = json.loads(raw)
+        if not isinstance(data, list):
+            return None
+        return [float(x) for x in data]
+    except Exception:
+        return None
+
+
+def _embedding_redis_set(key: str, vec: list[float]) -> None:
+    if not _env_config.get_embedding_redis_cache_enabled():
+        return
+    try:
+        from ..runtime import redis_cache
+    except ImportError:
+        return
+    if not redis_cache.is_runtime_redis_available():
+        return
+    try:
+        r = redis_cache.get_redis()
+        ttl = _env_config.get_embedding_redis_cache_ttl_sec()
+        r.set(key, json.dumps(vec), ex=ttl)
+    except Exception:
+        pass
+
+
+def trim_redis_embedding_cache() -> int:
+    """Drop least-recently-read keys (OBJECT IDLETIME) when count exceeds EMBEDDING_REDIS_CACHE_MAX_KEYS."""
+    if not _env_config.get_embedding_redis_cache_enabled():
+        return 0
+    max_k = _env_config.get_embedding_redis_cache_max_keys()
+    if max_k <= 0:
+        return 0
+    try:
+        from ..runtime import redis_cache
+    except ImportError:
+        return 0
+    if not redis_cache.is_runtime_redis_available():
+        return 0
+    r = redis_cache.get_redis()
+    try:
+        keys = list(r.scan_iter(match=f"{EMBEDDING_REDIS_KEY_PREFIX}*", count=800))
+    except Exception:
+        return 0
+    if len(keys) <= max_k:
+        return 0
+    scored: list[tuple[int, str]] = []
+    for k in keys:
+        try:
+            idle_s = r.object("idletime", k)
+            idle = int(idle_s) if idle_s is not None else 0
+        except Exception:
+            idle = 0
+        ks = k if isinstance(k, str) else str(k, "utf-8", errors="replace")
+        scored.append((idle, ks))
+    scored.sort(reverse=True)
+    to_del = len(keys) - max_k
+    deleted = 0
+    for _, ks in scored[:to_del]:
+        try:
+            r.delete(ks)
+            deleted += 1
+        except Exception:
+            pass
+    return deleted
 
 
 def _embedding_cache_get(key: str) -> list[float] | None:
@@ -772,25 +869,42 @@ def get_embedding(text: str, target_dimension: int | None = None) -> list[float]
         return _get_embedding_placeholder(text, dim)
     if _EMBEDDING_BACKEND == "deterministic":
         vec = _get_embedding_deterministic(text)
+        if target_dimension is not None and len(vec) != target_dimension:
+            return _get_embedding_placeholder(text, target_dimension)
+        return vec
+
+    use_mem = _embedding_cache_max_size() > 0 and _EMBEDDING_BACKEND in ("local", "openai_api")
+    mem_key = _embedding_cache_key(text, dim_fallback)
+    if use_mem:
+        cached = _embedding_cache_get(mem_key)
+        if cached is not None:
+            return list(cached)
+
+    use_redis = _env_config.get_embedding_redis_cache_enabled() and _EMBEDDING_BACKEND in (
+        "local",
+        "openai_api",
+    )
+    redis_key = _embedding_redis_cache_key(text, target_dimension) if use_redis else ""
+    if use_redis:
+        from_redis = _embedding_redis_get(redis_key)
+        if from_redis is not None:
+            if use_mem:
+                _embedding_cache_set(mem_key, from_redis)
+            return from_redis
+
+    if _EMBEDDING_BACKEND == "openai_api":
+        raw_vec = _get_embedding_api_single(text)
     else:
-        use_cache = _embedding_cache_max_size() > 0 and _EMBEDDING_BACKEND in (
-            "local",
-            "openai_api",
-        )
-        if use_cache:
-            key = _embedding_cache_key(text)
-            cached = _embedding_cache_get(key)
-            if cached is not None:
-                return list(cached)
-        if _EMBEDDING_BACKEND == "openai_api":
-            vec = _get_embedding_api_single(text)
-        else:
-            vec = _get_embedding_local(text)
-        if use_cache:
-            _embedding_cache_set(key, vec)
-    if target_dimension is not None and len(vec) != target_dimension:
-        return _get_embedding_placeholder(text, target_dimension)
-    return vec
+        raw_vec = _get_embedding_local(text)
+    if target_dimension is not None and len(raw_vec) != target_dimension:
+        out = _get_embedding_placeholder(text, target_dimension)
+    else:
+        out = raw_vec
+    if use_mem:
+        _embedding_cache_set(mem_key, out)
+    if use_redis and redis_key:
+        _embedding_redis_set(redis_key, out)
+    return out
 
 
 def get_embedding_batch(
@@ -839,7 +953,7 @@ def get_embedding_batch(
 
     use_cache = _embedding_cache_max_size() > 0 and _EMBEDDING_BACKEND in ("local", "openai_api")
     if use_cache:
-        keys = [_embedding_cache_key(t) for t in texts]
+        keys = [_embedding_cache_key(t, target_dimension) for t in texts]
         cached = [_embedding_cache_get(k) for k in keys]
         uncached_idx = [i for i in range(len(texts)) if cached[i] is None]
         if not uncached_idx:
