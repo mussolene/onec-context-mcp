@@ -34,7 +34,7 @@ Scorecard читает:
 
 - coverage по `summary`, `syntax`, `params`, `returns`, `availability`, `owner_name`
 - доля `kind=topic` внутри member-layer
-- path coverage: сколько `topic_path` из `onec_help` уже представлены structured слоем
+- path coverage: сколько путей темы уже представлены structured слоем. Сравнение идёт по **каноническому пути** (без префикса версии платформы): те же правила, что и в JSONL v5 (`canonical_topic_path` в коде), чтобы не было ложного gap между полным путём распаковки и `topic_path` в JSONL.
 - benchmark exact quality:
   - `exact_top1_pct`
   - `exact_top3_pct`

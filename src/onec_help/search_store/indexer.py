@@ -48,6 +48,40 @@ from ..shared import env_config
 from ..shared._utils import path_inside_base, safe_error_message
 
 COLLECTION_NAME = "onec_help_api_members"
+
+# Structured JSONL snapshots may merge multiple platform versions into one point; filter by ``versions``.
+STRUCTURED_HELP_MULTI_VERSION_COLLECTIONS = frozenset(
+    {
+        "onec_help_api_objects",
+        "onec_help_api_members",
+        "onec_help_examples",
+        "onec_help_api_links",
+    }
+)
+
+
+def _payload_matches_platform_version(payload: dict[str, Any], version: str | None) -> bool:
+    if not version or not str(version).strip():
+        return True
+    v = str(version).strip()
+    if str(payload.get("version") or "").strip() == v:
+        return True
+    vers = payload.get("versions")
+    if isinstance(vers, list) and v in [str(x).strip() for x in vers if x]:
+        return True
+    return False
+
+
+def _filter_structured_by_version(
+    collection: str,
+    version: str | None,
+    records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not version or collection not in STRUCTURED_HELP_MULTI_VERSION_COLLECTIONS:
+        return records
+    return [r for r in records if _payload_matches_platform_version(r, version)]
+
+
 SNIPPET_MAX_CHARS = 850
 
 # Shared QdrantClient for the default host/port (read hot-path: search, get_topic, etc.).
@@ -1295,7 +1329,14 @@ def search_index(
             )
 
         must = []
-        if version and Filter and FieldCondition and MatchValue:
+        structured_mv = (
+            bool(version)
+            and collection in STRUCTURED_HELP_MULTI_VERSION_COLLECTIONS
+            and Filter
+            and FieldCondition
+            and MatchValue
+        )
+        if version and not structured_mv and Filter and FieldCondition and MatchValue:
             must.append(FieldCondition(key="version", match=MatchValue(value=version)))
         if language and Filter and FieldCondition and MatchValue:
             must.append(FieldCondition(key="language", match=MatchValue(value=language)))
@@ -1340,6 +1381,7 @@ def search_index(
                     "breadcrumb": payload.get("breadcrumb") or [],
                 }
             raw.append(rec)
+        raw = _filter_structured_by_version(collection, version, raw)
         if not full_payload and not version and not language:
             # Deduplicate by path, preferring newest version then highest score.
             # Skipped for full_payload mode (structured API collections) — dedup is done in search_hybrid.
@@ -1377,10 +1419,13 @@ _RRF_K = 60
 
 
 def _rrf_doc_key(r: dict[str, Any]) -> str:
-    """Unique key for RRF dedup: full_name+version for structured API records, else path."""
+    """Unique key for RRF dedup: full_name+content_hash when present, else full_name+version."""
     fn = r.get("full_name") or r.get("name") or ""
+    ch = r.get("content_hash")
+    if fn and ch:
+        return str(fn) + "|" + str(ch)
     if fn:
-        return fn + "|" + str(r.get("version") or "")
+        return str(fn) + "|" + str(r.get("version") or "")
     return (r.get("path") or "") + "|" + str(r.get("version") or "")
 
 
@@ -1538,6 +1583,8 @@ def search_index_keyword(
     if not q_lower:
         return []
 
+    structured_mv_kw = bool(version) and collection in STRUCTURED_HELP_MULTI_VERSION_COLLECTIONS
+
     # BM25 path: when collection has sparse vectors and vocab exists
     if SparseVector is not None and _collection_has_sparse(client, collection):
         try:
@@ -1550,7 +1597,13 @@ def search_index_keyword(
                 if qv.get("indices"):
                     sv = SparseVector(indices=qv["indices"], values=qv["values"])
                     must = []
-                    if version and Filter and FieldCondition and MatchValue:
+                    if (
+                        version
+                        and not structured_mv_kw
+                        and Filter
+                        and FieldCondition
+                        and MatchValue
+                    ):
                         must.append(FieldCondition(key="version", match=MatchValue(value=version)))
                     if language and Filter and FieldCondition and MatchValue:
                         must.append(
@@ -1605,6 +1658,7 @@ def search_index_keyword(
                                 "breadcrumb": payload.get("breadcrumb") or [],
                             }
                         raw.append(rec)
+                    raw = _filter_structured_by_version(collection, version, raw)
                     if raw:
                         by_path: dict[str, dict[str, Any]] = {}
                         for r in raw:
@@ -1643,7 +1697,7 @@ def search_index_keyword(
     use_type_method_mode = "." in query
 
     must: list[Any] = []
-    if version and Filter and FieldCondition and MatchValue:
+    if version and not structured_mv_kw and Filter and FieldCondition and MatchValue:
         must.append(FieldCondition(key="version", match=MatchValue(value=version)))
     if language and Filter and FieldCondition and MatchValue:
         must.append(FieldCondition(key="language", match=MatchValue(value=language)))
@@ -1678,6 +1732,12 @@ def search_index_keyword(
         nonlocal out_dict
         for point in res:
             payload = getattr(point, "payload", None) or {}
+            if (
+                structured_mv_kw
+                and version
+                and not _payload_matches_platform_version(payload, version)
+            ):
+                continue
             path = payload.get("path", "")
             if not path:
                 continue
@@ -1763,7 +1823,7 @@ def search_index_keyword(
         # Prefer newest version first when no version filter
         out.sort(key=lambda r: _version_sort_key(r.get("version", "")), reverse=True)
 
-    return out
+    return _filter_structured_by_version(collection, version, out)
 
 
 def list_index_titles(

@@ -728,7 +728,10 @@ def _format_structured_api_object(
     meta: list[str] = []
     if item.get("kind"):
         meta.append(str(item.get("kind")))
-    if item.get("version"):
+    vs = item.get("versions")
+    if isinstance(vs, list) and len(vs) > 1:
+        meta.append(", ".join(str(v) for v in vs))
+    elif item.get("version"):
         meta.append(str(item.get("version")))
     if item.get("entity_type") and item.get("entity_type") != item.get("kind"):
         meta.append(str(item.get("entity_type")))
@@ -1081,7 +1084,10 @@ def _format_question_answer(
         if api_name:
             lines.append(f"API: {api_name}")
         meta: list[str] = []
-        if candidate.get("version"):
+        cvs = candidate.get("versions")
+        if isinstance(cvs, list) and len(cvs) > 1:
+            meta.append(", ".join(str(v) for v in cvs))
+        elif candidate.get("version"):
             meta.append(str(candidate.get("version")))
         if candidate.get("topic_path"):
             meta.append(f"path: {candidate.get('topic_path')}")

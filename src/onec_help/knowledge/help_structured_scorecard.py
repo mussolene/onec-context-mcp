@@ -12,6 +12,7 @@ from .help_structured import (
     API_LINKS_FILE,
     API_MEMBERS_FILE,
     API_OBJECTS_FILE,
+    canonical_topic_path,
     get_help_structured_dir,
     iter_help_topics_from_index,
     iter_help_topics_from_unpacked,
@@ -233,14 +234,22 @@ def build_structured_help_scorecard(
         collection=collection,
     )
     help_paths = {
-        str(item.get("path") or "") for item in help_topics if str(item.get("path") or "").strip()
+        canonical_topic_path(str(item.get("path") or ""), str(item.get("version") or ""))
+        for item in help_topics
+        if str(item.get("path") or "").strip()
     }
     help_only = [
-        item for item in help_topics if str(item.get("path") or "") not in structured_paths
+        item
+        for item in help_topics
+        if canonical_topic_path(str(item.get("path") or ""), str(item.get("version") or ""))
+        not in structured_paths
     ]
     help_only_types = Counter(str(item.get("entity_type") or "topic") for item in help_only)
     help_only_buckets = Counter(
-        _classify_help_only_topic(str(item.get("path") or "")) for item in help_only
+        _classify_help_only_topic(
+            canonical_topic_path(str(item.get("path") or ""), str(item.get("version") or ""))
+        )
+        for item in help_only
     )
 
     cases: list[dict[str, Any]] = []

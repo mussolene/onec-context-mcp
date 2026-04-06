@@ -3,7 +3,9 @@
 from pathlib import Path
 
 from onec_help.knowledge.help_structured import (
+    _stable_record_hash_for_merge,
     build_structured_api_snapshot,
+    canonical_topic_path,
     extract_api_records_from_topic,
     extract_structured_records_from_html_topic,
     extract_structured_records_from_topic,
@@ -15,6 +17,7 @@ from onec_help.knowledge.help_structured import (
     load_api_examples,
     load_api_members,
     load_api_objects,
+    payload_matches_platform_version,
     search_official_examples,
 )
 
@@ -627,11 +630,10 @@ def test_build_structured_api_snapshot_keeps_object_paths_per_version(tmp_path: 
         )
     manifest = build_structured_api_snapshot(tmp_path / "snapshot", unpacked_dir=unpacked_dir)
     objects = load_api_objects(tmp_path / "snapshot")
-    assert manifest["objects"] == 2
-    assert [obj["topic_path"] for obj in objects] == [
-        "8.3.27.1719/shcntx_ru/objects/catalog56.html",
-        "8.3.27.1859/shcntx_ru/objects/catalog56.html",
-    ]
+    assert manifest["objects"] == 1
+    assert objects[0]["topic_path"] == "shcntx_ru/objects/catalog56.html"
+    assert set(objects[0]["versions"]) == {"8.3.27.1719", "8.3.27.1859"}
+    assert "content_hash" in objects[0]
 
 
 def test_get_api_member_prefers_exact_member_name_for_bare_query() -> None:
@@ -775,3 +777,29 @@ def test_get_api_object_never_calls_hybrid_search() -> None:
             results = get_api_object("NonexistentType")
     assert results == []
     mock_hybrid.assert_not_called()
+
+
+def test_canonical_topic_path_strips_version_prefix() -> None:
+    assert (
+        canonical_topic_path("8.3.27.1859/shcntx_ru/objects/x.html", "8.3.27.1859")
+        == "shcntx_ru/objects/x.html"
+    )
+    assert canonical_topic_path("shcntx_ru/x.html", "8.3.27.1859") == "shcntx_ru/x.html"
+
+
+def test_stable_record_hash_ignores_version() -> None:
+    base = {
+        "topic_path": "shcntx_ru/a.html",
+        "language": "ru",
+        "full_name": "Тип.Метод",
+        "summary": "x",
+    }
+    a = {**base, "version": "8.3.27.1719"}
+    b = {**base, "version": "8.3.27.1859"}
+    assert _stable_record_hash_for_merge(a) == _stable_record_hash_for_merge(b)
+
+
+def test_payload_matches_platform_version_merged() -> None:
+    p = {"version": "8.3.27.1859", "versions": ["8.3.27.1859", "8.3.27.1719"]}
+    assert payload_matches_platform_version(p, "8.3.27.1719")
+    assert not payload_matches_platform_version(p, "8.0.0.0")

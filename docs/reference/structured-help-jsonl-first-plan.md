@@ -38,6 +38,14 @@ Markdown может оставаться только как ручной derive
 - строит `api_objects.jsonl`, `api_members.jsonl`, `api_examples.jsonl`, `api_links.jsonl`
 - runtime fallback на `onec_help` убран; source of truth для help runtime = structured JSONL
 
+### Phase 1b. Snapshot v5 (canonical path + content-hash merge)
+
+Сделано (manifest `onec_help_structured_api_v5`):
+
+- В JSONL поле `topic_path` хранится **без** ведущего сегмента версии платформы (`{stem}/…` вместо `{version}/{stem}/…`).
+- Строки с одинаковым SHA-256 хэшем содержимого (все поля кроме версии) **схлопываются** в одну запись с массивом `versions` (отсортирован по платформе) и полем `content_hash`; числовой `id` и точка Qdrant стабильны на этом хэше.
+- Поиск и MCP: фильтр по `version` принимает запись, если версия совпадает с `version` **или** входит в `versions`.
+
 ### Phase 2. Extractor coverage
 
 Дальше нужно поднимать полноту именно structured полей:

@@ -92,6 +92,120 @@ def get_help_structured_dir() -> Path:
     return Path(env_config.get_help_structured_dir()).expanduser().resolve()
 
 
+def canonical_topic_path(full_path: str, version: str) -> str:
+    """Strip platform version prefix from unpacked topic path (``{version}/{stem}/…`` → ``{stem}/…``)."""
+    fp = (full_path or "").replace("\\", "/").strip()
+    while fp.startswith("/"):
+        fp = fp[1:]
+    ver = (version or "").strip()
+    if ver and fp.startswith(ver + "/"):
+        return fp[len(ver) + 1 :]
+    return fp
+
+
+# Keys excluded from content-hash merge (identity / bookkeeping).
+_HASH_MERGE_EXCLUDE: frozenset[str] = frozenset({"id", "version", "versions", "content_hash"})
+
+
+def _stable_record_hash_for_merge(record: dict[str, Any]) -> str:
+    """SHA-256 hex over canonical JSON of record minus id/version/versions/content_hash."""
+    import hashlib
+
+    def _norm(obj: Any) -> Any:
+        if isinstance(obj, dict):
+            return {k: _norm(obj[k]) for k in sorted(obj)}
+        if isinstance(obj, list):
+            return [_norm(x) for x in obj]
+        if isinstance(obj, str):
+            return _normalize_text(obj)
+        return obj
+
+    cleaned: dict[str, Any] = {}
+    for k in sorted(record):
+        if k in _HASH_MERGE_EXCLUDE:
+            continue
+        cleaned[k] = _norm(record[k])
+    raw = json.dumps(cleaned, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _record_version_values(rec: dict[str, Any]) -> list[str]:
+    vs = rec.get("versions")
+    if isinstance(vs, list) and vs:
+        return [str(v).strip() for v in vs if str(v).strip()]
+    v = rec.get("version")
+    return [str(v).strip()] if v and str(v).strip() else []
+
+
+def _merge_version_strings(*groups: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for g in groups:
+        for v in g:
+            if v and v not in seen:
+                seen.add(v)
+                out.append(v)
+    out.sort(key=lambda s: _version_sort_key(s), reverse=True)
+    return out
+
+
+def _merge_two_content_records(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
+    """Last write wins for fields; union versions."""
+    out = dict(b)
+    merged_v = _merge_version_strings(_record_version_values(a), _record_version_values(b))
+    if merged_v:
+        out["versions"] = merged_v
+        out["version"] = merged_v[0]
+    return out
+
+
+def _finalize_merged_record(
+    rec: dict[str, Any], content_hash: str, *, id_suffix: str
+) -> dict[str, Any]:
+    """Set id, content_hash, versions and representative version on a merged snapshot row."""
+    import hashlib
+
+    lang = str(rec.get("language") or "")
+    versions = _merge_version_strings(_record_version_values(rec))
+    out = dict(rec)
+    out["content_hash"] = content_hash
+    if versions:
+        out["versions"] = versions
+        out["version"] = versions[0]
+    key = f"{id_suffix}|{lang}|{content_hash}"
+    out["id"] = int(hashlib.sha256(key.encode("utf-8")).hexdigest()[:14], 16) % (2**63)
+    return out
+
+
+def payload_matches_platform_version(payload: dict[str, Any], version: str | None) -> bool:
+    """True if payload applies to the given platform version (single or merged ``versions``)."""
+    if not version or not str(version).strip():
+        return True
+    v = str(version).strip()
+    if str(payload.get("version") or "").strip() == v:
+        return True
+    vers = payload.get("versions")
+    if isinstance(vers, list) and v in [str(x).strip() for x in vers if x]:
+        return True
+    return False
+
+
+def _merge_snapshot_records(
+    records: list[dict[str, Any]], *, id_suffix: str
+) -> list[dict[str, Any]]:
+    buckets: dict[tuple[str, str], dict[str, Any]] = {}
+    for rec in records:
+        lang = str(rec.get("language") or "")
+        h = _stable_record_hash_for_merge(rec)
+        key = (lang, h)
+        if key not in buckets:
+            buckets[key] = rec.copy()
+        else:
+            buckets[key] = _merge_two_content_records(buckets[key], rec)
+    ordered = sorted(buckets.keys(), key=lambda k: (k[0], k[1]))
+    return [_finalize_merged_record(buckets[k], k[1], id_suffix=id_suffix) for k in ordered]
+
+
 def _topic_point_id(path: str, version: str = "", language: str = "") -> int:
     import hashlib
 
@@ -732,7 +846,7 @@ def extract_structured_records_from_topic(
         sections=sections,
         version=str(topic.get("version") or ""),
         language=str(topic.get("language") or ""),
-        path=str(topic.get("path") or ""),
+        path=canonical_topic_path(str(topic.get("path") or ""), str(topic.get("version") or "")),
         entity_type=str(topic.get("entity_type") or "topic").strip() or "topic",
         breadcrumb=list(topic.get("breadcrumb") or []),
     )
@@ -1049,17 +1163,19 @@ def build_structured_api_snapshot(
         )
 
     objects_by_key: dict[tuple[str, ...], dict[str, Any]] = {}
-    members: list[dict[str, Any]] = []
-    examples: list[dict[str, Any]] = []
-    links: list[dict[str, Any]] = []
+    objects_raw: list[dict[str, Any]] = []
+    members_raw: list[dict[str, Any]] = []
+    examples_raw: list[dict[str, Any]] = []
+    links_raw: list[dict[str, Any]] = []
 
     for topic in html_topics:
+        canon = canonical_topic_path(str(topic.get("path") or ""), str(topic.get("version") or ""))
         object_record, member_record, topic_examples, topic_links = (
             extract_structured_records_from_html_topic(
                 Path(topic["html_path"]),
                 version=str(topic.get("version") or ""),
                 language=str(topic.get("language") or ""),
-                topic_path=str(topic.get("path") or ""),
+                topic_path=canon,
                 title=str(topic.get("title") or ""),
                 breadcrumb=list(topic.get("breadcrumb") or []),
                 entity_type=str(topic.get("entity_type") or "topic"),
@@ -1084,26 +1200,17 @@ def build_structured_api_snapshot(
             if prev is None or (not prev.get("topic_path") and object_record.get("topic_path")):
                 objects_by_key[key] = object_record
         if member_record is not None:
-            members.append(member_record)
-        examples.extend(topic_examples)
-        links.extend(topic_links)
+            members_raw.append(member_record)
+        examples_raw.extend(topic_examples)
+        links_raw.extend(topic_links)
 
-    object_items = sorted(
-        objects_by_key.values(),
-        key=lambda item: (
-            str(item.get("full_name") or item.get("object_name") or ""),
-            str(item.get("version") or ""),
-            str(item.get("topic_path") or ""),
-        ),
-    )
-    members.sort(key=lambda item: str(item.get("full_name") or ""))
-    examples.sort(key=lambda item: str(item.get("full_name") or ""))
-    links.sort(
-        key=lambda item: (
-            str(item.get("source_full_name") or ""),
-            str(item.get("target_name") or ""),
-        )
-    )
+    for obj in objects_by_key.values():
+        objects_raw.append(obj)
+
+    object_items = _merge_snapshot_records(objects_raw, id_suffix="obj")
+    members = _merge_snapshot_records(members_raw, id_suffix="mem")
+    examples = _merge_snapshot_records(examples_raw, id_suffix="ex")
+    links = _merge_snapshot_records(links_raw, id_suffix="lnk")
 
     _write_jsonl(out_dir / API_OBJECTS_FILE, object_items)
     _write_jsonl(out_dir / API_MEMBERS_FILE, members)
@@ -1111,7 +1218,7 @@ def build_structured_api_snapshot(
     _write_jsonl(out_dir / API_LINKS_FILE, links)
 
     manifest = {
-        "format": "onec_help_structured_api_v4",
+        "format": "onec_help_structured_api_v5",
         "objects": len(object_items),
         "members": len(members),
         "examples": len(examples),
@@ -1481,6 +1588,8 @@ def index_structured_api_objects(
             "platform_since": item.get("platform_since") or "",
             "page_descriptor": item.get("page_descriptor") or "",
             "version": item.get("version") or "",
+            "versions": item.get("versions") or [],
+            "content_hash": item.get("content_hash") or "",
             "language": item.get("language") or "",
             "topic_path": item.get("topic_path") or "",
             "path": item.get("topic_path") or "",
@@ -1533,6 +1642,8 @@ def index_structured_api_members(
             "platform_since": item.get("platform_since") or "",
             "page_descriptor": item.get("page_descriptor") or "",
             "version": item.get("version") or "",
+            "versions": item.get("versions") or [],
+            "content_hash": item.get("content_hash") or "",
             "language": item.get("language") or "",
             "topic_path": item.get("topic_path") or "",
             "path": item.get("topic_path") or "",
@@ -1576,6 +1687,8 @@ def index_structured_api_examples(
             "description": item.get("description") or "",
             "code": item.get("code") or "",
             "version": item.get("version") or "",
+            "versions": item.get("versions") or [],
+            "content_hash": item.get("content_hash") or "",
             "language": item.get("language") or "",
             "topic_path": item.get("topic_path") or "",
             "path": item.get("topic_path") or "",
@@ -1620,6 +1733,8 @@ def index_structured_api_links(
             "target_name": item.get("target_name") or "",
             "link_kind": item.get("link_kind") or "see_also",
             "version": item.get("version") or "",
+            "versions": item.get("versions") or [],
+            "content_hash": item.get("content_hash") or "",
             "language": item.get("language") or "",
             "topic_path": item.get("topic_path") or "",
             "path": item.get("topic_path") or "",
@@ -1714,7 +1829,7 @@ def search_official_examples(
     )
     scored: list[tuple[int, dict[str, Any]]] = []
     for item in items:
-        if version and str(item.get("version") or "") != version:
+        if version and not payload_matches_platform_version(item, version):
             continue
         if language and str(item.get("language") or "") != language:
             continue
@@ -1769,18 +1884,19 @@ def _scroll_exact_member_matches(
     from qdrant_client.models import FieldCondition, Filter, MatchValue
 
     must = [FieldCondition(key=field, match=MatchValue(value=value))]
-    if version:
-        must.append(FieldCondition(key="version", match=MatchValue(value=version)))
     if language:
         must.append(FieldCondition(key="language", match=MatchValue(value=language)))
     points, _ = client.scroll(
         collection_name=API_MEMBERS_COLLECTION_NAME,
         scroll_filter=Filter(must=must),
-        limit=limit,
+        limit=limit * 3 if version else limit,
         with_payload=True,
         with_vectors=False,
     )
-    return [getattr(point, "payload", None) or {} for point in points or []]
+    out = [getattr(point, "payload", None) or {} for point in points or []]
+    if version:
+        out = [p for p in out if payload_matches_platform_version(p, version)]
+    return out[:limit]
 
 
 def _member_version_sort_key(version_str: str) -> tuple[int, ...]:
@@ -1891,7 +2007,7 @@ def get_api_member(
             for item in results:
                 key = (
                     str(item.get("full_name") or ""),
-                    str(item.get("version") or ""),
+                    str(item.get("content_hash") or ""),
                     str(item.get("topic_path") or ""),
                 )
                 dedup[key] = item
@@ -1931,8 +2047,6 @@ def get_api_object(
         if not client.collection_exists(API_OBJECTS_COLLECTION_NAME):
             return []
         must: list[FieldCondition] = []
-        if version:
-            must.append(FieldCondition(key="version", match=MatchValue(value=version)))
         if language:
             must.append(FieldCondition(key="language", match=MatchValue(value=language)))
         should = [
@@ -1944,13 +2058,15 @@ def get_api_object(
             points, _ = client.scroll(
                 collection_name=API_OBJECTS_COLLECTION_NAME,
                 scroll_filter=Filter(must=must, should=should, minimum_should_match=1),
-                limit=10,
+                limit=30 if version else 10,
                 with_payload=True,
                 with_vectors=False,
             )
             results = [getattr(point, "payload", None) or {} for point in points or []]
         except Exception:
             results = []
+        if version:
+            results = [r for r in results if payload_matches_platform_version(r, version)]
         if results:
             return sorted(
                 results,
@@ -1979,7 +2095,7 @@ def get_api_related(
         return []
     out: list[dict[str, Any]] = []
     for item in items:
-        if version and str(item.get("version") or "") != version:
+        if version and not payload_matches_platform_version(item, version):
             continue
         if language and str(item.get("language") or "") != language:
             continue
