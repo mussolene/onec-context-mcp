@@ -875,6 +875,7 @@ def test_mcp_tool_search_1c_metadata_exact_via_app(mock_search_meta, help_sample
     )
     text = result.content[0].text if result.content else ""
     assert "Sales" in text or "Document" in text
+    assert "`Cfg`" in text and "`1.0.0.0`" in text
 
 
 @patch("onec_help.knowledge.metadata_graph.search_metadata_semantic")
@@ -907,6 +908,7 @@ def test_mcp_tool_search_1c_metadata_semantic_via_app(
     )
     text = result.content[0].text if result.content else ""
     assert "Sales" in text or "Document" in text
+    assert "`Cfg`" in text
 
 
 @patch("onec_help.knowledge.metadata_graph.search_metadata_fields")
@@ -920,6 +922,7 @@ def test_mcp_tool_search_1c_metadata_fields_via_app(
             "object_id": "Document.Sales",
             "object_name": "Sales",
             "object_type": "Document",
+            "config_name": "Cfg",
             "config_version": "1.0.0.0",
             "field_group": "requisites",
             "field_name": "Организация",
@@ -943,6 +946,7 @@ def test_mcp_tool_search_1c_metadata_fields_via_app(
     text = result.content[0].text if result.content else ""
     assert "Организация" in text
     assert "Document Sales" in text
+    assert "`Cfg`" in text
 
 
 @patch("onec_help.knowledge.metadata_graph.get_metadata_object")

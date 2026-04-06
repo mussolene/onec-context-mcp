@@ -1976,6 +1976,18 @@ def _build_mcp_app(help_path: Path) -> Any:
             items.extend(search_fn(query, **kwargs))
         return items[:limit], None
 
+    def _format_metadata_config_suffix(
+        obj: dict[str, Any], *, default_version: str | None = None
+    ) -> str:
+        """Human-readable config identity: name + version when indexed, else version only."""
+        ver = str(obj.get("config_version") or default_version or "").strip()
+        name = str(obj.get("config_name") or "").strip()
+        if name and ver:
+            return f" (`{name}` · `{ver}`)"
+        if ver:
+            return f" (config_version: `{ver}`)"
+        return ""
+
     def _format_metadata_results(
         items: list[dict[str, Any]], *, default_version: str | None = None
     ) -> str:
@@ -1986,7 +1998,6 @@ def _build_mcp_app(help_path: Path) -> Any:
             full = obj.get("full_name") or ""
             oid = obj.get("id", "")
             path = obj.get("path", "")
-            ver = obj.get("config_version") or default_version or ""
             line = f"{i}. **{ot} {name}**"
             if full:
                 line += f" — {full}"
@@ -1994,8 +2005,7 @@ def _build_mcp_app(help_path: Path) -> Any:
                 line += f" (id: `{oid}`)"
             if path:
                 line += f" — `{path}`"
-            if ver:
-                line += f" (config_version: `{ver}`)"
+            line += _format_metadata_config_suffix(obj, default_version=default_version)
             lines.append(line)
         return "\n".join(lines)
 
@@ -2148,9 +2158,12 @@ def _build_mcp_app(help_path: Path) -> Any:
             object_id = item.get("object_id") or ""
             if object_id:
                 line += f" (object_id: `{object_id}`)"
-            cfg = item.get("config_version") or ""
-            if cfg:
-                line += f" (config_version: `{cfg}`)"
+            line += _format_metadata_config_suffix(
+                {
+                    "config_name": item.get("config_name") or "",
+                    "config_version": item.get("config_version") or "",
+                }
+            )
             lines.append(line)
         return "\n".join(lines)
 

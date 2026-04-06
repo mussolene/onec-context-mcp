@@ -1300,6 +1300,7 @@ def search_metadata_fields(
                         "object_id": obj.get("id", ""),
                         "object_name": obj.get("name", ""),
                         "object_type": obj.get("object_type", ""),
+                        "config_name": obj.get("config_name", ""),
                         "config_version": obj.get("config_version", config_version),
                         "field_group": field_payload.get("group", ""),
                         "field_name": field_payload.get("name", ""),
