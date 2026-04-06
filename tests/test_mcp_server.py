@@ -61,6 +61,45 @@ def test_extract_fact_from_structured_includes_notes_compact() -> None:
     assert "Примечание:" in fact
 
 
+def test_filter_noise_api_hits_drops_web_colors_for_technical_query() -> None:
+    """Technical search queries should not surface WebЦвета.* as top API members."""
+    items = [
+        {"full_name": "WebЦвета.Красный", "name": "Красный"},
+        {"full_name": "ПроцессорКомпоновкиДанных.Инициализировать", "name": "Инициализировать"},
+    ]
+    out = mcp_server._filter_noise_api_hits(items, "компоновка данных инициализировать")
+    assert len(out) == 1
+    assert "ПроцессорКомпоновкиДанных" in (out[0].get("full_name") or "")
+
+
+def test_filter_noise_api_hits_keeps_all_for_non_technical_query() -> None:
+    out = mcp_server._filter_noise_api_hits(
+        [{"full_name": "WebЦвета.Красный"}],
+        "красный цвет интерфейса",
+    )
+    assert len(out) == 1
+
+
+def test_candidate_plausible_for_dcs_rejects_table_form() -> None:
+    """DCS questions should not accept ТаблицаФормы as answer source."""
+    item = {"full_name": "ТаблицаФормы.СкопироватьСтроку", "name": "СкопироватьСтроку"}
+    assert not mcp_server._candidate_plausible_for_dcs_question(
+        "как выгрузить схему компоновки в таблицу значений",
+        item,
+    )
+
+
+def test_candidate_plausible_for_dcs_accepts_processor() -> None:
+    item = {
+        "full_name": "ПроцессорВыводаРезультатаКомпоновкиДанныхВКоллекциюЗначений.Вывести",
+        "name": "Вывести",
+    }
+    assert mcp_server._candidate_plausible_for_dcs_question(
+        "как выгрузить схему компоновки в таблицу значений",
+        item,
+    )
+
+
 def test_normalize_api_related_items_dedupes_and_drops_crumbs() -> None:
     raw = [
         {"target_name": "Foo", "link_kind": "see_also"},
@@ -530,8 +569,9 @@ def test_mcp_tool_get_1c_api_answer_no_member_same_wording(help_sample_dir: Path
         result = asyncio.run(
             app.call_tool("get_1c_api_answer", {"name": "СоздатьПустуюТаблицу"}),
         )
-    text = result.content[0].text if result.content else ""
-    assert "structured help" in text
+        text = result.content[0].text if result.content else ""
+        assert "нет в индексе" in text
+        assert "search_1c_api" in text
     assert "search_1c_api" in text
 
 

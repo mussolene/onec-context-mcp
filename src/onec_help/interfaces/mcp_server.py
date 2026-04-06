@@ -775,10 +775,7 @@ def _no_documented_api_member_message(name: str) -> str:
 
 def _no_documented_api_answer_message(name: str) -> str:
     """Neither api_members nor api_objects (type) matched the exact name."""
-    return (
-        f"«{name}»: нет в индексе structured help (members/objects, точное имя). "
-        "Уточните Тип.Метод или: search_1c_api / answer_1c_help_question."
-    )
+    return f"«{name}»: нет в индексе. Используйте search_1c_api(query) или точное Тип.Метод."
 
 
 def _no_documented_api_object_message(name: str) -> str:
@@ -786,6 +783,81 @@ def _no_documented_api_object_message(name: str) -> str:
     return (
         f"«{name}»: нет среди объектов/типов (точное имя). Проверьте написание или: search_1c_api."
     )
+
+
+# Semantic search often surfaces irrelevant members (e.g. WebЦвета.*) for technical queries.
+_API_SEARCH_NOISE_NAME_PREFIXES = (
+    "webцвета.",
+    "библиотекакартинок.",
+)
+
+
+def _is_noise_api_member_or_object(item: dict[str, Any]) -> bool:
+    fn = (item.get("full_name") or item.get("name") or "").strip().lower()
+    return any(fn.startswith(p) for p in _API_SEARCH_NOISE_NAME_PREFIXES)
+
+
+def _query_suggests_technical_api_search(q: str) -> bool:
+    """True when query is likely about platform API / query / DCS, not UI colors or icons."""
+    t = re.sub(r"\s+", "", (q or "").lower())
+    if not t:
+        return False
+    keys = (
+        "компоновк",
+        "скд",
+        "регистрнакопления",
+        "процессоркомпоновки",
+        "схемакомпоновки",
+        "макеткомпоновки",
+        "компоновщик",
+        "наборданных",
+        "запрос",
+        "выбрать",
+        "виртуальнаятаблица",
+        "httpсоединение",
+        "таблицазначений",
+        "объектметаданных",
+        "процессорвывода",
+        "источникдоступныхнастроек",
+    )
+    return any(k in t for k in keys)
+
+
+def _filter_noise_api_hits(items: list[dict[str, Any]], query: str) -> list[dict[str, Any]]:
+    """Drop low-value hits for technical queries; keep original if filter would empty the list."""
+    if not items or not _query_suggests_technical_api_search(query):
+        return items
+    filtered = [x for x in items if not _is_noise_api_member_or_object(x)]
+    return filtered if filtered else items
+
+
+def _structured_item_matches_dcs_topic(item: dict[str, Any]) -> bool:
+    """API name or summary suggests data composition (СКД), not unrelated form/UI APIs."""
+    fn = (item.get("full_name") or item.get("name") or "").lower()
+    if any(
+        k in fn
+        for k in (
+            "компоновк",
+            "макеткомпоновки",
+            "схемакомпоновки",
+            "процессоркомпоновки",
+            "процессорвывода",
+            "наборданных",
+            "источникдоступныхнастроек",
+            "значенияпараметровданных",
+            "компоновщикмакета",
+            "компоновщикнастроек",
+        )
+    ):
+        return True
+    blob = " ".join(
+        [
+            str(item.get("summary") or ""),
+            str(item.get("description") or ""),
+            str(item.get("text") or ""),
+        ]
+    ).lower()
+    return "компоновк" in blob or "схема компоновки" in blob or "системы компоновки" in blob
 
 
 def _format_structured_api_object(
@@ -1031,6 +1103,25 @@ def _question_needs_dcs_structured_route(question: str) -> bool:
     return any(m in q for m in _DCS_HELP_ROUTE_MARKERS)
 
 
+def _candidate_plausible_for_dcs_question(question: str, item: dict[str, Any]) -> bool:
+    """Reject misleading hits (e.g. ТаблицаФормы) when the user asked about СКД."""
+    if not _question_needs_dcs_structured_route(question):
+        return True
+    if _structured_item_matches_dcs_topic(item):
+        return True
+    fn = (item.get("full_name") or item.get("name") or "").lower()
+    if any(
+        bad in fn
+        for bad in (
+            "таблицаформы.",
+            "тестируемаятаблицаформы.",
+            "полеформы.",
+        )
+    ):
+        return False
+    return True
+
+
 def _answer_help_via_dcs_structured_search(
     question_clean: str,
     *,
@@ -1045,16 +1136,17 @@ def _answer_help_via_dcs_structured_search(
     ql = question_clean.lower()
     if "скд" in ql and "компонов" not in ql:
         search_q = f"компоновка данных {question_clean}"
-    routed = _dedup_structured_hits(
-        sorted(
-            _search_api_members(search_q, limit=10, version=version, language=language)
-            + _search_api_objects(search_q, limit=6, version=version, language=language),
-            key=lambda item: _structured_api_sort_key(search_q, item),
-        )
+    raw = sorted(
+        _search_api_members(search_q, limit=10, version=version, language=language)
+        + _search_api_objects(search_q, limit=6, version=version, language=language),
+        key=lambda item: _structured_api_sort_key(search_q, item),
     )
-    if not routed:
+    routed = _dedup_structured_hits(_filter_noise_api_hits(raw, search_q))
+    dcs_ok = [x for x in routed if _structured_item_matches_dcs_topic(x)]
+    routed_use = dcs_ok if dcs_ok else routed
+    if not routed_use:
         return None
-    best = routed[0]
+    best = routed_use[0]
     fact = _extract_fact_from_structured(best, "general", detail=detail)
     if not fact:
         return None
@@ -1347,7 +1439,9 @@ def _build_mcp_app(help_path: Path) -> Any:
         include_examples: bool = True,
     ) -> str:
         """Search structured 1C platform help across API members, objects and official examples.
-        If those collections return nothing, falls back to general help topics (same query embedding)."""
+        If those collections return nothing, falls back to general help topics (same query embedding).
+        For technical queries (СКД, запрос, регистр, …), irrelevant hits such as WebЦвета / БиблиотекаКартинок
+        are filtered from the API members/objects sections to save context."""
         err = _check_rate_limit()
         if err:
             return err
@@ -1368,22 +1462,28 @@ def _build_mcp_app(help_path: Path) -> Any:
         )
 
         members = sorted(
-            _search_api_members(
+            _filter_noise_api_hits(
+                _search_api_members(
+                    q,
+                    limit=max(limit, 5),
+                    version=version,
+                    language=language,
+                    query_vector=_qv,
+                ),
                 q,
-                limit=max(limit, 5),
-                version=version,
-                language=language,
-                query_vector=_qv,
             ),
             key=lambda item: _structured_api_sort_key(q, item),
         )
         objects = sorted(
-            _search_api_objects(
+            _filter_noise_api_hits(
+                _search_api_objects(
+                    q,
+                    limit=max(4, limit // 2),
+                    version=version,
+                    language=language,
+                    query_vector=_qv,
+                ),
                 q,
-                limit=max(4, limit // 2),
-                version=version,
-                language=language,
-                query_vector=_qv,
             ),
             key=lambda item: _structured_api_sort_key(q, item),
         )
@@ -1636,13 +1736,16 @@ def _build_mcp_app(help_path: Path) -> Any:
             key=lambda item: _question_structured_sort_key(question_clean, intent, item),
         )
         if candidates:
-            best = candidates[0]
-            best_sort = _question_structured_sort_key(question_clean, intent, best)
-            # Reject only pure semantic hits with no name match and no content keyword match.
-            # best_sort = (priority, content_no_match, member, no_fact, path)
-            # content_no_match: 0=in full_name, 1=in text/summary, 2=no match at all
-            pure_noise = best_sort[0] >= 3 and best_sort[1] >= 2
-            if not pure_noise:
+            for best in candidates:
+                best_sort = _question_structured_sort_key(question_clean, intent, best)
+                # Reject only pure semantic hits with no name match and no content keyword match.
+                # best_sort = (priority, content_no_match, member, no_fact, path)
+                # content_no_match: 0=in full_name, 1=in text/summary, 2=no match at all
+                pure_noise = best_sort[0] >= 3 and best_sort[1] >= 2
+                if pure_noise:
+                    continue
+                if not _candidate_plausible_for_dcs_question(question_clean, best):
+                    continue
                 fact = _extract_fact_from_structured(best, intent, detail=detail)
                 if fact:
                     return _format_question_answer(
@@ -2095,7 +2198,12 @@ def _build_mcp_app(help_path: Path) -> Any:
         exact_object_first: bool = True,
     ) -> str:
         """Search fields inside matched metadata objects: requisites, register dimensions/resources,
-        standard properties, tabular section columns, commands. field_query matches field name or synonym."""
+        standard properties, tabular section columns, commands. field_query matches field name or synonym.
+
+        Required parameters (both strings):
+        - object_query: metadata id or name, e.g. AccumulationRegister.Продажи or Продажи
+        - field_query: field name fragment or synonym, e.g. Сумма, Период
+        Optional: config_version (e.g. 3.0.13.260), object_type (e.g. AccumulationRegister)."""
         err = _check_rate_limit()
         if err:
             return err

@@ -19,6 +19,7 @@ description: AI-first skill для разработки 1С (BSL): MCP 1c-help +
 
 - **1c-help** — наш MCP: справка по платформе, память, метаданные, компактные AI-ориентированные ответы.
 - **BSL LS** — отдельно: `java -jar … analyze` / `format`, расширение IDE или `make bsl-start` (см. `docs/reference/bsl-ls-mcp-setup.md`). Не является инструментом MCP 1c-help.
+- **Опционально — MCP lsp-bsl-bridge** (внешний сервер): диагностика и навигация по проекту (`document_diagnostics`, `project_analysis`, …) вместо или вместе с CLI; в этот репозиторий не входит.
 - Базовый AI workflow начинается с `1c-help`; проверку `.bsl` делайте BSL LS после правок.
 
 ## Tiered toolset
@@ -66,12 +67,16 @@ description: AI-first skill для разработки 1С (BSL): MCP 1c-help +
 - **Контекст выполнения:** учитывать клиент/сервер, реквизиты формы, СКД vs запрос, толстый/тонкий клиент.
 - **Антипаттерны:** процедуры >100 строк, магические числа, отсутствие явной обработки ошибок.
 
+## Токен-бюджет MCP 1c-help
+
+Подробный чеклист: skill **1c-mcp-token-budget**. Кратко: метаданные или точное `Тип.Метод` → `get_1c_api_answer` (**compact** по умолчанию), затем `search_1c_api`; `answer_1c_help_question` — когда нет имени API; не раздувать параллельные вызовы.
+
 ## Циклические workflows
 
 ### Написание кода (цикл до чистоты)
 
 1. Вызвать `get_1c_quick_guide(task="develop")` в начале сессии.
-2. Если запрос точный: `get_1c_api_answer("Тип.Метод")` (полный structured текст — `detail="full"`); при необходимости взять truth-source `get_1c_api_object("Тип.Метод")`.
+2. Если запрос точный: `get_1c_api_answer("Тип.Метод")` по умолчанию **compact**; `detail="full"` — только если не хватает секций; при необходимости truth-source `get_1c_api_object("Тип.Метод")`.
 3. Если нужны официальные примеры из справки: `search_1c_api(query, include_examples=True)`.
 4. Если есть локальный файл/символ: `get_1c_task_context(query, file_uri, symbol_name)`.
 5. Если нужен широкий поиск по API/объектам: `search_1c_api(query)` или `answer_1c_help_question(question)`.
