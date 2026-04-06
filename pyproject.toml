@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "onec-help"
-version = "1.0.10"
+version = "1.0.11"
 description = "1C Help: unpack .hbk, build structured JSONL, index in Qdrant, MCP server"
 license = { text = "MIT" }
 readme = "README.md"
