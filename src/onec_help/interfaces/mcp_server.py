@@ -698,6 +698,16 @@ def _no_documented_api_member_message(name: str) -> str:
     )
 
 
+def _no_documented_api_answer_message(name: str) -> str:
+    """Neither api_members nor api_objects (type) matched the exact name."""
+    return (
+        f"«{name}» нет в индексе справки платформы как тип, метод или функция встроенного API "
+        "(точное совпадение с выгруженной structured help). "
+        "Проверьте орфографию и полное имя Тип.Метод; прикладные символы в справку не входят. "
+        "Поиск по смыслу — search_1c_api."
+    )
+
+
 def _no_documented_api_object_message(name: str) -> str:
     """Exact object/type lookup is only against ingested platform help."""
     return (
@@ -1359,12 +1369,15 @@ def _build_mcp_app(help_path: Path) -> Any:
             return "Provide API name, for example HTTPСоединение.Получить."
         structured = _get_api_member(name_clean, version=version, language=language)
         structured = sorted(structured, key=lambda item: _structured_api_sort_key(name_clean, item))
+        if not structured:
+            structured = _get_api_object(name_clean, version=version, language=language)
+            structured = sorted(structured, key=lambda item: _structured_api_sort_key(name_clean, item))
         if structured:
             best_item = structured[0]
             if detail == "full" and best_item.get("topic_path"):
                 return _format_structured_api_object(best_item, include_rich_sections=True)
             return _format_structured_api_object(best_item, include_rich_sections=detail == "full")
-        return _no_documented_api_member_message(name_clean)
+        return _no_documented_api_answer_message(name_clean)
 
     @mcp.tool()
     @_record_mcp_tool

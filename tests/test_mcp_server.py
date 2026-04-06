@@ -499,13 +499,45 @@ def test_mcp_tool_get_1c_api_answer_via_app(help_sample_dir: Path) -> None:
 def test_mcp_tool_get_1c_api_answer_no_member_same_wording(help_sample_dir: Path) -> None:
     """get_1c_api_answer explains missing name as undocumented platform API, not reindex hint."""
     app = mcp_server._build_mcp_app(help_sample_dir)
-    with patch.object(mcp_server, "_get_api_member", return_value=[]):
+    with (
+        patch.object(mcp_server, "_get_api_member", return_value=[]),
+        patch.object(mcp_server, "_get_api_object", return_value=[]),
+    ):
         result = asyncio.run(
             app.call_tool("get_1c_api_answer", {"name": "СоздатьПустуюТаблицу"}),
         )
     text = result.content[0].text if result.content else ""
     assert "индексе справки платформы" in text
     assert "search_1c_api" in text
+
+
+def test_mcp_tool_get_1c_api_answer_falls_back_to_api_object(help_sample_dir: Path) -> None:
+    """When the name is a type (api_objects) but not a member row, still return help."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with (
+        patch.object(mcp_server, "_get_api_member", return_value=[]),
+        patch.object(
+            mcp_server,
+            "_get_api_object",
+            return_value=[
+                {
+                    "name": "ТаблицаЗначений",
+                    "full_name": "ТаблицаЗначений",
+                    "title": "ТаблицаЗначений",
+                    "summary": "Коллекция строк и колонок.",
+                    "topic_path": "ValueTable.md",
+                    "version": "8.3.27.1859",
+                    "kind": "type",
+                }
+            ],
+        ),
+    ):
+        result = asyncio.run(
+            app.call_tool("get_1c_api_answer", {"name": "ТаблицаЗначений"}),
+        )
+    text = result.content[0].text if result.content else ""
+    assert "ТаблицаЗначений" in text
+    assert "Коллекция строк" in text
 
 
 def test_mcp_tool_get_1c_api_object_via_app(help_sample_dir: Path) -> None:
