@@ -558,7 +558,7 @@ def _extract_usual_inline_sections(soup: BeautifulSoup, sections: dict[str, str]
             # Remainder of the <p> after the bold tag
             remainder = p.get_text(" ", strip=True)
             bold_text = bold.get_text(" ", strip=True)
-            after = remainder[len(bold_text):].strip() if remainder.startswith(bold_text) else ""
+            after = remainder[len(bold_text) :].strip() if remainder.startswith(bold_text) else ""
             if after:
                 buf.append(after)
         elif current_key:

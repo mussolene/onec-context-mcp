@@ -30,6 +30,8 @@ API_OBJECTS_COLLECTION_NAME = "onec_help_api_objects"
 API_MEMBERS_COLLECTION_NAME = "onec_help_api_members"
 API_EXAMPLES_COLLECTION_NAME = "onec_help_examples"
 API_LINKS_COLLECTION_NAME = "onec_help_api_links"
+API_TOPICS_FILE = "api_topics.jsonl"
+API_TOPICS_COLLECTION_NAME = "onec_help_topics"
 
 # Backward-compatible alias used by callers/tests from the previous structured layer.
 API_COLLECTION_NAME = API_MEMBERS_COLLECTION_NAME
@@ -316,8 +318,12 @@ def _is_language_hbk(path: str, hbk_label: str = "") -> bool:
     # Fallback: infer from path (for callers that don't supply hbk_label)
     p = path.replace("\\", "/").lower()
     return (
-        "/shclang_" in p or "/shlang_ru/" in p or "/embedlang" in p
-        or p.startswith("shlang_") or p.startswith("shclang_") or p.startswith("embedlang")
+        "/shclang_" in p
+        or "/shlang_ru/" in p
+        or "/embedlang" in p
+        or p.startswith("shlang_")
+        or p.startswith("shclang_")
+        or p.startswith("embedlang")
     )
 
 
@@ -326,9 +332,17 @@ def _infer_object_kind(topic_path: str, title: str, *, hbk_label: str = "") -> s
     title_base = _strip_title_suffix(title)
     if "/tables/" in path:
         return "table"
-    if "/shquery_" in path or "/shquery_ru/" in path:
+    # Match both canonical paths ("shquery_ru/…") and full paths ("/shquery_ru/…")
+    if "/shquery_" in path or path.startswith("shquery_"):
         return "query_topic"
-    if _is_language_hbk(path, hbk_label):
+    if (
+        "/shclang_" in path
+        or "/embedlang" in path
+        or "/shlang_ru/" in path
+        or path.startswith("shlang_ru/")
+        or path.startswith("shclang_")
+        or path.startswith("embedlang")
+    ):
         return "language_topic"
     if title_base.startswith("Глобальный контекст"):
         return "global_context"
@@ -345,6 +359,17 @@ def _infer_object_kind(topic_path: str, title: str, *, hbk_label: str = "") -> s
     if "/objects/" in path:
         return "type"
     return "topic"
+
+
+def _topic_doc_kind(topic_path: str) -> str:
+    """Classify a general-docs topic by path stem: form_help | cli_help | article."""
+    stem = (topic_path.replace("\\", "/").rsplit("/", 1)[-1]).lower()
+    if stem.startswith("form_"):
+        return "form_help"
+    # zif2_*, zif3_*, zif_… in 1cv8_ru = command-line parameter articles
+    if re.match(r"^zif\d*_", stem):
+        return "cli_help"
+    return "article"
 
 
 def _has_structured_api_sections(sections: dict[str, str]) -> bool:
@@ -666,8 +691,7 @@ def _build_structured_records(
             sections.get("syntax") or sections.get("params") or sections.get("returns")
         )
         if has_api_shape and (
-            "." in _strip_title_suffix(title)
-            or _is_language_hbk(path_lower, hbk_label)
+            "." in _strip_title_suffix(title) or _is_language_hbk(path_lower, hbk_label)
         ):
             # Language operator topics (shlang_*) must stay as object_record (language_topic),
             # not be reclassified as member even when they have syntax+params sections.
@@ -1170,6 +1194,56 @@ def iter_help_topics_from_unpacked(*, unpacked_dir: Path | None = None) -> list[
     return topics
 
 
+def _build_topic_record(
+    html_path: Path,
+    *,
+    topic_path: str,
+    title: str,
+    version: str,
+    language: str,
+    breadcrumb: list[str],
+    hbk_label: str,
+) -> dict[str, Any] | None:
+    """Build a general-documentation topic record from HTML that has no structured API sections."""
+    md = html_to_md_content(html_path)
+    if not md or not md.strip():
+        return None
+
+    # Extract title from first h1 line, use rest as body
+    lines = md.strip().splitlines()
+    doc_title = title
+    body_lines_start = 0
+    for i, line in enumerate(lines):
+        if line.startswith("# "):
+            doc_title = line[2:].strip()
+            body_lines_start = i + 1
+            break
+    doc_title = doc_title or title
+    if not doc_title:
+        return None
+    body = "\n".join(lines[body_lines_start:]).strip()
+    if not body:
+        return None
+
+    summary = _compact_summary(body, 500)
+    kind = _topic_doc_kind(topic_path)
+    breadcrumb_text = " > ".join(str(x) for x in breadcrumb) if breadcrumb else ""
+    text = "\n".join(filter(None, [doc_title, breadcrumb_text, hbk_label, summary]))
+    return {
+        "id": _topic_point_id(topic_path, version, language),
+        "kind": kind,
+        "title": doc_title,
+        "summary": summary,
+        "body": body[:8000],
+        "hbk_label": hbk_label,
+        "topic_path": topic_path,
+        "version": version,
+        "language": language,
+        "breadcrumb": breadcrumb,
+        "text": text,
+    }
+
+
 def build_structured_api_snapshot(
     output_dir: Path | None = None,
     *,
@@ -1200,6 +1274,7 @@ def build_structured_api_snapshot(
     members_raw: list[dict[str, Any]] = []
     examples_raw: list[dict[str, Any]] = []
     links_raw: list[dict[str, Any]] = []
+    topics_raw: list[dict[str, Any]] = []
 
     for topic in html_topics:
         canon = canonical_topic_path(str(topic.get("path") or ""), str(topic.get("version") or ""))
@@ -1238,6 +1313,20 @@ def build_structured_api_snapshot(
         examples_raw.extend(topic_examples)
         links_raw.extend(topic_links)
 
+        # Topics that produced no structured API record go into the general docs index.
+        if object_record is None and member_record is None:
+            topic_rec = _build_topic_record(
+                Path(topic["html_path"]),
+                topic_path=canon,
+                title=str(topic.get("title") or ""),
+                version=str(topic.get("version") or ""),
+                language=str(topic.get("language") or ""),
+                breadcrumb=list(topic.get("breadcrumb") or []),
+                hbk_label=str(topic.get("hbk_label") or ""),
+            )
+            if topic_rec is not None:
+                topics_raw.append(topic_rec)
+
     for obj in objects_by_key.values():
         objects_raw.append(obj)
 
@@ -1245,11 +1334,13 @@ def build_structured_api_snapshot(
     members = _merge_snapshot_records(members_raw, id_suffix="mem")
     examples = _merge_snapshot_records(examples_raw, id_suffix="ex")
     links = _merge_snapshot_records(links_raw, id_suffix="lnk")
+    doc_topics = _merge_snapshot_records(topics_raw, id_suffix="doc")
 
     _write_jsonl(out_dir / API_OBJECTS_FILE, object_items)
     _write_jsonl(out_dir / API_MEMBERS_FILE, members)
     _write_jsonl(out_dir / API_EXAMPLES_FILE, examples)
     _write_jsonl(out_dir / API_LINKS_FILE, links)
+    _write_jsonl(out_dir / API_TOPICS_FILE, doc_topics)
 
     manifest = {
         "format": "onec_help_structured_api_v5",
@@ -1257,6 +1348,7 @@ def build_structured_api_snapshot(
         "members": len(members),
         "examples": len(examples),
         "links": len(links),
+        "topics": len(doc_topics),
         "source": "unpacked_html",
         "source_collection": "",
         "source_unpacked_dir": str(
@@ -1286,13 +1378,20 @@ def index_structured_help_snapshot(
     snapshot_base = (snapshot_dir or Path(get_help_structured_dir())).expanduser().resolve()
     total_expected = sum(
         len(loader(snapshot_base))
-        for loader in (load_api_objects, load_api_members, load_api_examples, load_api_links)
+        for loader in (
+            load_api_objects,
+            load_api_members,
+            load_api_examples,
+            load_api_links,
+            load_api_topics,
+        )
     )
     inserted_by_collection: dict[str, int] = {
         API_OBJECTS_COLLECTION_NAME: 0,
         API_MEMBERS_COLLECTION_NAME: 0,
         API_EXAMPLES_COLLECTION_NAME: 0,
         API_LINKS_COLLECTION_NAME: 0,
+        API_TOPICS_COLLECTION_NAME: 0,
     }
 
     def _on_collection_progress(collection_name: str, loaded: int, total: int) -> None:
@@ -1314,32 +1413,21 @@ def index_structured_help_snapshot(
         except Exception:
             pass
 
-    # Run all four collection indexing tasks in parallel.
+    # Run all collection indexing tasks in parallel.
     # Progress tracking via _on_collection_progress works correctly with concurrent access
     # because it uses inserted_by_collection (updated under its own internal lock from the GIL).
     from concurrent.futures import ThreadPoolExecutor
     from concurrent.futures import as_completed as _as_completed
 
     _collection_tasks = [
-        (
-            API_OBJECTS_COLLECTION_NAME,
-            index_structured_api_objects,
-        ),
-        (
-            API_MEMBERS_COLLECTION_NAME,
-            index_structured_api_members,
-        ),
-        (
-            API_EXAMPLES_COLLECTION_NAME,
-            index_structured_api_examples,
-        ),
-        (
-            API_LINKS_COLLECTION_NAME,
-            index_structured_api_links,
-        ),
+        (API_OBJECTS_COLLECTION_NAME, index_structured_api_objects),
+        (API_MEMBERS_COLLECTION_NAME, index_structured_api_members),
+        (API_EXAMPLES_COLLECTION_NAME, index_structured_api_examples),
+        (API_LINKS_COLLECTION_NAME, index_structured_api_links),
+        (API_TOPICS_COLLECTION_NAME, index_structured_api_topics),
     ]
 
-    with ThreadPoolExecutor(max_workers=4) as _pool:
+    with ThreadPoolExecutor(max_workers=5) as _pool:
         _futures = {
             _pool.submit(
                 fn,
@@ -1372,6 +1460,7 @@ def index_structured_help_snapshot(
     members_inserted = inserted_by_collection[API_MEMBERS_COLLECTION_NAME]
     examples_inserted = inserted_by_collection[API_EXAMPLES_COLLECTION_NAME]
     links_inserted = inserted_by_collection[API_LINKS_COLLECTION_NAME]
+    topics_inserted = inserted_by_collection[API_TOPICS_COLLECTION_NAME]
 
     use_bm25 = env_config.get_bm25_enabled() if bm25_enabled is None else bm25_enabled
     if use_bm25:
@@ -1379,6 +1468,7 @@ def index_structured_help_snapshot(
             (API_OBJECTS_COLLECTION_NAME, objects_inserted),
             (API_MEMBERS_COLLECTION_NAME, members_inserted),
             (API_EXAMPLES_COLLECTION_NAME, examples_inserted),
+            (API_TOPICS_COLLECTION_NAME, topics_inserted),
         ):
             if inserted > 0:
                 add_bm25_to_collection(
@@ -1393,6 +1483,7 @@ def index_structured_help_snapshot(
         "members": members_inserted,
         "examples": examples_inserted,
         "links": links_inserted,
+        "topics": topics_inserted,
     }
 
 
@@ -1425,6 +1516,11 @@ def load_api_examples(snapshot_dir: Path | None = None) -> list[dict[str, Any]]:
 def load_api_links(snapshot_dir: Path | None = None) -> list[dict[str, Any]]:
     base = (snapshot_dir or get_help_structured_dir()).expanduser().resolve()
     return _read_jsonl(base / API_LINKS_FILE)
+
+
+def load_api_topics(snapshot_dir: Path | None = None) -> list[dict[str, Any]]:
+    base = (snapshot_dir or get_help_structured_dir()).expanduser().resolve()
+    return _read_jsonl(base / API_TOPICS_FILE)
 
 
 def _record_embedding_text(item: dict[str, Any], *, kind: str) -> str:
@@ -1776,6 +1872,71 @@ def index_structured_api_links(
             "text": item.get("text") or "",
         },
         use_dense=False,
+    )
+
+
+def index_structured_api_topics(
+    snapshot_dir: Path | None = None,
+    *,
+    qdrant_host: str | None = None,
+    qdrant_port: int | None = None,
+    collection: str = API_TOPICS_COLLECTION_NAME,
+    recreate: bool = True,
+    batch_size: int = 200,
+    progress_callback=None,
+) -> int:
+    """Index general documentation topics into onec_help_topics collection."""
+    items = load_api_topics(snapshot_dir)
+    return _index_records(
+        items,
+        collection=collection,
+        recreate=recreate,
+        batch_size=batch_size,
+        qdrant_host=qdrant_host,
+        qdrant_port=qdrant_port,
+        progress_callback=progress_callback,
+        payload_builder=lambda item: {
+            "kind": item.get("kind") or "article",
+            "title": item.get("title") or "",
+            "summary": item.get("summary") or "",
+            "body": item.get("body") or "",
+            "hbk_label": item.get("hbk_label") or "",
+            "version": item.get("version") or "",
+            "versions": item.get("versions") or [],
+            "content_hash": item.get("content_hash") or "",
+            "language": item.get("language") or "",
+            "topic_path": item.get("topic_path") or "",
+            "path": item.get("topic_path") or "",
+            "breadcrumb": item.get("breadcrumb") or [],
+            "entity_type": "topic",
+            "text": item.get("text") or "",
+        },
+    )
+
+
+def search_api_topics(
+    query: str,
+    *,
+    limit: int = 10,
+    version: str | None = None,
+    language: str | None = None,
+    qdrant_host: str | None = None,
+    qdrant_port: int | None = None,
+    query_vector: list[float] | None = None,
+) -> list[dict[str, Any]]:
+    """Hybrid search over general documentation topics collection."""
+    from ..search_store.indexer import search_hybrid
+
+    return search_hybrid(
+        query,
+        qdrant_host=qdrant_host,
+        qdrant_port=qdrant_port,
+        collection=API_TOPICS_COLLECTION_NAME,
+        limit=limit,
+        version=version,
+        language=language,
+        full_payload=True,
+        query_vector=query_vector,
     )
 
 

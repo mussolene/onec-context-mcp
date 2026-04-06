@@ -287,6 +287,26 @@ def _search_official_examples(
     )
 
 
+def _search_api_topics(
+    query: str,
+    limit: int = 5,
+    version: str | None = None,
+    language: str | None = None,
+    query_vector: list[float] | None = None,
+) -> list[dict[str, Any]]:
+    from ..knowledge.help_structured import search_api_topics
+    from ..shared.qdrant_errors import is_qdrant_unreachable_error
+
+    try:
+        return search_api_topics(
+            query, limit=limit, version=version, language=language, query_vector=query_vector
+        )
+    except Exception as exc:
+        if is_qdrant_unreachable_error(exc):
+            return []
+        raise
+
+
 def _get_api_related(
     name: str,
     version: str | None = None,
@@ -935,6 +955,8 @@ def _search_help_question_candidates(
         items.extend(_get_api_object(name, version=version, language=language))
     items.extend(_search_api_members(question, limit=5, version=version, language=language))
     items.extend(_search_api_objects(question, limit=3, version=version, language=language))
+    # Include general documentation topics so conceptual articles are reachable.
+    items.extend(_search_api_topics(question, limit=4, version=version, language=language))
     return _dedup_structured_hits(items)
 
 
