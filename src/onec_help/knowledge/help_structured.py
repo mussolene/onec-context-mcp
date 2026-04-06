@@ -2102,21 +2102,3 @@ def get_api_related(
         if str(item.get("source_full_name") or "") == name_clean:
             out.append(item)
     return out
-
-
-# Backward-compatible wrappers used by the old MCP route/tests.
-def get_api_object_legacy(
-    name: str,
-    *,
-    version: str | None = None,
-    language: str | None = None,
-    qdrant_host: str | None = None,
-    qdrant_port: int | None = None,
-) -> list[dict[str, Any]]:
-    return get_api_member(
-        name,
-        version=version,
-        language=language,
-        qdrant_host=qdrant_host,
-        qdrant_port=qdrant_port,
-    )

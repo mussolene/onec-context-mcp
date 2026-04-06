@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Any
 
 from onec_help.knowledge import metadata_graph
-from onec_help.knowledge.config_crawler import ConfigObject, CrawlResult
+from onec_help.knowledge.metadata_models import ConfigObject, CrawlResult
 
 
 class FakeQdrantClient:
@@ -203,7 +203,7 @@ def test_search_metadata_by_name_prefers_exact_lookup() -> None:
 
 
 def test_get_metadata_object_uses_scroll() -> None:
-    """get_metadata_object finds object by id using scroll."""
+    """get_metadata_object finds object by canonical id (Type.Name) using scroll."""
     crawl = _dummy_crawl_for_build()
     client = FakeQdrantClient()
 
@@ -226,14 +226,10 @@ def test_get_metadata_object_uses_scroll() -> None:
     ]
     client.set_scroll_data(pts)
 
-    obj = metadata_graph.get_metadata_object("Document/Sales", client=client)
+    obj = metadata_graph.get_metadata_object("Document.Sales", client=client)
     assert obj is not None
     assert obj["name"] == "Sales"
     assert obj["id"] == "Document.Sales"
-    assert (
-        metadata_graph.get_metadata_object("Document.Sales", client=client)["id"]
-        == "Document.Sales"
-    )
 
 
 def test_get_metadata_config_summaries_returns_pairs() -> None:

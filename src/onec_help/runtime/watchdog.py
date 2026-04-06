@@ -19,7 +19,6 @@ from .ingest import _ingest_cache_path, collect_hbk_tasks, discover_version_dirs
 
 _STANDARDS_EXT = frozenset({".md"})
 _SNIPPETS_EXT = frozenset({".json", ".bsl", ".1c", ".md"})
-_CONFIG_EXT = frozenset({".xml", ".bsl"})
 _KD2_SNAPSHOT_EXT = frozenset({".json", ".jsonl"})
 _INGEST_STDERR_LOG = "ingest_stderr.log"
 _INGEST_STDERR_LOG_MAX_BYTES = 2 * 1024 * 1024  # 2 MiB; rotate to .old when exceeded
@@ -112,16 +111,6 @@ def _scan_snippets_dir_stable(snippets_dir: Path) -> dict[str, int]:
     return _scan_dir_by_ext_sizes(snippets_dir, _SNIPPETS_EXT)
 
 
-def _scan_config_dir_stable(config_dir: Path) -> dict[str, int]:
-    """Scan exported 1C configuration dir; return path -> size for relevant files.
-
-    Uses a limited set of extensions (.xml, .bsl) to approximate changes while
-    keeping the scan reasonably cheap.
-    """
-
-    return _scan_dir_by_ext_sizes(config_dir, _CONFIG_EXT)
-
-
 def _scan_metadata_source_stable(source_path: Path) -> dict[str, int]:
     """Scan metadata source path for watchdog state.
 
@@ -129,7 +118,6 @@ def _scan_metadata_source_stable(source_path: Path) -> dict[str, int]:
     - KD2 XML file: single file path -> size
     - KD2 working dir: KD2 XML + in-place snapshot files
     - KD2 snapshot dir: manifest.json + *.jsonl files
-    - deprecated config export dir: .xml/.bsl files
     """
     if not source_path.exists():
         return {}
@@ -142,7 +130,7 @@ def _scan_metadata_source_stable(source_path: Path) -> dict[str, int]:
         kd2_xml = find_kd2_xml_exports(source_path)
         if kd2_xml or is_kd2_snapshot_dir(source_path) or is_kd2_snapshot_root(source_path):
             return _scan_dir_by_ext_sizes(source_path, _KD2_SNAPSHOT_EXT | frozenset({".xml"}))
-    return _scan_config_dir_stable(source_path)
+    return {}
 
 
 def _scan_hbk_like_ingest(base: Path | None = None) -> dict[str, float]:
@@ -304,10 +292,7 @@ def run_watchdog(
         # This handles fresh installs, Qdrant volume wipes, and first starts where the
         # watchdog state in Redis already matches the filesystem (no change detected).
         if not run_ingest and current:
-            # Check primary structured collection; fall back to legacy onec_help for old installs.
             pts = _get_collection_points("onec_help_api_objects")
-            if pts < 0:
-                pts = _get_collection_points("onec_help")
             if pts == 0:
                 print(
                     "[watchdog] help collection empty — forcing ingest with INGEST_SKIP_CACHE=1",

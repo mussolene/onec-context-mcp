@@ -6,44 +6,38 @@
 
 - [tools/1c/MetadataExport.epf](../../tools/1c/MetadataExport.epf)
 
-Использовать нужно **эту обработку**, а не выгрузку конфигурации в файлы (`data/config`).
+Использовать нужно **эту обработку** (KD2 XML); индексация графа метаданных из выгрузки «в файлы» не поддерживается.
 
 ## Рекомендуемый маршрут
 
 1. Открыть в 1С обработку `tools/1c/MetadataExport.epf`.
-2. Выгрузить XML метаданных конфигурации в `data/kd2/<Имя>.xml`.
-3. Основной рабочий каталог теперь один: `data/kd2`.
+2. Выгрузить XML метаданных конфигурации в `data/metadata_export/<Имя>.xml`.
+3. Основной рабочий каталог один: **`data/metadata_export`** (KD2 XML и производные файлы внутри него).
    `watchdog` и `metadata-graph-build` умеют автоматически обновлять snapshot в этой же папке,
-   но snapshot хранится **по конфигурациям отдельно**.
+   но snapshot хранится **по конфигурациям отдельно** (подкаталог `snapshots/`).
 4. При необходимости можно явно построить snapshot:
 
 ```bash
-python -m onec_help kd2-snapshot-build data/kd2/<Имя>.xml -o data/kd2
+python -m onec_help metadata-snapshot-build data/metadata_export/<Имя>.xml -o data/metadata_export
 ```
 
 5. Построить граф метаданных:
 
 ```bash
-python -m onec_help metadata-graph-build data/kd2
+python -m onec_help metadata-graph-build data/metadata_export
 ```
 
 Или напрямую из XML:
 
 ```bash
-python -m onec_help metadata-graph-build data/kd2/<Имя>.xml --source-format kd2-xml
+python -m onec_help metadata-graph-build data/metadata_export/<Имя>.xml --source-format metadata-xml
 ```
 
-## Что считается deprecated
+### Переименование с прежнего `data/kd2`
 
-Deprecated fallback:
+Раньше каталог по умолчанию назывался `data/kd2`. Переименуйте его в **`data/metadata_export`** или задайте **`ONEC_CONFIG_SOURCE_DIR`** на старый путь.
 
-- `data/config`
-- `ONEC_CONFIG_SOURCE_DIR=<dir with Configuration.xml/Documents/...>`
-- route через `config_crawler`
-
-Этот путь оставлен только для редких случаев, когда нужен full-fidelity source по формам, модулям или UI-слою.
-
-## Что лежит в `data/kd2`
+## Что лежит в `data/metadata_export`
 
 - входной артефакт: `*.xml` из `MetadataExport.epf`
 - производные snapshot-файлы по конфигурациям:
@@ -84,4 +78,4 @@ Deprecated fallback:
 - С версии **2.1.9** для каждой константы дополнительно пишется **`CatalogObject.Объекты`** с **`Тип=Константа`**, `Description`/`Имя` как в метаданных (`Константа.<Имя>`), плюс реквизит **`ТипЗначения`** с типом из `КонстантаМД.Тип`.
 - Синтетический узел **`НаборКонстант`** в XML сохраняется (типизация примитива), но строки констант под ним **больше не дублируются** — источником для индекса служат объекты **`Constant.<Имя>`**.
 
-После обновления обработки пересоберите XML → `kd2-snapshot-build` → `metadata-graph-build`.
+После обновления обработки пересоберите XML → `metadata-snapshot-build` → `metadata-graph-build`.

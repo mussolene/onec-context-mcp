@@ -1,4 +1,4 @@
-"""CLI: unpack, build-docs, build-index, mcp."""
+"""CLI: unpack, build-index, ingest, mcp."""
 
 import argparse
 import hashlib
@@ -112,7 +112,7 @@ def _get_memory_store():
 
 
 def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
-    """Build metadata graph for 1C configuration exported to files.
+    """Build metadata graph from MetadataExport (KD2) XML or compact JSONL snapshot.
 
     Source directory can be passed explicitly or via ONEC_CONFIG_SOURCE_DIR env var.
     Progress and status markers are written in the same cache dir as snippets/standards:
@@ -121,12 +121,6 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
     from qdrant_client import QdrantClient
 
     from ..knowledge import metadata_graph
-    from ..knowledge.config_crawler import (
-        CrawlResult,
-        _looks_like_config_root,
-        crawl_config,
-        find_config_roots,
-    )
     from ..knowledge.kd2_metadata import (
         _is_kd2_xml,
         crawl_kd2_xml,
@@ -159,63 +153,45 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
         return 1
     if source_format == "auto":
         if base.is_file() and _is_kd2_xml(base):
-            source_format = "kd2-xml"
+            source_format = "metadata-xml"
         elif base.is_dir() and selected_kd2_xmls:
-            source_format = "kd2-xml"
+            source_format = "metadata-xml"
         elif is_kd2_snapshot_root(base) or is_kd2_snapshot_dir(base):
-            source_format = "kd2-snapshot"
+            source_format = "metadata-snapshot"
         else:
-            source_format = "files"
-
-    roots: list[Path] = []
-    if source_format == "files":
-        if not base.is_dir():
-            print(f"Error: configuration root not found: {base}", file=sys.stderr)
-            return 1
-        roots = find_config_roots(base)
-        if not roots and _looks_like_config_root(base):
-            roots = [base]
-        try:
-            subdirs = [
-                p.name for p in sorted(base.iterdir()) if p.is_dir() and not p.name.startswith(".")
-            ]
-        except OSError:
-            subdirs = []
-        print(
-            "metadata-graph-build │ DEPRECATED source-format=files. Prefer KD2 XML + snapshot route.",
-            file=sys.stderr,
-            flush=True,
-        )
-        print(
-            f"metadata-graph-build │ {base}: {len(subdirs)} subdir(s) {subdirs[:10]}{'...' if len(subdirs) > 10 else ''} → {len(roots)} config root(s)",
-            file=sys.stderr,
-            flush=True,
-        )
-        if not roots:
             print(
-                f"Error: no configuration export found in {base} (no Configuration.xml/config.json or Documents/Catalogs).",
+                "Error: could not detect metadata source. Use MetadataExport (KD2) XML "
+                "or a compact snapshot directory (manifest.json + objects.jsonl), "
+                "or pass --source-format metadata-xml|metadata-snapshot.",
                 file=sys.stderr,
             )
             return 1
-    elif source_format == "kd2-xml":
+
+    if source_format == "metadata-xml":
         if base.is_dir():
             if not selected_kd2_xmls:
-                print(f"Error: KD2 XML export not found or invalid: {base}", file=sys.stderr)
+                print(
+                    f"Error: metadata export XML (KD2) not found or invalid: {base}",
+                    file=sys.stderr,
+                )
                 return 1
         elif not base.is_file() or not _is_kd2_xml(base):
-            print(f"Error: KD2 XML export not found or invalid: {base}", file=sys.stderr)
+            print(f"Error: metadata export XML (KD2) not found or invalid: {base}", file=sys.stderr)
             return 1
         print(
-            f"metadata-graph-build │ Using KD2 XML export: {base}",
+            f"metadata-graph-build │ Using metadata export XML (KD2): {base}",
             file=sys.stderr,
             flush=True,
         )
-    elif source_format == "kd2-snapshot":
+    elif source_format == "metadata-snapshot":
         if not (is_kd2_snapshot_dir(base) or is_kd2_snapshot_root(base)):
-            print(f"Error: KD2 snapshot dir not found or invalid: {base}", file=sys.stderr)
+            print(
+                f"Error: compact metadata snapshot dir not found or invalid: {base}",
+                file=sys.stderr,
+            )
             return 1
         print(
-            f"metadata-graph-build │ Using KD2 snapshot: {base}",
+            f"metadata-graph-build │ Using compact metadata snapshot: {base}",
             file=sys.stderr,
             flush=True,
         )
@@ -292,7 +268,7 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
 
     try:
         try:
-            if source_format == "kd2-xml":
+            if source_format == "metadata-xml":
                 if base.is_dir():
                     crawls = []
                     for xml_path in selected_kd2_xmls:
@@ -327,56 +303,19 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                     flush=True,
                 )
-            elif source_format == "kd2-snapshot":
+            elif source_format == "metadata-snapshot":
                 crawl = load_kd2_snapshot_set(base) if base.is_dir() else load_kd2_snapshot(base)
                 print(
                     f"metadata-graph-build │ Snapshot: {crawl.config_name} ({crawl.config_version}) — {len(crawl.objects)} objects",
                     file=sys.stderr,
                     flush=True,
                 )
-            elif len(roots) == 1:
-                print(
-                    f"metadata-graph-build │ Loading configuration from {roots[0]}",
-                    file=sys.stderr,
-                    flush=True,
-                )
-                crawl = crawl_config(roots[0])
-            else:
-                print(
-                    f"metadata-graph-build │ Loading {len(roots)} configuration(s) from {base}",
-                    file=sys.stderr,
-                    flush=True,
-                )
-                all_objects: list = []
-                all_relations: list = []
-                for r in roots:
-                    c = crawl_config(r)
-                    all_objects.extend(c.objects)
-                    all_relations.extend(c.relations)
-                    print(
-                        f"metadata-graph-build │   {r.name}: {c.config_name} ({c.config_version}) — {len(c.objects)} objects",
-                        file=sys.stderr,
-                        flush=True,
-                    )
-                crawl = CrawlResult(
-                    root_dir=base,
-                    config_name="",
-                    config_version="",
-                    platform_version=None,
-                    objects=all_objects,
-                    relations=all_relations,
-                )
         except FileNotFoundError as e:
             print(f"Error: {e}", file=sys.stderr)
             return 1
 
-        n_objects = len(crawl.objects)
         cfg_ver = getattr(crawl, "config_version", None) or "0.0.0.0"
-        cfg_label = (
-            f"{getattr(crawl, 'config_name', None) or '—'} (version {cfg_ver})"
-            if len(roots) == 1
-            else f"{len(roots)} configs, {n_objects} objects total"
-        )
+        cfg_label = f"{getattr(crawl, 'config_name', None) or '—'} (version {cfg_ver})"
         print(
             f"metadata-graph-build │ Config: {cfg_label}",
             file=sys.stderr,
@@ -511,20 +450,20 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
         status_path.unlink(missing_ok=True)
 
 
-def cmd_build_kd2_snapshot(args: argparse.Namespace) -> int:
-    """Build compact snapshot from KD2 XML export."""
+def cmd_build_metadata_snapshot(args: argparse.Namespace) -> int:
+    """Build compact JSONL snapshot from MetadataExport (KD2) XML."""
     from ..knowledge.kd2_metadata import crawl_kd2_xml, write_kd2_snapshot
 
     xml_path = Path(getattr(args, "xml_path", "")).expanduser().resolve()
     output_dir = Path(getattr(args, "output_dir", "")).expanduser().resolve()
     if not xml_path.is_file():
-        print(f"Error: KD2 XML export not found: {xml_path}", file=sys.stderr)
+        print(f"Error: metadata export XML not found: {xml_path}", file=sys.stderr)
         return 1
     try:
         crawl = crawl_kd2_xml(xml_path)
         manifest = write_kd2_snapshot(crawl, output_dir)
         print(
-            f"KD2 snapshot written to {output_dir} "
+            f"Metadata snapshot written to {output_dir} "
             f"({manifest['objects']} objects, {manifest['fields']} fields, config_version={manifest['config_version']})"
         )
         return 0
@@ -553,21 +492,6 @@ def cmd_unpack_diag(args: argparse.Namespace) -> int:
 
     try:
         unpack_diag(args.archive, args.output_dir or "/tmp/unpack_diag")
-        return 0
-    except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-
-
-def cmd_build_docs(args: argparse.Namespace) -> int:
-    """Generate Markdown from HTML in project dir (legacy/manual helper only)."""
-    from ..help_core.html2md import build_docs
-
-    out = args.output or Path(args.project_dir) / "docs_md"
-    out = Path(out)
-    try:
-        created = build_docs(args.project_dir, out)
-        print(f"Created {len(created)} .md files in {out}")
         return 0
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -797,12 +721,7 @@ def cmd_unpack_dir(args: argparse.Namespace) -> int:
     """Unpack all .hbk from source dir(s) into output_dir (no indexing)."""
     from pathlib import Path
 
-    from ..runtime.ingest import (
-        discover_version_dirs,
-        parse_languages_env,
-        parse_source_dirs_env,
-        run_unpack_only,
-    )
+    from ..runtime.ingest import discover_version_dirs, parse_languages_env, run_unpack_only
 
     sources: list[tuple[str, str]] = []
     if getattr(args, "sources", None):
@@ -818,8 +737,6 @@ def cmd_unpack_dir(args: argparse.Namespace) -> int:
         if base:
             discovered = discover_version_dirs(base)
             sources = [(str(p), v) for p, v in discovered]
-        if not sources:
-            sources = parse_source_dirs_env(env_config.get_help_source_dirs())
     if not sources:
         # Single directory as version
         src = getattr(args, "source_dir", None) or ""
@@ -855,12 +772,7 @@ def cmd_unpack_sync(args: argparse.Namespace) -> int:
     """Unpack .hbk to data/unpacked with .hbk_info.json, skip unchanged by hash."""
     from pathlib import Path
 
-    from ..runtime.ingest import (
-        discover_version_dirs,
-        parse_languages_env,
-        parse_source_dirs_env,
-        run_unpack_sync,
-    )
+    from ..runtime.ingest import discover_version_dirs, parse_languages_env, run_unpack_sync
 
     sources: list[tuple[str, str]] = []
     if getattr(args, "sources", None):
@@ -876,8 +788,6 @@ def cmd_unpack_sync(args: argparse.Namespace) -> int:
         if base:
             discovered = discover_version_dirs(base)
             sources = [(str(p), v) for p, v in discovered]
-        if not sources:
-            sources = parse_source_dirs_env(env_config.get_help_source_dirs())
     if not sources:
         src = getattr(args, "source_dir", None) or ""
         if src and Path(src).is_dir():
@@ -975,12 +885,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     from pathlib import Path
 
     from ..runtime import redis_cache
-    from ..runtime.ingest import (
-        discover_version_dirs,
-        parse_languages_env,
-        parse_source_dirs_env,
-        run_ingest,
-    )
+    from ..runtime.ingest import discover_version_dirs, parse_languages_env, run_ingest
 
     sources: list[tuple[str, str]] = []
     if getattr(args, "sources", None):
@@ -1007,8 +912,6 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         if base:
             discovered = discover_version_dirs(base)
             sources = [(str(p), v) for p, v in discovered]
-        if not sources:
-            sources = parse_source_dirs_env(env_config.get_help_source_dirs())
     if not sources:
         print(
             "Error: no source directories. Set HELP_SOURCE_BASE (path to folder with version subdirs) or use --sources / --sources-file",
@@ -2075,14 +1978,6 @@ def main() -> int:
     )
     p_read_hbk.set_defaults(func=cmd_read_hbk_container)
 
-    # build-docs
-    p_docs = sub.add_parser("build-docs", help="Generate Markdown from HTML (legacy/manual helper)")
-    p_docs.add_argument("project_dir", type=str, help="Directory with HTML files")
-    p_docs.add_argument(
-        "--output", "-o", type=str, help="Output directory (default: project_dir/docs_md)"
-    )
-    p_docs.set_defaults(func=cmd_build_docs)
-
     # build-index
     p_idx = sub.add_parser(
         "build-index",
@@ -2575,37 +2470,39 @@ def main() -> int:
     )
     p_watchdog.set_defaults(func=cmd_watchdog)
 
-    p_kd2_snapshot = sub.add_parser(
-        "kd2-snapshot-build",
-        help="Build compact JSONL snapshot from KD2 XML metadata export",
+    p_metadata_snapshot = sub.add_parser(
+        "metadata-snapshot-build",
+        help="Build compact JSONL snapshot from MetadataExport (KD2) XML",
     )
-    p_kd2_snapshot.add_argument("xml_path", type=str, help="Path to KD2 XML export")
-    p_kd2_snapshot.add_argument(
+    p_metadata_snapshot.add_argument(
+        "xml_path", type=str, help="Path to MetadataExport (KD2) XML export"
+    )
+    p_metadata_snapshot.add_argument(
         "--output-dir",
         "-o",
         type=str,
         required=True,
         help="Directory for compact snapshot files (manifest.json, objects.jsonl, fields.jsonl)",
     )
-    p_kd2_snapshot.set_defaults(func=cmd_build_kd2_snapshot)
+    p_metadata_snapshot.set_defaults(func=cmd_build_metadata_snapshot)
 
     # metadata-graph-build — build metadata graph from exported 1C configuration
     p_metadata = sub.add_parser(
         "metadata-graph-build",
-        help="Build metadata graph from metadata source (KD2 XML/snapshot or deprecated file export)",
+        help="Build metadata graph from MetadataExport (KD2) XML or compact JSONL snapshot",
     )
     p_metadata.add_argument(
         "source_dir",
         type=str,
         nargs="?",
         default=None,
-        help="Metadata source path: KD2 XML, KD2 snapshot dir, or deprecated exported config dir (default: ONEC_CONFIG_SOURCE_DIR env)",
+        help="Metadata source: KD2 XML file/dir or compact snapshot dir (default: ONEC_CONFIG_SOURCE_DIR)",
     )
     p_metadata.add_argument(
         "--source-format",
-        choices=("auto", "kd2-xml", "kd2-snapshot", "files"),
+        choices=("auto", "metadata-xml", "metadata-snapshot"),
         default="auto",
-        help="Metadata source format. 'files' is deprecated; default: auto",
+        help="metadata-xml | metadata-snapshot. Default: auto (detect from path)",
     )
     p_metadata.add_argument(
         "--recreate",

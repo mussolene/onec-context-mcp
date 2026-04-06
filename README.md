@@ -35,7 +35,7 @@ make ingest-up
 Для метаданных 1С основной route теперь такой:
 
 ```bash
-# 1. выгрузить XML обработкой tools/1c/MetadataExport.epf в data/kd2/<Имя>.xml
+# 1. выгрузить XML обработкой tools/1c/MetadataExport.epf в data/metadata_export/<Имя>.xml
 # 2. watchdog/metadata-build сами обновят snapshot в этой же папке
 make metadata-build
 ```

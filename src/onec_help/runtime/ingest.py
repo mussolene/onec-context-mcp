@@ -1291,28 +1291,6 @@ def discover_version_dirs(base_path: Path | str) -> list[tuple[Path, str]]:
     return out
 
 
-def parse_source_dirs_env(env_value: str | None) -> list[tuple[str, str]]:
-    """
-    Parse HELP_SOURCE_DIRS (legacy): "path1:version1,path2:version2" or "path1,path2".
-    Returns [(path, version), ...]. Prefer HELP_SOURCE_BASE instead.
-    """
-    if not env_value or not env_value.strip():
-        return []
-    out = []
-    for part in env_value.strip().split(","):
-        part = part.strip()
-        if not part:
-            continue
-        if ":" in part:
-            p, v = part.split(":", 1)
-            out.append((p.strip(), v.strip()))
-        else:
-            p = part
-            v = Path(p).name or "default"
-            out.append((p, v))
-    return out
-
-
 def parse_languages_env(env_value: str | None) -> list[str] | None:
     """
     Parse HELP_LANGUAGES: "ru" => ["ru"], "ru,en" => ["ru","en"], empty or "all" => None (all languages).

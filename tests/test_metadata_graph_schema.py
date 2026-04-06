@@ -1,6 +1,5 @@
 from pathlib import Path
 
-from onec_help.knowledge.config_crawler import ConfigObject, ConfigRelation, CrawlResult
 from onec_help.knowledge.metadata_graph import (
     _edge_payload_from_relation,
     _node_payload_from_object,
@@ -8,6 +7,7 @@ from onec_help.knowledge.metadata_graph import (
     format_requisite_type_display,
     format_type_readable,
 )
+from onec_help.knowledge.metadata_models import ConfigObject, ConfigRelation, CrawlResult
 
 
 def _dummy_crawl() -> CrawlResult:

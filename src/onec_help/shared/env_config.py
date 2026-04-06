@@ -62,11 +62,6 @@ def get_help_languages() -> str:
     return (os.environ.get("HELP_LANGUAGES") or HELP_LANGUAGES_DEFAULT).strip()
 
 
-def get_help_source_dirs() -> str:
-    """Comma-separated paths alternative to HELP_SOURCE_BASE."""
-    return (os.environ.get("HELP_SOURCE_DIRS") or "").strip()
-
-
 def get_help_file_encoding() -> str:
     """Encoding for help files (utf-8, cp1251). Empty = auto."""
     return (os.environ.get("HELP_FILE_ENCODING") or HELP_FILE_ENCODING_DEFAULT).strip().lower()
@@ -434,7 +429,7 @@ SNIPPETS_DIR_DEFAULT = "data/snippets"
 SAVE_SNIPPET_TO_FILES_DEFAULT = "1"
 SNIPPETS_JSON_PATH_DEFAULT = ""
 SNIPPETS_SKIP_CACHE_DEFAULT = "0"
-CONFIG_SOURCE_DIR_DEFAULT = "data/kd2"
+CONFIG_SOURCE_DIR_DEFAULT = "data/metadata_export"
 
 
 def get_snippets_dir() -> str:
@@ -458,9 +453,9 @@ def get_save_snippet_to_files() -> bool:
 def get_config_source_dir() -> str:
     """Metadata source path for metadata graph.
 
-    Primary route: data/kd2 directory with KD2 XML export and in-place snapshot files.
-    Also supports direct KD2 XML file path, standalone KD2 snapshot dir, and deprecated
-    file-export config dir. Uses ONEC_CONFIG_SOURCE_DIR env var; falls back to data/kd2
+    Primary route: data/metadata_export (KD2 XML export + in-place snapshots/…).
+    Also supports direct KD2 XML file path and standalone compact snapshot dir.
+    Uses ONEC_CONFIG_SOURCE_DIR env var; falls back to data/metadata_export
     when unset.
     """
 

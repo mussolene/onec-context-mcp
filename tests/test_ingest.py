@@ -26,7 +26,6 @@ from onec_help.runtime.ingest import (
     collect_hbk_tasks,
     discover_version_dirs,
     parse_languages_env,
-    parse_source_dirs_env,
     read_ingest_cache_entries,
     read_ingest_failed_log,
     read_ingest_status,
@@ -427,26 +426,6 @@ def test_read_ingest_failed_log_empty_env() -> None:
     assert out == []
 
 
-def test_parse_source_dirs_env_empty() -> None:
-    assert parse_source_dirs_env("") == []
-    assert parse_source_dirs_env(None) == []
-
-
-def test_parse_source_dirs_env_path_only() -> None:
-    out = parse_source_dirs_env("/opt/1cv8")
-    assert out == [("/opt/1cv8", "1cv8")]
-
-
-def test_parse_source_dirs_env_path_version() -> None:
-    out = parse_source_dirs_env("/opt/1cv8:8.3.27")
-    assert out == [("/opt/1cv8", "8.3.27")]
-
-
-def test_parse_source_dirs_env_multiple() -> None:
-    out = parse_source_dirs_env("/a:va,/b:vb")
-    assert out == [("/a", "va"), ("/b", "vb")]
-
-
 def test_parse_languages_env_empty() -> None:
     assert parse_languages_env("") is None
     assert parse_languages_env(None) is None
@@ -522,11 +501,6 @@ def test_discover_version_dirs_not_dir(tmp_path: Path) -> None:
     assert discover_version_dirs(tmp_path / "missing") == []
     (tmp_path / "file").write_text("x")
     assert discover_version_dirs(tmp_path / "file") == []
-
-
-def test_parse_source_dirs_env_blank_parts() -> None:
-    """Blank and comma-only parts are skipped."""
-    assert parse_source_dirs_env("  ,  /a:v1  ,  ") == [("/a", "v1")]
 
 
 def test_run_ingest_empty_sources() -> None:

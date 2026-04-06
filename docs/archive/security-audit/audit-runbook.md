@@ -37,7 +37,7 @@
    - [ ] EMBEDDING_API_KEY не в репо
    - [ ] PRODUCTION=1 маскирует детали в логах
    - [ ] SAVE_SNIPPET_TO_FILES=0 в production‑среде или SNIPPETS_DIR указывает на защищённый том
-   - [ ] STANDARDS_DIR и ONEC_CONFIG_SOURCE_DIR (`data/config`) расположены на защищённых томах (NDA‑периметр)
+   - [ ] STANDARDS_DIR и ONEC_CONFIG_SOURCE_DIR (например `data/metadata_export`) расположены на защищённых томах (NDA‑периметр)
 
 ## Фаза 3: Тестирование
 

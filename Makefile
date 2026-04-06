@@ -188,7 +188,7 @@ bsl-stop:
 
 # Создать каталоги data/ для bind-mount. После потери data/qdrant: make ensure-data && make up; для индекса: make ingest-up
 ensure-data:
-	@mkdir -p data/qdrant data/unpacked data/help_structured data/ingest_cache data/snippets data/backup data/bm25_vocab data/standards data/config data/kd2 data/kd2_snapshot data/redis
+	@mkdir -p data/qdrant data/unpacked data/help_structured data/ingest_cache data/snippets data/backup data/bm25_vocab data/standards data/metadata_export data/redis
 	@echo "data/qdrant и остальные каталоги созданы."
 
 # При qdrant exit 101: логи и сброс данных. Использовать оба -f!
@@ -200,7 +200,7 @@ ingest-logs:
 	$(COMPOSE) logs ingest-worker --tail 200
 
 # Сбросить состояние watchdog для config metadata и сразу запустить metadata-graph-build (без ожидания следующего цикла опроса).
-# Для primary route используйте data/kd2: кладите туда KD2 XML, watchdog/metadata-graph-build обновят snapshot автоматически.
+# Для primary route используйте data/metadata_export: кладите туда KD2 XML, watchdog/metadata-graph-build обновят snapshot автоматически.
 reset-metadata-watchdog:
 	@echo "Сброс watchdog:state:metadata в Redis..."
 	@$(COMPOSE) exec redis redis-cli DEL "watchdog:state:metadata" || true
@@ -218,17 +218,16 @@ clear-dashboard-errors:
 	@$(COMPOSE) exec redis redis-cli DEL "ingest:errors" "mcp:errors_total" "mcp:errors_recent" || true
 	@echo "Готово. Панели Errors и MCP requests в дашборде будут пустыми по ошибкам."
 
-# Построить compact snapshot из KD2 XML выгрузки.
-# По умолчанию snapshot пишется в ту же рабочую папку data/kd2.
-# Пример: make kd2-snapshot-build XML_PATH=/data/kd2/ВыгрузкаБП30.xml OUT=data/kd2
+# Построить compact snapshot из выгрузки MetadataExport (KD2 XML).
+# По умолчанию snapshot пишется в ту же рабочую папку data/metadata_export.
+# Пример: make metadata-snapshot-build XML_PATH=/data/metadata_export/ВыгрузкаБП30.xml OUT=data/metadata_export
 # XML рекомендуется получать через tools/1c/MetadataExport.epf, а не через выгрузку конфигурации в файлы.
-kd2-snapshot-build:
-	@test -n "$(XML_PATH)" || (echo "Usage: make kd2-snapshot-build XML_PATH=/path/export.xml OUT=data/kd2" && exit 1)
-	$(COMPOSE) exec $(INGEST_SERVICE) python -m onec_help kd2-snapshot-build "$(XML_PATH)" -o "$(or $(OUT),data/kd2)"
+metadata-snapshot-build:
+	@test -n "$(XML_PATH)" || (echo "Usage: make metadata-snapshot-build XML_PATH=/path/export.xml OUT=data/metadata_export" && exit 1)
+	$(COMPOSE) exec $(INGEST_SERVICE) python -m onec_help metadata-snapshot-build "$(XML_PATH)" -o "$(or $(OUT),data/metadata_export)"
 
 # Запустить сборку графа метаданных вручную.
-# Primary route: data/kd2 (KD2 XML + in-place snapshot) or direct KD2 XML/KD2 snapshot.
-# Deprecated fallback: exported configuration in files (data/config / ONEC_CONFIG_SOURCE_DIR).
+# Primary route: data/metadata_export (KD2 XML + in-place snapshots/) or direct KD2 XML/KD2 snapshot dir.
 # Требует: make ingest-up (ingest-worker запущен). Если в списке команд нет metadata-graph-build — пересоберите образ: make build.
 # Для больших конфигов (тысячи объектов) эмбеддинг и запись в Qdrant могут занять 10+ мин.
 # При таймауте после «embedding N/N» (запись в Qdrant): QDRANT_TIMEOUT=600 make metadata-build
@@ -237,20 +236,19 @@ metadata-build:
 	$(COMPOSE) exec $(METADATA_EXEC_ENV) $(INGEST_SERVICE) python -m onec_help metadata-graph-build $(ARGS)
 metadata-graph-build: metadata-build
 
-# Диагностика: почему watchdog не запускает metadata-graph-build. Показывает путь конфигурации, find_config_root и число файлов .xml/.bsl.
+# Диагностика: почему watchdog не запускает metadata-graph-build. Показывает путь KD2/snapshot и число отслеживаемых файлов.
 metadata-watchdog-debug:
-	@echo "Диагностика config dir и watchdog (в контейнере ingest-worker)..."
+	@echo "Диагностика metadata source и watchdog (в контейнере ingest-worker)..."
 	$(COMPOSE) exec $(INGEST_SERVICE) python -c "\
 from pathlib import Path; \
 from onec_help.shared import env_config; \
 from onec_help.runtime.watchdog import _scan_metadata_source_stable; \
-from onec_help.knowledge.config_crawler import find_config_root; \
+from onec_help.knowledge.kd2_metadata import find_kd2_xml_exports, is_kd2_snapshot_dir, is_kd2_snapshot_root; \
 d = env_config.get_config_source_dir(); \
 p = Path(d).resolve() if d else None; \
 print('ONEC_CONFIG_SOURCE_DIR (effective):', repr(d)); \
 print('resolved path:', p, '| exists:', p.exists() if p else False); \
-root = find_config_root(p) if p and p.exists() else None; \
-print('find_config_root:', root); \
+((print('KD2 XML exports:', len(find_kd2_xml_exports(p)) if p.is_dir() else (1 if p.is_file() else 0)), print('KD2 snapshot dir:', bool(p.is_dir() and (is_kd2_snapshot_dir(p) or is_kd2_snapshot_root(p))))) if p and p.exists() else None); \
 scan = _scan_metadata_source_stable(p) if p and p.exists() else {}; \
 print('scan metadata source files count:', len(scan)); \
 "
@@ -308,9 +306,9 @@ help:
 	@echo "  make qdrant-logs      Логи qdrant (при exit 101)"
 	@echo "  make ingest-logs     Логи ingest-worker (эмбеддинги, fallback)"
 	@echo "  make reset-metadata-watchdog  Сбросить metadata в watchdog и сразу запустить metadata-graph-build (нужен make ingest-up)"
-	@echo "  make kd2-snapshot-build      Построить/обновить snapshot из KD2 XML (по умолчанию в data/kd2)"
-	@echo "  make metadata-build          Запустить metadata-graph-build вручную (primary: data/kd2; files route deprecated)"
-	@echo "  make metadata-watchdog-debug Диагностика: путь конфигурации, find_config_root, число файлов, ключ Redis"
+	@echo "  make metadata-snapshot-build Построить/обновить compact snapshot из MetadataExport XML (по умолчанию в data/metadata_export)"
+	@echo "  make metadata-build          Запустить metadata-graph-build вручную (KD2 XML или compact snapshot)"
+	@echo "  make metadata-watchdog-debug Диагностика: ONEC_CONFIG_SOURCE_DIR, KD2/snapshot, число файлов, ключ Redis"
 	@echo "  make ollama-logs      Последние 100 строк лога Ollama (~/.ollama/logs/server.log)"
 	@echo "  make qdrant-reset     Удалить data/qdrant, перезапустить с пустым индексом"
 	@echo "  make qdrant-backup    Снапшот → data/backup/ (для миграции)"

@@ -13,7 +13,6 @@ from onec_help.runtime.watchdog import (
     _run_ingest,
     _run_load_snippets,
     _run_load_standards,
-    _scan_config_dir_stable,
     _scan_metadata_source_stable,
     _scan_snippets_dir,
     _scan_standards_dir,
@@ -47,7 +46,6 @@ def _watchdog_loop_mocks(
         patch("onec_help.runtime.watchdog._run_load_snippets"),
         patch("onec_help.runtime.watchdog._run_build_metadata_graph"),
         patch("onec_help.runtime.watchdog._process_pending_memory"),
-        patch("onec_help.runtime.watchdog._scan_config_dir_stable", return_value={}),
     ):
         yield
 
@@ -203,15 +201,11 @@ def test_scan_snippets_dir_collects_json_bsl(tmp_path: Path) -> None:
     assert len(out) == 3
 
 
-def test_scan_config_dir_stable_collects_xml_bsl(tmp_path: Path) -> None:
-    """_scan_config_dir_stable returns path->size for .xml and .bsl only."""
-    (tmp_path / "x.xml").write_text("<root/>")
-    (tmp_path / "y.bsl").write_text("// code")
-    (tmp_path / "z.txt").write_text("ignore")
-    out = _scan_config_dir_stable(tmp_path)
-    assert len(out) == 2
-    assert any("x.xml" in p for p in out)
-    assert any("y.bsl" in p for p in out)
+def test_scan_metadata_source_stable_plain_dir_without_kd2_returns_empty(tmp_path: Path) -> None:
+    """Directories without KD2 XML or compact snapshot are not tracked (no file-export crawl)."""
+    (tmp_path / "Configuration.xml").write_text("<MetaDataObject/>")
+    (tmp_path / "Module.bsl").write_text("// legacy export")
+    assert _scan_metadata_source_stable(tmp_path) == {}
 
 
 def test_scan_metadata_source_stable_xml_file(tmp_path: Path) -> None:

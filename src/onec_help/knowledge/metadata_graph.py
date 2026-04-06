@@ -1,6 +1,6 @@
 """Metadata graph for 1C configuration objects.
 
-This module is responsible for turning `CrawlResult` from `config_crawler`
+This module is responsible for turning `CrawlResult` from `metadata_models` / KD2 parsing
 into Qdrant collections and providing a small search/read API for MCP tools.
 
 Design goals:
@@ -16,8 +16,8 @@ import sys
 from typing import Any, cast
 
 from ..shared import env_config
-from .config_crawler import ConfigObject, ConfigRelation, CrawlResult
-from .metadata_ids import legacy_slash_metadata_id_to_dot, make_metadata_object_id
+from .metadata_ids import make_metadata_object_id
+from .metadata_models import ConfigObject, ConfigRelation, CrawlResult
 
 # Типы объектов метаданных по-русски (для понимания конфигурации и единообразия с справкой).
 _OBJECT_TYPE_RU: dict[str, str] = {
@@ -978,9 +978,6 @@ def _normalized_metadata_exact_values(query: str) -> list[str]:
             variants.append(value)
     for alias in _metadata_canonical_id_aliases_from_query(raw):
         variants.append(alias)
-    legacy = legacy_slash_metadata_id_to_dot(raw)
-    if legacy and legacy not in variants:
-        variants.append(legacy)
     deduped: list[str] = []
     seen: set[str] = set()
     for value in variants:
@@ -1442,9 +1439,6 @@ def _metadata_object_id_lookup_candidates(object_id: str) -> list[str]:
     raw = (object_id or "").strip()
     if not raw:
         return []
-    alt = legacy_slash_metadata_id_to_dot(raw)
-    if alt and alt != raw:
-        return list(dict.fromkeys([raw, alt]))
     return [raw]
 
 
@@ -1458,7 +1452,7 @@ def get_metadata_object(
     """Return single metadata object payload by its id.
 
     If config_version is given, only the object from that configuration is returned.
-    Accepts legacy ``Type/Name`` ids as well as canonical ``Type.Name``.
+    Expects canonical ``Type.Name`` id (see payload ``id`` in Qdrant).
     """
     if not object_id:
         return None

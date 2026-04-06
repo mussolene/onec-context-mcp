@@ -60,8 +60,8 @@ services:
       STANDARDS_SUBPATH: ${STANDARDS_SUBPATH:-docs}
       # В контейнере standards смонтирован в /data/standards — иначе load-standards пишет в /app/data/standards и Permission denied
       STANDARDS_DIR: ${STANDARDS_DIR:-/data/standards}
-      # Конфигурация 1С для metadata graph: primary route — /data/kd2 внутри контейнера.
-      ONEC_CONFIG_SOURCE_DIR: ${ONEC_CONFIG_SOURCE_DIR:-/data/kd2}
+      # Конфигурация 1С для metadata graph: primary route — /data/metadata_export внутри контейнера.
+      ONEC_CONFIG_SOURCE_DIR: ${ONEC_CONFIG_SOURCE_DIR:-/data/metadata_export}
     volumes:
       - /opt/1cv8:/opt/1cv8:ro
       - ./data/help_structured:/app/data/help_structured
@@ -69,8 +69,7 @@ services:
       - ./data/ingest_cache:/app/var/ingest_cache
       - ./data/snippets:/data/snippets
       - ./data/standards:/data/standards
-      - ./data/kd2:/data/kd2
-      - ./data/config:/app/data/config:ro
+      - ./data/metadata_export:/data/metadata_export
       - ./data/backup:/data/backup
       - ./data/bm25_vocab:/app/data/bm25_vocab
     # Watchdog и ingest только по cron (каждые 10 мин / раз в сутки). Контейнер живёт за счёт sleep.

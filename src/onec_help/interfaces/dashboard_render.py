@@ -395,7 +395,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
             metadata_summary = f"Config metadata: {meta_pts:,} objects (onec_config_metadata)"
         else:
             metadata_summary = (
-                "Config metadata: no data (put KD2 XML in data/kd2, then run "
+                "Config metadata: no data (put KD2 XML in data/metadata_export, then run "
                 "metadata-graph-build or watchdog)"
             )
     tasks_parts.append(Text("\n" + metadata_summary))
@@ -560,7 +560,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
             if (c.get("name") or "").strip() == "onec_config_metadata":
                 db_parts.append(
                     _dim(
-                        "onec_config_metadata: config objects from data/kd2 (metadata-graph-build)"
+                        "onec_config_metadata: config objects from data/metadata_export (metadata-graph-build)"
                     )
                 )
                 break

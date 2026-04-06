@@ -47,7 +47,7 @@
 - memory - snippets, standards, session-related memory
 - metadata - граф метаданных конфигурации 1С
 
-Для метаданных рекомендуемый route: `MetadataExport.epf -> KD 2.0 XML export -> kd2-snapshot-build -> metadata-graph-build`.
+Для метаданных рекомендуемый route: `MetadataExport.epf -> KD 2.0 XML в data/metadata_export -> metadata-snapshot-build -> metadata-graph-build`.
 
 Подробно: [../reference/metadata-export.md](../reference/metadata-export.md).
 

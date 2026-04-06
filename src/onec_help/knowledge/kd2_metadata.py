@@ -1,12 +1,9 @@
 """KD 2.0 metadata export parsing and compact snapshot helpers.
 
-Supports XML exports produced by metadata processors such as MD83Exp.epf and
-converts them into the same `CrawlResult` model used by the metadata graph.
+Supports XML exports produced by MetadataExport.epf and converts them into
+:class:`CrawlResult` (:mod:`onec_help.knowledge.metadata_models`) for the metadata graph.
 
-Design:
-- treat KD2 XML as the new primary metadata source for object/field lookup;
-- keep file-export crawler as deprecated fallback for full-fidelity scenarios;
-- provide a compact JSONL snapshot format (`onec_kd2_snapshot_v2`, ids as `EnglishType.ObjectName`) for stable downstream indexing.
+Provides compact JSONL snapshot format (`onec_kd2_snapshot_v2`, ids as `EnglishType.ObjectName`).
 """
 
 from __future__ import annotations
@@ -17,8 +14,8 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from .config_crawler import ConfigObject, CrawlResult
 from .metadata_ids import make_metadata_object_id
+from .metadata_models import ConfigObject, CrawlResult
 
 try:
     import defusedxml.ElementTree as _ET
@@ -517,7 +514,7 @@ def load_kd2_snapshot(snapshot_dir: str | Path) -> CrawlResult:
     if fmt and fmt not in ("onec_kd2_snapshot_v1", "onec_kd2_snapshot_v2"):
         raise ValueError(
             f"Unsupported KD2 snapshot format {fmt!r} in {base}; "
-            "expected onec_kd2_snapshot_v2 (regenerate with kd2-snapshot-build)."
+            "expected onec_kd2_snapshot_v2 (regenerate with metadata-snapshot-build)."
         )
     objects: list[ConfigObject] = []
     with (base / "objects.jsonl").open("r", encoding="utf-8") as fp:

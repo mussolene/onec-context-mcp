@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Stream-analysis for 1C KD 2.0 metadata export XML.
+"""Stream-analysis for 1C MetadataExport (KD 2.0) XML.
 
 The script is intended for large files produced by metadata export processors
-such as `MD83Exp.epf`. It does not load the whole XML into memory.
+such as MetadataExport.epf. It does not load the whole XML into memory.
 
 It answers practical questions for AI/metadata indexing:
 - which record kinds are present (`CatalogObject.*`);
@@ -13,8 +13,8 @@ It answers practical questions for AI/metadata indexing:
 - whether the export looks sufficient for object/field lookup.
 
 Usage:
-  python scripts/analyze_kd2_export.py /path/to/export.xml
-  python scripts/analyze_kd2_export.py /path/to/export.xml --json
+  python scripts/analyze_metadata_export.py /path/to/export.xml
+  python scripts/analyze_metadata_export.py /path/to/export.xml --json
 """
 
 from __future__ import annotations
@@ -222,7 +222,7 @@ def analyze_export(path: Path) -> dict[str, Any]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("xml_path", help="Path to KD 2.0 metadata export XML")
+    parser.add_argument("xml_path", help="Path to MetadataExport (KD 2.0) XML")
     parser.add_argument("--json", action="store_true", help="Print JSON instead of text summary")
     args = parser.parse_args(argv)
 

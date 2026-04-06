@@ -15,10 +15,9 @@ from onec_help.interfaces.cli import (
     _short_error,
     cmd_add_bm25,
     cmd_build_api_structured,
-    cmd_build_docs,
     cmd_build_index,
-    cmd_build_kd2_snapshot,
     cmd_build_metadata_graph,
+    cmd_build_metadata_snapshot,
     cmd_dashboard,
     cmd_index_api_structured,
     cmd_ingest,
@@ -49,13 +48,7 @@ def make_args(**kwargs) -> SimpleNamespace:
     return SimpleNamespace(**kwargs)
 
 
-def test_cmd_build_docs(help_sample_dir: Path, tmp_path: Path) -> None:
-    args = make_args(project_dir=str(help_sample_dir), output=str(tmp_path / "out_md"))
-    assert cmd_build_docs(args) == 0
-    assert (tmp_path / "out_md").exists()
-
-
-def test_cmd_build_kd2_snapshot(tmp_path: Path) -> None:
+def test_cmd_build_metadata_snapshot(tmp_path: Path) -> None:
     xml_path = tmp_path / "kd2.xml"
     xml_path.write_text(
         """<?xml version="1.0" encoding="UTF-8"?>
@@ -68,16 +61,8 @@ def test_cmd_build_kd2_snapshot(tmp_path: Path) -> None:
     )
     out = tmp_path / "snapshot"
     args = make_args(xml_path=str(xml_path), output_dir=str(out))
-    assert cmd_build_kd2_snapshot(args) == 0
+    assert cmd_build_metadata_snapshot(args) == 0
     assert (out / "manifest.json").exists()
-
-
-@patch("onec_help.help_core.html2md.build_docs")
-def test_cmd_build_docs_error(mock_build_docs, tmp_path: Path) -> None:
-    mock_build_docs.side_effect = RuntimeError("disk full")
-    tmp_path.mkdir(exist_ok=True)
-    args = make_args(project_dir=str(tmp_path), output=str(tmp_path / "out_md"))
-    assert cmd_build_docs(args) == 1
 
 
 def test_cmd_read_hbk_container_not_file() -> None:
@@ -274,7 +259,7 @@ def test_cmd_build_metadata_graph_kd2_xml(
     mock_crawl_kd2,
     tmp_path: Path,
 ) -> None:
-    from onec_help.knowledge.config_crawler import ConfigObject, CrawlResult
+    from onec_help.knowledge.metadata_models import ConfigObject, CrawlResult
 
     xml_path = tmp_path / "kd2.xml"
     xml_path.write_text("<Конфигурация Имя='Cfg'/>", encoding="utf-8")
@@ -294,7 +279,7 @@ def test_cmd_build_metadata_graph_kd2_xml(
         "objects": 1,
         "fields": 0,
     }
-    args = make_args(source_dir=str(xml_path), source_format="kd2-xml", recreate=False)
+    args = make_args(source_dir=str(xml_path), source_format="metadata-xml", recreate=False)
     assert cmd_build_metadata_graph(args) == 0
     mock_crawl_kd2.assert_called_once()
     mock_write_snapshot.assert_called_once_with(
@@ -317,7 +302,7 @@ def test_cmd_build_metadata_graph_auto_merges_multiple_kd2_exports(
     mock_write_snapshot,
     tmp_path: Path,
 ) -> None:
-    from onec_help.knowledge.config_crawler import ConfigObject, CrawlResult
+    from onec_help.knowledge.metadata_models import ConfigObject, CrawlResult
 
     work_dir = tmp_path / "kd2"
     work_dir.mkdir()
@@ -390,7 +375,7 @@ def test_cmd_build_metadata_graph_auto_refreshes_snapshot_from_workdir(
     mock_crawl_kd2,
     tmp_path: Path,
 ) -> None:
-    from onec_help.knowledge.config_crawler import ConfigObject, CrawlResult
+    from onec_help.knowledge.metadata_models import ConfigObject, CrawlResult
 
     work_dir = tmp_path / "kd2"
     work_dir.mkdir()
@@ -1344,7 +1329,7 @@ def test_cmd_build_metadata_graph_skips_unchanged_cached_source(
     xml_path = tmp_path / "kd2.xml"
     xml_path.write_text("<Конфигурация Имя='Cfg'/>", encoding="utf-8")
     with patch("onec_help.interfaces.cli._metadata_source_signature", return_value="sig"):
-        args = make_args(source_dir=str(xml_path), source_format="kd2-xml", recreate=False)
+        args = make_args(source_dir=str(xml_path), source_format="metadata-xml", recreate=False)
         assert cmd_build_metadata_graph(args) == 0
 
 
@@ -1490,47 +1475,6 @@ def _minimal_dashboard_data(**overrides):
     }
     data.update(overrides)
     return data
-
-
-@patch("onec_help.knowledge.metadata_graph.build_metadata_graph_from_crawl", return_value=1)
-@patch("onec_help.search_store.indexer.add_bm25_to_collection", return_value=1)
-@patch("onec_help.search_store.embedding.is_embedding_available", return_value=True)
-@patch("onec_help.knowledge.config_crawler.crawl_config")
-def test_cmd_build_metadata_graph_success(
-    mock_crawl, _mock_embed_avail, mock_add_bm25, mock_build, tmp_path: Path
-) -> None:
-    """cmd_build_metadata_graph calls crawl_config and metadata_graph.build_metadata_graph_from_crawl."""
-    from onec_help.knowledge.config_crawler import ConfigObject, CrawlResult
-
-    crawl = CrawlResult(
-        root_dir=tmp_path,
-        config_name="Cfg",
-        config_version="1.0.0.0",
-        platform_version=None,
-        objects=[
-            ConfigObject(
-                id="Document.Test",
-                object_type="Document",
-                name="Test",
-            )
-        ],
-        relations=[],
-    )
-    mock_crawl.return_value = crawl
-    args = make_args(source_dir=str(tmp_path), recreate=True)
-    with patch.dict(
-        "os.environ",
-        {
-            "QDRANT_HOST": "localhost",
-            "QDRANT_PORT": "6333",
-        },
-        clear=False,
-    ):
-        with patch("onec_help.knowledge.config_crawler.find_config_roots", return_value=[tmp_path]):
-            assert cmd_build_metadata_graph(args) == 0
-    mock_crawl.assert_called_once()
-    mock_build.assert_called_once()
-    mock_add_bm25.assert_called_once()
 
 
 def test_cmd_build_metadata_graph_no_source_dir_returns_error(
