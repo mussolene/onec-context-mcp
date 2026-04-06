@@ -300,14 +300,35 @@ def _infer_member_kind(topic_path: str, title: str, entity_type: str) -> str:
     return "topic"
 
 
-def _infer_object_kind(topic_path: str, title: str) -> str:
+# HBK labels that contain language/syntax operator topics (not context API).
+# Derived from platform help layout: shlang_* = built-in language syntax,
+# shclang_* = client-side language syntax, embedlang = embedded language.
+_LANGUAGE_TOPIC_LABELS: frozenset[str] = frozenset({"shlang", "shclang", "embedlang"})
+
+
+def _is_language_hbk(path: str, hbk_label: str = "") -> bool:
+    """Return True when this topic comes from a language-syntax HBK book."""
+    label = (hbk_label or "").lower().strip()
+    if label:
+        # Use the authoritative label from .hbk_info.json — strip lang suffix (shlang_ru → shlang)
+        base = label.rsplit("_", 1)[0] if "_" in label else label
+        return base in _LANGUAGE_TOPIC_LABELS
+    # Fallback: infer from path (for callers that don't supply hbk_label)
+    p = path.replace("\\", "/").lower()
+    return (
+        "/shclang_" in p or "/shlang_ru/" in p or "/embedlang" in p
+        or p.startswith("shlang_") or p.startswith("shclang_") or p.startswith("embedlang")
+    )
+
+
+def _infer_object_kind(topic_path: str, title: str, *, hbk_label: str = "") -> str:
     path = (topic_path or "").replace("\\", "/").lower()
     title_base = _strip_title_suffix(title)
     if "/tables/" in path:
         return "table"
     if "/shquery_" in path or "/shquery_ru/" in path:
         return "query_topic"
-    if "/shclang_" in path or "/embedlang" in path or "/shlang_ru/" in path:
+    if _is_language_hbk(path, hbk_label):
         return "language_topic"
     if title_base.startswith("Глобальный контекст"):
         return "global_context"
@@ -628,13 +649,14 @@ def _build_structured_records(
     path: str,
     entity_type: str,
     breadcrumb: list[str],
+    hbk_label: str = "",
 ) -> tuple[
     dict[str, Any] | None, dict[str, Any] | None, list[dict[str, Any]], list[dict[str, Any]]
 ]:
     """Build object/member/example/link records from normalized extracted sections."""
     title = title or payload_title or path
     member_kind = _infer_member_kind(path, title, entity_type)
-    object_kind = _infer_object_kind(path, title)
+    object_kind = _infer_object_kind(path, title, hbk_label=hbk_label)
     if not sections:
         intro, inline_sections = _extract_inline_sections(intro)
         sections = inline_sections
@@ -645,9 +667,12 @@ def _build_structured_records(
         )
         if has_api_shape and (
             "." in _strip_title_suffix(title)
-            or any(marker in path_lower for marker in ("/shclang_", "/shlang_ru/", "/embedlang"))
+            or _is_language_hbk(path_lower, hbk_label)
         ):
-            member_kind = "method"
+            # Language operator topics (shlang_*) must stay as object_record (language_topic),
+            # not be reclassified as member even when they have syntax+params sections.
+            if object_kind != "language_topic":
+                member_kind = "method"
     intro = _strip_inline_title_noise(intro, title, breadcrumb)
     description = _normalize_text(sections.get("description") or intro)
     notes = _clean_note(sections.get("note", ""))
@@ -748,6 +773,10 @@ def _build_structured_records(
         syn_obj = _parenthetical_synonym(title, full_name)
         if syn_obj and syn_obj not in obj_aliases:
             obj_aliases.append(syn_obj)
+        # full_name itself must be searchable via aliases (e.g. "ВызватьИсключение"
+        # stripped from "ВызватьИсключение (Raise)" is not otherwise in the list)
+        if full_name and full_name not in obj_aliases:
+            obj_aliases.insert(0, full_name)
         object_record = {
             "id": _topic_point_id(path, version, language),
             "object_name": full_name,
@@ -861,6 +890,7 @@ def extract_structured_records_from_html_topic(
     title: str = "",
     breadcrumb: list[str] | None = None,
     entity_type: str = "topic",
+    hbk_label: str = "",
 ) -> tuple[
     dict[str, Any] | None, dict[str, Any] | None, list[dict[str, Any]], list[dict[str, Any]]
 ]:
@@ -926,6 +956,7 @@ def extract_structured_records_from_html_topic(
         path=topic_path,
         entity_type=entity_type,
         breadcrumb=derived_breadcrumb,
+        hbk_label=hbk_label,
     )
 
 
@@ -1106,6 +1137,7 @@ def iter_help_topics_from_unpacked(*, unpacked_dir: Path | None = None) -> list[
                     toc_items = []
             language = str(info.get("language") or "")
             version = str(info.get("version") or version_dir.name)
+            hbk_label = str(info.get("label") or stem_dir.name)
             toc_map: dict[str, dict[str, Any]] = {}
             for item in toc_items:
                 if not isinstance(item, dict):
@@ -1130,6 +1162,7 @@ def iter_help_topics_from_unpacked(*, unpacked_dir: Path | None = None) -> list[
                         ),
                         "version": version,
                         "language": language,
+                        "hbk_label": hbk_label,
                         "entity_type": str(toc_item.get("entity_type") or "topic"),
                         "breadcrumb": list(toc_item.get("breadcrumb") or []),
                     }
@@ -1179,6 +1212,7 @@ def build_structured_api_snapshot(
                 title=str(topic.get("title") or ""),
                 breadcrumb=list(topic.get("breadcrumb") or []),
                 entity_type=str(topic.get("entity_type") or "topic"),
+                hbk_label=str(topic.get("hbk_label") or ""),
             )
         )
         if object_record is not None:
@@ -2051,6 +2085,8 @@ def get_api_object(
             must.append(FieldCondition(key="language", match=MatchValue(value=language)))
         should = [
             FieldCondition(key="name", match=MatchValue(value=name_clean)),
+            FieldCondition(key="full_name", match=MatchValue(value=name_clean)),
+            FieldCondition(key="object_name", match=MatchValue(value=name_clean)),
             FieldCondition(key="aliases", match=MatchValue(value=name_clean)),
         ]
         results: list[dict[str, Any]] = []

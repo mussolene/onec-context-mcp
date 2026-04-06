@@ -499,7 +499,81 @@ def extract_v8sh_sections(soup: BeautifulSoup) -> dict[str, str]:
 
     sections["page_descriptor"] = _extract_v8sh_page_descriptor(soup)
 
+    # Fallback for shlang_ru / inline format: <p class="Usual"><b>Section:<br></b>content</p>
+    # Used by language operator topics (ВызватьИсключение, Попытка, etc.) that have no V8SH_chapter.
+    if not any(v for k, v in sections.items() if k not in ("page_descriptor",)):
+        _extract_usual_inline_sections(soup, sections)
+
     return sections
+
+
+_USUAL_SECTION_MAP: dict[str, str] = {
+    "синтаксис": "syntax",
+    "параметры": "params",
+    "возвращаемое значение": "returns",
+    "описание варианта": "description",
+    "описание": "description",
+    "пример": "example",
+    "см. также": "see_also",
+    "примечание": "note",
+    "доступность": "availability",
+    "использование в версии": "version",
+}
+
+
+def _extract_usual_inline_sections(soup: BeautifulSoup, sections: dict[str, str]) -> None:
+    """Fill *sections* from <p class="Usual"> inline-section format (shlang_ru operators)."""
+    current_key: str | None = None
+    buf: list[str] = []
+
+    def _flush() -> None:
+        if current_key and buf:
+            text = _normalize_md_text(" ".join(buf).strip())
+            if text:
+                if sections.get(current_key):
+                    sections[current_key] = sections[current_key] + "\n\n" + text
+                else:
+                    sections[current_key] = text
+        buf.clear()
+
+    title_tag = soup.find("h1", class_="V8SH_pagetitle")
+    start_node = title_tag if title_tag else soup.find("body")
+    if start_node is None:
+        return
+
+    for p in soup.find_all("p", class_="Usual"):
+        # Detect bold header like <b>Синтаксис:<br></b> or <strong>Параметры: </strong>
+        bold = p.find(["b", "strong"])
+        header_text = ""
+        if bold:
+            raw = bold.get_text(" ", strip=True).rstrip(":").strip().lower()
+            # Strip variant prefix "вариант синтаксиса: по выражению" → "синтаксис"
+            for key in _USUAL_SECTION_MAP:
+                if raw == key or raw.startswith(key):
+                    header_text = key
+                    break
+        if header_text:
+            _flush()
+            current_key = _USUAL_SECTION_MAP[header_text]
+            # Remainder of the <p> after the bold tag
+            remainder = p.get_text(" ", strip=True)
+            bold_text = bold.get_text(" ", strip=True)
+            after = remainder[len(bold_text):].strip() if remainder.startswith(bold_text) else ""
+            if after:
+                buf.append(after)
+        elif current_key:
+            # Collect pre blocks as code
+            pre = p.find("pre")
+            if pre:
+                code = pre.get_text("\n", strip=True)
+                if code:
+                    buf.append(f"```bsl\n{code}\n```")
+            else:
+                text = p.get_text(" ", strip=True)
+                if text:
+                    buf.append(text)
+
+    _flush()
 
 
 def html_to_md_content(html_path) -> str:
