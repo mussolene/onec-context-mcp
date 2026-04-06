@@ -45,6 +45,54 @@ def get_help_structured_dir() -> str:
     return os.path.join(get_data_dir(), "help_structured")
 
 
+HELP_TOPIC_BODY_MAX_CHARS_DEFAULT = 50000
+
+
+def get_help_topic_body_max_chars() -> int:
+    """Max length of general-doc topic body (api_topics JSONL / Qdrant). Aligned with indexer text cap.
+    0 = store full body (no truncation). Env: HELP_TOPIC_BODY_MAX_CHARS."""
+    v = (os.environ.get("HELP_TOPIC_BODY_MAX_CHARS") or "").strip()
+    if not v:
+        return HELP_TOPIC_BODY_MAX_CHARS_DEFAULT
+    try:
+        n = int(v)
+        if n <= 0:
+            return 0
+        return min(n, 2_000_000)
+    except ValueError:
+        return HELP_TOPIC_BODY_MAX_CHARS_DEFAULT
+
+
+def get_curated_memory_dir() -> str:
+    """JSONL snapshots for standards/snippets before Qdrant. Default: DATA_DIR/curated_memory."""
+    v = (os.environ.get("CURATED_MEMORY_DIR") or "").strip()
+    if v:
+        return v
+    return os.path.join(get_data_dir(), "curated_memory")
+
+
+CURATED_CHUNK_BODY_CHARS_DEFAULT = 1400
+CURATED_CHUNK_OVERLAP_DEFAULT = 250
+
+
+def get_curated_chunk_body_chars() -> int:
+    """Max characters per body chunk before embedding (title+desc add on top, cap 2000 total in embed)."""
+    try:
+        v = int(os.environ.get("CURATED_CHUNK_BODY_CHARS", str(CURATED_CHUNK_BODY_CHARS_DEFAULT)))
+        return max(400, min(1900, v))
+    except ValueError:
+        return CURATED_CHUNK_BODY_CHARS_DEFAULT
+
+
+def get_curated_chunk_overlap() -> int:
+    """Overlap between consecutive chunks (character-based)."""
+    try:
+        v = int(os.environ.get("CURATED_CHUNK_OVERLAP", str(CURATED_CHUNK_OVERLAP_DEFAULT)))
+        return max(0, min(800, v))
+    except ValueError:
+        return CURATED_CHUNK_OVERLAP_DEFAULT
+
+
 # --- Help sources ---
 HELP_SOURCE_BASE_DEFAULT = ""
 HELP_LANGUAGES_DEFAULT = "ru"

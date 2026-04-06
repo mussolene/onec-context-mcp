@@ -394,6 +394,41 @@ def test_upsert_curated_snippets_success(tmp_path: Path) -> None:
                     assert payload.get("domain") == "snippets"
 
 
+def test_upsert_curated_snippets_long_body_chunked(tmp_path: Path) -> None:
+    """Long code_snippet is split into multiple Qdrant points (standards/snippet domains)."""
+    with patch("onec_help.search_store.embedding.is_embedding_available", return_value=True):
+        with patch("onec_help.shared.env_config.get_curated_chunk_body_chars", return_value=80):
+            with patch("onec_help.shared.env_config.get_curated_chunk_overlap", return_value=20):
+
+                def _embed_batch(texts: list, **_kwargs: object) -> list:
+                    return [[0.1] * 768] * len(texts)
+
+                with patch(
+                    "onec_help.search_store.embedding.get_embedding_batch",
+                    side_effect=_embed_batch,
+                ):
+                    with patch("qdrant_client.QdrantClient") as mock_qc:
+                        mock_client = MagicMock()
+                        mock_client.collection_exists.return_value = False
+                        mock_qc.return_value = mock_client
+                        store = MemoryStore(
+                            tmp_path, short_limit=5, medium_limit=100, medium_ttl_days=7
+                        )
+                        items = [
+                            {
+                                "title": "Long",
+                                "description": "",
+                                "code_snippet": "z" * 500,
+                                "source_ref": "a.bsl",
+                            }
+                        ]
+                        n = store.upsert_curated_snippets(items, domain="snippets")
+                        assert n > 1
+                        assert mock_client.upsert.call_count == n
+                        first = mock_client.upsert.call_args_list[0].kwargs["points"][0].payload
+                        assert first.get("chunk_total", 0) > 1
+
+
 def test_format_long_summary_fallback(tmp_path: Path) -> None:
     """_format_long_summary uses description/code when no title/query/topic_path."""
     store = MemoryStore(tmp_path, short_limit=5, medium_limit=100, medium_ttl_days=7)

@@ -108,11 +108,13 @@ def collect_from_folder(dir_path: Path) -> list[dict[str, Any]]:
             continue
         title = _first_heading(raw) or f.stem
         desc = _first_paragraph(raw)
+        rel = str(f.relative_to(dir_path)).replace("\\", "/")
         items.append(
             {
                 "title": title,
                 "description": desc,
                 "code_snippet": raw.strip(),
+                "source_ref": rel,
             }
         )
     return items

@@ -50,11 +50,18 @@ def collect_from_folder(
     per_function_min_lines: only split when file has >= this many lines."""
     items: list[dict[str, Any]] = []
 
-    def add_item(title: str, description: str, code: str) -> None:
+    def add_item(title: str, description: str, code: str, *, source_ref: str = "") -> None:
         if not code:
             return
         t = (title or "Snippet").strip()
-        items.append({"title": t, "description": (description or "").strip(), "code_snippet": code})
+        row: dict[str, Any] = {
+            "title": t,
+            "description": (description or "").strip(),
+            "code_snippet": code,
+        }
+        if source_ref:
+            row["source_ref"] = source_ref
+        items.append(row)
 
     for ext in _BSL_EXTENSIONS:
         for f in dir_path.rglob(f"*{ext}"):
@@ -64,13 +71,19 @@ def collect_from_folder(
                 continue
             if not raw.strip():
                 continue
+            rel = str(f.relative_to(dir_path)).replace("\\", "/")
             if per_function and raw.count("\n") >= per_function_min_lines:
                 for proc in bsl_utils.extract_procedures_and_functions(raw):
                     name = proc.get("name", "")
                     if name:
-                        add_item(f"{f.stem}.{name}", "", proc["code"])
+                        add_item(
+                            f"{f.stem}.{name}",
+                            "",
+                            proc["code"],
+                            source_ref=f"{rel}#{name}",
+                        )
             else:
-                add_item(f.stem, "", raw.strip())
+                add_item(f.stem, "", raw.strip(), source_ref=rel)
 
     for f in dir_path.rglob("*.md"):
         if f.name.lower() == "readme.md":
@@ -85,6 +98,7 @@ def collect_from_folder(
             continue
         title = params.get("title", f.stem)
         desc = params.get("description", "")
-        add_item(title, desc, code)
+        rel = str(f.relative_to(dir_path)).replace("\\", "/")
+        add_item(title, desc, code, source_ref=rel)
 
     return items

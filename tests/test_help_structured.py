@@ -1,6 +1,7 @@
 """Tests for structured API snapshot built from help topics."""
 
 from pathlib import Path
+from unittest.mock import patch
 
 from onec_help.knowledge.help_structured import (
     _stable_record_hash_for_merge,
@@ -803,3 +804,51 @@ def test_payload_matches_platform_version_merged() -> None:
     p = {"version": "8.3.27.1859", "versions": ["8.3.27.1859", "8.3.27.1719"]}
     assert payload_matches_platform_version(p, "8.3.27.1719")
     assert not payload_matches_platform_version(p, "8.0.0.0")
+
+
+def test_build_topic_record_truncates_body_to_env_max(tmp_path: Path) -> None:
+    from onec_help.knowledge.help_structured import _build_topic_record
+
+    html = tmp_path / "page.html"
+    html.write_text("<html><body></body></html>", encoding="utf-8")
+    fake_md = "# Doc\n\n" + "z" * 200
+    with patch("onec_help.knowledge.help_structured.html_to_md_content", return_value=fake_md):
+        with patch(
+            "onec_help.knowledge.help_structured.env_config.get_help_topic_body_max_chars",
+            return_value=80,
+        ):
+            rec = _build_topic_record(
+                html,
+                topic_path="shcntx_ru/x",
+                title="ext",
+                version="8.3.27",
+                language="ru",
+                breadcrumb=[],
+                hbk_label="",
+            )
+    assert rec is not None
+    assert len(rec["body"]) == 80
+
+
+def test_build_topic_record_unlimited_body_when_max_zero(tmp_path: Path) -> None:
+    from onec_help.knowledge.help_structured import _build_topic_record
+
+    html = tmp_path / "page2.html"
+    html.write_text("<html><body></body></html>", encoding="utf-8")
+    fake_md = "# Doc\n\n" + "y" * 300
+    with patch("onec_help.knowledge.help_structured.html_to_md_content", return_value=fake_md):
+        with patch(
+            "onec_help.knowledge.help_structured.env_config.get_help_topic_body_max_chars",
+            return_value=0,
+        ):
+            rec = _build_topic_record(
+                html,
+                topic_path="shcntx_ru/y",
+                title="ext",
+                version="8.3.27",
+                language="ru",
+                breadcrumb=[],
+                hbk_label="",
+            )
+    assert rec is not None
+    assert len(rec["body"]) == 300

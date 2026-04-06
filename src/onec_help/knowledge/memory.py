@@ -311,13 +311,15 @@ class MemoryStore:
         domain: 'snippets' | 'community_help' | 'standards' — filter for search_long.
         Uses get_embedding_batch for throughput (same benefits as help indexer)."""
         from ..search_store import embedding
+        from ..search_store.embedding import MAX_EMBEDDING_INPUT_CHARS
+        from .curated_chunking import curated_point_id, expand_curated_items_for_indexing
 
         if not embedding.is_embedding_available():
             return 0
+        items = expand_curated_items_for_indexing(items, domain)
         total = len(items)
         skipped = 0
         valid: list[tuple[str, dict[str, Any], str, int]] = []
-        prefix = domain[:8]
         for item in items:
             if not isinstance(item, dict):
                 skipped += 1
@@ -331,9 +333,10 @@ class MemoryStore:
                 continue
             # References (community_help): use instruction (full text) for embedding
             if instruction:
-                summary = f"{title} | {instruction[:2000]}"
+                summary = f"{title} | {instruction[:MAX_EMBEDDING_INPUT_CHARS]}"
             else:
-                summary = f"{title} | {desc} | {code[:300]}"
+                # Per-chunk body; cap at model input (long docs split in curated_chunking).
+                summary = f"{title} | {desc} | {code}"[:MAX_EMBEDDING_INPUT_CHARS]
             payload = {
                 "title": title,
                 "description": desc,
@@ -349,7 +352,24 @@ class MemoryStore:
                 payload["source_site"] = item["source_site"]
             if item.get("source"):
                 payload["source"] = item["source"]
-            point_id = f"{prefix}_{hashlib.sha256(title.encode()).hexdigest()[:12]}"
+            if item.get("source_ref"):
+                payload["source_ref"] = item["source_ref"]
+            pk = item.get("parent_key")
+            ci = item.get("chunk_index")
+            ct = item.get("chunk_total")
+            if (
+                isinstance(pk, str)
+                and pk
+                and isinstance(ci, int)
+                and isinstance(ct, int)
+                and ct >= 1
+            ):
+                payload["parent_key"] = pk
+                payload["chunk_index"] = ci
+                payload["chunk_total"] = ct
+                point_id = curated_point_id(domain, pk, ci, ct)
+            else:
+                point_id = f"{domain[:8]}_{hashlib.sha256(title.encode()).hexdigest()[:12]}"
             numeric_id = int(hashlib.sha256(point_id.encode()).hexdigest()[:14], 16) % (2**63)
             valid.append((summary, payload, point_id, numeric_id))
         if not valid:

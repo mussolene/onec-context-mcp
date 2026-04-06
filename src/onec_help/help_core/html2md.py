@@ -650,7 +650,13 @@ def html_to_md_content(html_path) -> str:
         # Fallback: title + body text (catalog pages with only title)
         body = soup.find("body")
         if body:
-            out = f"# {title}\n\n" + body.get_text(separator="\n", strip=True)[:8000]
+            from ..shared import env_config
+
+            lim = env_config.get_help_topic_body_max_chars()
+            raw = body.get_text(separator="\n", strip=True)
+            if lim > 0:
+                raw = raw[:lim]
+            out = f"# {title}\n\n" + raw
     return _normalize_md_text(out)
 
 

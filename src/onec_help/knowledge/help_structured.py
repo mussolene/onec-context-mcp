@@ -1225,6 +1225,9 @@ def _build_topic_record(
     if not body:
         return None
 
+    max_body = env_config.get_help_topic_body_max_chars()
+    body_stored = body if max_body <= 0 else body[:max_body]
+
     summary = _compact_summary(body, 500)
     kind = _topic_doc_kind(topic_path)
     breadcrumb_text = " > ".join(str(x) for x in breadcrumb) if breadcrumb else ""
@@ -1234,7 +1237,7 @@ def _build_topic_record(
         "kind": kind,
         "title": doc_title,
         "summary": summary,
-        "body": body[:8000],
+        "body": body_stored,
         "hbk_label": hbk_label,
         "topic_path": topic_path,
         "version": version,

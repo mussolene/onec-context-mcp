@@ -361,6 +361,7 @@ def _parse_content_page(html: str, url: str) -> dict[str, Any] | None:
         "description": first_para,
         "code_snippet": _sanitize_text(f"# {title}\n\n{text}"),
         "detail_url": url,
+        "source_ref": url,
         "source": "its.1c.ru",
         "source_site": "its.1c.ru",
     }
@@ -450,6 +451,7 @@ def fetch_its_v8std_items(
                         f"# {title_from_hdoc or 'Стандарт'}\n\n{body_text}"
                     ),
                     "detail_url": url,
+                    "source_ref": url,
                     "source": "its.1c.ru",
                     "source_site": "its.1c.ru",
                     "content_id": mid,

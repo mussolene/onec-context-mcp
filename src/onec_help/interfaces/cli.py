@@ -1028,7 +1028,15 @@ def _load_json_items(p: Path) -> list[dict]:
     data = json.loads(raw)
     if not isinstance(data, list):
         raise ValueError("JSON must be an array of {title, description, code_snippet}")
-    return data
+    out: list[dict] = []
+    for i, x in enumerate(data):
+        if not isinstance(x, dict):
+            continue
+        row = dict(x)
+        if "source_ref" not in row:
+            row["source_ref"] = f"{p.name}#{i}"
+        out.append(row)
+    return out
 
 
 def _load_folder_items(d: Path, per_func: bool = False) -> list[dict]:
@@ -1131,6 +1139,22 @@ def cmd_load_snippets(args: argparse.Namespace) -> int:
             if not items:
                 print("No snippets to load.", file=sys.stderr)
                 return 0
+
+            try:
+                from ..knowledge.curated_jsonl import write_curated_snapshot
+
+                by_snap: dict[str, list[dict]] = {"snippets": [], "community_help": []}
+                for it in items:
+                    t = (it.get("type") or "snippet").lower()
+                    dom = "community_help" if t == "reference" else "snippets"
+                    by_snap[dom].append(it)
+                for dom, rows in by_snap.items():
+                    if rows:
+                        pth = write_curated_snapshot(dom, rows)
+                        if pth:
+                            progress_done(f"load-snippets │ curated snapshot → {pth}")
+            except Exception:
+                pass
 
             from ..search_store import embedding
 
@@ -1407,6 +1431,15 @@ def cmd_load_standards(args: argparse.Namespace) -> int:
         if not items:
             print("No .md files found.", file=sys.stderr)
             return 0
+
+        try:
+            from ..knowledge.curated_jsonl import write_curated_snapshot
+
+            snap_path = write_curated_snapshot("standards", items)
+            if snap_path:
+                progress_done(f"load-standards │ curated snapshot → {snap_path}")
+        except Exception:
+            pass
 
         from ..search_store import embedding
 
