@@ -52,7 +52,7 @@ def test_search_1c_api_type_method(mcp_client: StreamableHttpMcpClient) -> None:
         "search_1c_api",
         {"query": "HTTPСоединение.Получить", "limit": 3},
     )
-    assert "HTTPСоединение" in out or "No structured API results" in out
+    assert "HTTPСоединение" in out or "Нет результатов" in out or "structured API" in out
 
 
 def test_get_1c_api_answer_http_get(mcp_client: StreamableHttpMcpClient) -> None:

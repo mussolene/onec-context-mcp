@@ -70,7 +70,10 @@ def test_search_1c_api_crypto_manager(mcp_client: StreamableHttpMcpClient) -> No
         {"query": "МенеджерКриптографии", "limit": 5},
     )
     assert (
-        "МенеджерКриптографии" in out or "Криптограф" in out or "No structured API results" in out
+        "МенеджерКриптографии" in out
+        or "Криптограф" in out
+        or "Нет результатов" in out
+        or "structured API" in out
     )
 
 

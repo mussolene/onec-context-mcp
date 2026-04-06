@@ -375,16 +375,40 @@ def test_mcp_tool_search_1c_api_renders_examples(help_sample_dir: Path) -> None:
 
 
 def test_mcp_tool_search_1c_api_no_results(help_sample_dir: Path) -> None:
-    """search_1c_api returns message when no results."""
+    """search_1c_api returns message when no results (including after topic fallback)."""
     app = mcp_server._build_mcp_app(help_sample_dir)
     with patch.object(mcp_server, "_search_api_members", return_value=[]):
         with patch.object(mcp_server, "_search_api_objects", return_value=[]):
             with patch.object(mcp_server, "_search_official_examples", return_value=[]):
-                result = asyncio.run(
-                    app.call_tool("search_1c_api", {"query": "nonexistent", "limit": 2})
-                )
+                with patch.object(mcp_server, "_search_api_topics", return_value=[]):
+                    result = asyncio.run(
+                        app.call_tool("search_1c_api", {"query": "nonexistent", "limit": 2})
+                    )
     text = result.content[0].text if result.content else ""
-    assert "No structured API results" in text
+    assert "Нет результатов" in text or "structured API" in text
+
+
+def test_mcp_tool_search_1c_api_topic_fallback(help_sample_dir: Path) -> None:
+    """When structured API sections are empty, search_1c_api surfaces help topics with same flow."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    topic_hit = {
+        "title": "Общая тема",
+        "summary": "Краткое описание",
+        "entity_type": "topic",
+        "breadcrumb": [],
+        "topic_path": "platform/some/topic",
+    }
+    with patch.object(mcp_server, "_search_api_members", return_value=[]):
+        with patch.object(mcp_server, "_search_api_objects", return_value=[]):
+            with patch.object(mcp_server, "_search_official_examples", return_value=[]):
+                with patch.object(mcp_server, "_search_api_topics", return_value=[topic_hit]):
+                    result = asyncio.run(
+                        app.call_tool("search_1c_api", {"query": "что-то редкое", "limit": 3})
+                    )
+    text = result.content[0].text if result.content else ""
+    assert "Help topics" in text
+    assert "Общая тема" in text
+    assert "topic_path" in text
 
 
 def test_mcp_tool_get_1c_help_index_status_via_app(help_sample_dir: Path) -> None:
@@ -507,8 +531,23 @@ def test_mcp_tool_get_1c_api_answer_no_member_same_wording(help_sample_dir: Path
             app.call_tool("get_1c_api_answer", {"name": "СоздатьПустуюТаблицу"}),
         )
     text = result.content[0].text if result.content else ""
-    assert "индексе справки платформы" in text
+    assert "structured help" in text
     assert "search_1c_api" in text
+
+
+def test_mcp_tool_get_1c_api_answer_redirects_natural_language(help_sample_dir: Path) -> None:
+    """Long prose in name= should suggest answer_1c_help_question, not «not found»."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(mcp_server, "_get_api_member") as gm:
+        result = asyncio.run(
+            app.call_tool(
+                "get_1c_api_answer",
+                {"name": "Как вызвать исключение во встроенном языке?"},
+            )
+        )
+        gm.assert_not_called()
+    text = result.content[0].text if result.content else ""
+    assert "answer_1c_help_question" in text
 
 
 def test_mcp_tool_get_1c_api_answer_falls_back_to_api_object(help_sample_dir: Path) -> None:

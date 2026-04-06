@@ -708,31 +708,83 @@ def _structured_api_sort_key(
     )
 
 
+# Exact-API tools (get_1c_api_answer / get_1c_api_object / …) expect Тип.Метод or short identifier,
+# not a prose question — otherwise agents get long «not found» noise.
+_NL_QUESTION_PREFIXES_RU = (
+    "как ",
+    "что ",
+    "где ",
+    "почему ",
+    "зачем ",
+    "когда ",
+    "кто ",
+    "чем ",
+    "можно ли",
+    "есть ли",
+    "нужно ли",
+    "покажи",
+    "опиши",
+    "перечисли",
+    "скажи",
+    "расскажи",
+    "объясни",
+    "найди",
+    "подскажи",
+)
+_MAX_EXACT_API_NAME_WORDS = 12
+_MAX_EXACT_API_NAME_CHARS = 220
+
+
+def _is_likely_natural_language_not_exact_api_name(s: str) -> bool:
+    """True if input looks like a free-form question, not a platform API identifier."""
+    t = (s or "").strip()
+    if not t:
+        return False
+    if "\n" in t or "\r" in t:
+        return True
+    if "?" in t:
+        return True
+    if len(t) > _MAX_EXACT_API_NAME_CHARS:
+        return True
+    words = t.split()
+    if len(words) > _MAX_EXACT_API_NAME_WORDS:
+        return True
+    low = t.lower()
+    for p in _NL_QUESTION_PREFIXES_RU:
+        if low.startswith(p):
+            return True
+    if low.startswith(("how ", "what ", "where ", "why ", "when ", "can i ", "is there ")):
+        return True
+    return False
+
+
+def _exact_api_tool_wrong_shape_message() -> str:
+    return (
+        "Похоже на вопрос в свободной форме, а не на точное имя API (Тип.Метод). "
+        "Используйте answer_1c_help_question(question) или search_1c_api(query)."
+    )
+
+
 def _no_documented_api_member_message(name: str) -> str:
     """Exact member lookup is only against ingested platform help (no fuzzy fill-in)."""
     return (
-        f"«{name}» нет в индексе справки платформы как метод или функция встроенного API "
-        "(используется только точное совпадение с выгруженной справкой). "
-        "Проверьте орфографию и полное имя Тип.Метод; прикладные символы в справку не входят. "
-        "Поиск по смыслу по статьям API — search_1c_api."
+        f"«{name}»: нет в индексе как член API (точное совпадение). "
+        "Уточните Тип.Метод или: search_1c_api."
     )
 
 
 def _no_documented_api_answer_message(name: str) -> str:
     """Neither api_members nor api_objects (type) matched the exact name."""
     return (
-        f"«{name}» нет в индексе справки платформы как тип, метод или функция встроенного API "
-        "(точное совпадение с выгруженной structured help). "
-        "Проверьте орфографию и полное имя Тип.Метод; прикладные символы в справку не входят. "
-        "Поиск по смыслу — search_1c_api."
+        f"«{name}»: нет в индексе structured help (members/objects, точное имя). "
+        "Уточните Тип.Метод или: search_1c_api / answer_1c_help_question."
     )
 
 
 def _no_documented_api_object_message(name: str) -> str:
     """Exact object/type lookup is only against ingested platform help."""
     return (
-        f"«{name}» нет в индексе справки платформы как объект или тип встроенного API "
-        "(точное совпадение имени в structured help). Проверьте написание; по смыслу — search_1c_api."
+        f"«{name}»: нет среди объектов/типов (точное имя). Проверьте написание или: search_1c_api."
     )
 
 
@@ -1295,7 +1347,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         include_examples: bool = True,
     ) -> str:
         """Search structured 1C platform help across API members, objects and official examples.
-        Use for exact API names, synonyms and natural-language API lookup without topic-layer fallback."""
+        If those collections return nothing, falls back to general help topics (same query embedding)."""
         err = _check_rate_limit()
         if err:
             return err
@@ -1388,7 +1440,41 @@ def _build_mcp_app(help_path: Path) -> Any:
                     lines.append(f"   {description[: _snippet_max_chars()]}...")
             sections.append("## Official examples\n" + "\n".join(lines))
         if not sections:
-            return "No structured API results found. Rebuild structured help index or уточните запрос/version."
+            topics = sorted(
+                _search_api_topics(
+                    q,
+                    limit=max(4, min(limit, 8)),
+                    version=version,
+                    language=language,
+                    query_vector=_qv,
+                ),
+                key=lambda item: _structured_api_sort_key(q, item),
+            )
+            if topics:
+                lines = []
+                for idx, item in enumerate(topics[: max(4, min(limit, 8))], 1):
+                    title = item.get("title") or item.get("name") or "Topic"
+                    meta = _format_result_meta(
+                        {
+                            "entity_type": item.get("entity_type") or "topic",
+                            "breadcrumb": item.get("breadcrumb") or [],
+                        }
+                    )
+                    lines.append(f"{idx}. **{title}**{meta}")
+                    summary = str(item.get("summary") or "").strip()
+                    if not summary:
+                        summary = str(item.get("text") or "")[:400].strip()
+                    if summary:
+                        lines.append(f"   {summary[: _snippet_max_chars()]}...")
+                    tp = str(item.get("topic_path") or item.get("path") or "").strip()
+                    if tp:
+                        lines.append(f"   `topic_path`: {tp}")
+                sections.append("## Help topics\n" + "\n".join(lines))
+        if not sections:
+            return (
+                "Нет результатов в structured API и в общих темах справки. Уточните запрос/version; "
+                "для точного Тип.Метод — get_1c_api_answer."
+            )
         return "\n\n".join(sections)
 
     @mcp.tool()
@@ -1400,7 +1486,8 @@ def _build_mcp_app(help_path: Path) -> Any:
         detail: str = "compact",
     ) -> str:
         """Compact answer for a 1C API/function/method from structured help (exact name in index only).
-        Use for exact API names like HTTPСоединение.Получить or Формат.
+        Pass a single API identifier: Тип.Метод or тип (e.g. HTTPСоединение.Получить, ТаблицаЗначений).
+        For natural-language questions use answer_1c_help_question or search_1c_api.
         detail: compact (default) or full."""
         err = _check_rate_limit()
         if err:
@@ -1410,6 +1497,8 @@ def _build_mcp_app(help_path: Path) -> Any:
             return err
         if not name_clean:
             return "Provide API name, for example HTTPСоединение.Получить."
+        if _is_likely_natural_language_not_exact_api_name(name_clean):
+            return _exact_api_tool_wrong_shape_message()
         structured = _get_api_member(name_clean, version=version, language=language)
         structured = sorted(structured, key=lambda item: _structured_api_sort_key(name_clean, item))
         if not structured:
@@ -1431,7 +1520,8 @@ def _build_mcp_app(help_path: Path) -> Any:
         version: str | None = None,
         language: str | None = None,
     ) -> str:
-        """Structured API object/type from onec_help_api_objects (exact name match to ingested help only)."""
+        """Structured API object/type from onec_help_api_objects (exact name match to ingested help only).
+        Pass object/type name, not a prose question; for questions use answer_1c_help_question."""
         err = _check_rate_limit()
         if err:
             return err
@@ -1440,6 +1530,8 @@ def _build_mcp_app(help_path: Path) -> Any:
             return err
         if not name_clean:
             return "Provide API name, for example HTTPСоединение.Получить."
+        if _is_likely_natural_language_not_exact_api_name(name_clean):
+            return _exact_api_tool_wrong_shape_message()
         structured = _get_api_object(name_clean, version=version, language=language)
         structured = sorted(structured, key=lambda item: _structured_api_sort_key(name_clean, item))
         if not structured:
@@ -1462,6 +1554,8 @@ def _build_mcp_app(help_path: Path) -> Any:
             return err
         if not name_clean:
             return "Provide API name, for example HTTPСоединение.Получить."
+        if _is_likely_natural_language_not_exact_api_name(name_clean):
+            return _exact_api_tool_wrong_shape_message()
         related = _normalize_api_related_items(
             _get_api_related(name_clean, version=version, language=language)
         )
