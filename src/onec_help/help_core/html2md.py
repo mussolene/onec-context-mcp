@@ -7,6 +7,7 @@ import os
 import re
 import sys
 import unicodedata
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -620,6 +621,26 @@ _SKIP_EXTENSIONS = frozenset(
         ".idx",
     }
 )
+
+
+def iter_unpacked_hbk_html_files(stem_dir: Path) -> Iterator[Path]:
+    """Yield HTML topic files under an unpacked .hbk directory.
+
+    Platform UI books (e.g. ``1cv8_ru.hbk``) store most articles as extensionless files that
+    still begin with ``<HTML>``; syntax/API books use ``*.html`` / ``*.htm``. Structured
+    help and ingest must include both, not only ``*.html``.
+    """
+    stem_dir = Path(stem_dir)
+    for p in stem_dir.rglob("*"):
+        if not p.is_file() or p.name.startswith("."):
+            continue
+        ext = p.suffix.lower() if p.suffix else ""
+        if ext in _SKIP_EXTENSIONS:
+            continue
+        if ext in (".html", ".htm"):
+            yield p
+        elif not ext and _looks_like_html(p):
+            yield p
 
 
 def build_docs(project_dir, output_dir):

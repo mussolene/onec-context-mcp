@@ -836,6 +836,8 @@ def run_unpack_sync(
 
 def _collect_unpacked_tasks(unpacked_base: Path) -> list[tuple[Path, str, str, str]]:
     """Scan unpacked_base for version/stem dirs. Returns [(docs_dir, version, stem, language), ...]."""
+    from ..help_core.html2md import iter_unpacked_hbk_html_files
+
     tasks: list[tuple[Path, str, str, str]] = []
     base = Path(unpacked_base).resolve()
     if not base.is_dir():
@@ -864,7 +866,7 @@ def _collect_unpacked_tasks(unpacked_base: Path) -> list[tuple[Path, str, str, s
                     language = parts[1].lower()
             if not language:
                 language = "ru"
-            if any(stem_dir.rglob("*.html")):
+            if any(iter_unpacked_hbk_html_files(stem_dir)):
                 tasks.append((stem_dir, version, stem, language))
     return tasks
 

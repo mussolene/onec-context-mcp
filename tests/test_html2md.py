@@ -16,6 +16,7 @@ from onec_help.help_core.html2md import (
     extract_outgoing_links,
     extract_v8sh_sections,
     html_to_md_content,
+    iter_unpacked_hbk_html_files,
     read_file_with_encoding_fallback,
     resolve_href,
 )
@@ -522,3 +523,15 @@ def test_extract_links_from_markdown(tmp_path: Path) -> None:
     paths = {lnk["resolved_path"] for lnk in resolved}
     assert "other.md" in paths
     assert "sub/sibling.md" in paths
+
+
+def test_iter_unpacked_hbk_html_files_includes_extensionless(tmp_path: Path) -> None:
+    """Unpacked 1cv8_ru-style topics are often extensionless HTML blobs."""
+    (tmp_path / "embedlang.html").write_text("<html><body>x</body></html>", encoding="utf-8")
+    (tmp_path / "TopicNoExt").write_text("<html><body>y</body></html>", encoding="utf-8")
+    (tmp_path / "pic.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    paths = sorted(iter_unpacked_hbk_html_files(tmp_path), key=lambda p: p.name)
+    names = [p.name for p in paths]
+    assert "embedlang.html" in names
+    assert "TopicNoExt" in names
+    assert "pic.png" not in names

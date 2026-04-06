@@ -741,10 +741,22 @@ def _format_structured_api_object(
     if include_rich_sections and item.get("description"):
         lines.append("#### Описание")
         lines.append(str(item.get("description")))
-    if item.get("syntax"):
+    source_sections = item.get("source_sections") or {}
+    syntax_val = (
+        str(item.get("syntax") or "").strip() or str(source_sections.get("syntax") or "").strip()
+    )
+    if syntax_val:
         lines.append("#### Синтаксис")
-        lines.append(f"```text\n{item.get('syntax')}\n```")
+        lines.append(f"```text\n{syntax_val}\n```")
     params = item.get("params") or []
+    if not params and source_sections.get("params"):
+        raw_p = source_sections.get("params")
+        if isinstance(raw_p, list):
+            params = raw_p
+        elif isinstance(raw_p, str) and raw_p.strip():
+            from ..knowledge.help_structured import _parse_param_lines
+
+            params = _parse_param_lines(raw_p)
     if params:
         lines.append("#### Параметры")
         for param in params[:10]:
@@ -752,9 +764,12 @@ def _format_structured_api_object(
                 p_name = param.get("name") or "—"
                 p_type = param.get("type") or "—"
                 lines.append(f"- **{p_name}** ({p_type})")
-    if item.get("returns"):
+    returns_val = (
+        str(item.get("returns") or "").strip() or str(source_sections.get("returns") or "").strip()
+    )
+    if returns_val:
         lines.append("#### Возвращаемое значение")
-        lines.append(str(item.get("returns")))
+        lines.append(returns_val)
     if item.get("platform_since"):
         lines.append("#### Использование в версии")
         lines.append(str(item.get("platform_since")))
@@ -768,8 +783,8 @@ def _format_structured_api_object(
         lines.append("#### Примечание")
         lines.append(str(item.get("notes")))
     if include_rich_sections:
-        source_sections = item.get("source_sections") or {}
         for heading, label in (
+            ("note", "Примечание"),
             ("fields", "Поля"),
             ("see_also", "См. также"),
             ("example", "Пример"),
@@ -1371,7 +1386,9 @@ def _build_mcp_app(help_path: Path) -> Any:
         structured = sorted(structured, key=lambda item: _structured_api_sort_key(name_clean, item))
         if not structured:
             structured = _get_api_object(name_clean, version=version, language=language)
-            structured = sorted(structured, key=lambda item: _structured_api_sort_key(name_clean, item))
+            structured = sorted(
+                structured, key=lambda item: _structured_api_sort_key(name_clean, item)
+            )
         if structured:
             best_item = structured[0]
             if detail == "full" and best_item.get("topic_path"):

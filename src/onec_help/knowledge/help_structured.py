@@ -10,7 +10,12 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
-from ..help_core.html2md import _read_html_file, extract_v8sh_sections, html_to_md_content
+from ..help_core.html2md import (
+    _read_html_file,
+    extract_v8sh_sections,
+    html_to_md_content,
+    iter_unpacked_hbk_html_files,
+)
 from ..search_store import embedding
 from ..search_store.indexer import _version_sort_key, get_collection_vector_size
 from ..shared import env_config
@@ -124,6 +129,17 @@ def _strip_title_suffix(title: str) -> str:
     if " (" in base:
         base = base.split(" (", 1)[0].strip()
     return base
+
+
+def _parenthetical_synonym(title: str, base: str) -> str | None:
+    """English name from 'Имя (EnglishName)' for extra aliases / search."""
+    t = (title or "").strip()
+    if " (" not in t:
+        return None
+    rest = t.split(" (", 1)[1].strip().rstrip(")").strip()
+    if not rest or rest.lower() == (base or "").lower():
+        return None
+    return rest
 
 
 def _member_parent_from_breadcrumb(title: str, breadcrumb: list[str] | None) -> str:
@@ -505,16 +521,19 @@ def _build_structured_records(
     title = title or payload_title or path
     member_kind = _infer_member_kind(path, title, entity_type)
     object_kind = _infer_object_kind(path, title)
-    if (
-        member_kind == "topic"
-        and "." in _strip_title_suffix(title)
-        and "/tables/" not in path.replace("\\", "/").lower()
-        and (sections.get("syntax") or sections.get("params") or sections.get("returns"))
-    ):
-        member_kind = "method"
     if not sections:
         intro, inline_sections = _extract_inline_sections(intro)
         sections = inline_sections
+    path_lower = path.replace("\\", "/").lower()
+    if member_kind == "topic" and "/tables/" not in path_lower:
+        has_api_shape = bool(
+            sections.get("syntax") or sections.get("params") or sections.get("returns")
+        )
+        if has_api_shape and (
+            "." in _strip_title_suffix(title)
+            or any(marker in path_lower for marker in ("/shclang_", "/shlang_ru/", "/embedlang"))
+        ):
+            member_kind = "method"
     intro = _strip_inline_title_noise(intro, title, breadcrumb)
     description = _normalize_text(sections.get("description") or intro)
     notes = _clean_note(sections.get("note", ""))
@@ -541,8 +560,14 @@ def _build_structured_records(
         owner_kind = (
             _infer_object_kind(path.rsplit("/", 2)[0] if "/" in path else path, owner_name)
             if owner_name
-            else "type"
+            else _infer_object_kind(path, _strip_title_suffix(title))
         )
+        alias_list: list[str] = []
+        if title and title != full_name:
+            alias_list.append(title)
+        syn_opt = _parenthetical_synonym(title, full_name)
+        if syn_opt and syn_opt not in alias_list:
+            alias_list.append(syn_opt)
         member_record = {
             "id": _topic_point_id(path, version, language),
             "owner_name": owner_name,
@@ -565,7 +590,7 @@ def _build_structured_records(
             "language": language,
             "topic_path": path,
             "breadcrumb": breadcrumb,
-            "aliases": [title] if title and title != full_name else [],
+            "aliases": alias_list,
             "see_also": see_also,
             "source_sections": source_sections,
         }
@@ -603,6 +628,12 @@ def _build_structured_records(
         object_kind,
     ):
         full_name = _strip_title_suffix(title)
+        obj_aliases: list[str] = []
+        if title and title != full_name:
+            obj_aliases.append(title)
+        syn_obj = _parenthetical_synonym(title, full_name)
+        if syn_obj and syn_obj not in obj_aliases:
+            obj_aliases.append(syn_obj)
         object_record = {
             "id": _topic_point_id(path, version, language),
             "object_name": full_name,
@@ -623,10 +654,17 @@ def _build_structured_records(
             "language": language,
             "topic_path": path,
             "breadcrumb": breadcrumb,
-            "aliases": [title] if title and title != full_name else [],
+            "aliases": obj_aliases,
             "see_also": see_also,
             "source_sections": source_sections,
         }
+        syn = _clean_syntax(sections.get("syntax", ""))
+        prs = _parse_param_lines(sections.get("params", ""))
+        ret = _clean_returns(sections.get("returns", ""))
+        if syn or prs or ret:
+            object_record["syntax"] = syn
+            object_record["params"] = prs
+            object_record["returns"] = ret
 
     examples: list[dict[str, Any]] = []
     example_section = sections.get("example", "")
@@ -962,7 +1000,7 @@ def iter_help_topics_from_unpacked(*, unpacked_dir: Path | None = None) -> list[
                 if not rel:
                     continue
                 toc_map[rel] = item
-            for html_path in stem_dir.rglob("*.html"):
+            for html_path in iter_unpacked_hbk_html_files(stem_dir):
                 try:
                     rel = "/" + str(html_path.relative_to(stem_dir)).replace("\\", "/")
                 except ValueError:
@@ -1436,6 +1474,9 @@ def index_structured_api_objects(
             "description": item.get("description") or "",
             "notes": item.get("notes") or "",
             "restrictions": item.get("restrictions") or "",
+            "syntax": item.get("syntax") or "",
+            "params": item.get("params") or [],
+            "returns": item.get("returns") or "",
             "availability": item.get("availability") or "",
             "platform_since": item.get("platform_since") or "",
             "page_descriptor": item.get("page_descriptor") or "",
@@ -1754,15 +1795,22 @@ def _member_exact_sort_key(
     full_name = str(item.get("full_name") or item.get("name") or "").strip().lower()
     member_name = str(item.get("member_name") or "").strip().lower()
     owner_name = str(item.get("owner_name") or "").strip().lower()
+    aliases_lower = [
+        str(a).strip().lower()
+        for a in (item.get("aliases") or [])
+        if isinstance(a, str) and str(a).strip()
+    ]
     owner_priority = 0 if owner_name in {"глобальный контекст", "встроенные функции языка"} else 1
     if full_name == query_clean:
         priority = 0
     elif member_name == query_clean:
         priority = 1
-    elif full_name.endswith("." + query_clean):
+    elif query_clean in aliases_lower:
         priority = 2
-    else:
+    elif full_name.endswith("." + query_clean):
         priority = 3
+    else:
+        priority = 4
     return (
         priority,
         owner_priority,
@@ -1826,7 +1874,7 @@ def get_api_member(
             return []
         results: list[dict[str, Any]] = []
         try:
-            for field in ("name", "full_name", "member_name"):
+            for field in ("name", "full_name", "member_name", "aliases"):
                 results.extend(
                     _scroll_exact_member_matches(
                         client,
@@ -1882,16 +1930,20 @@ def get_api_object(
         client = QdrantClient(host=host, port=port, check_compatibility=False)
         if not client.collection_exists(API_OBJECTS_COLLECTION_NAME):
             return []
-        must = [FieldCondition(key="name", match=MatchValue(value=name_clean))]
+        must: list[FieldCondition] = []
         if version:
             must.append(FieldCondition(key="version", match=MatchValue(value=version)))
         if language:
             must.append(FieldCondition(key="language", match=MatchValue(value=language)))
+        should = [
+            FieldCondition(key="name", match=MatchValue(value=name_clean)),
+            FieldCondition(key="aliases", match=MatchValue(value=name_clean)),
+        ]
         results: list[dict[str, Any]] = []
         try:
             points, _ = client.scroll(
                 collection_name=API_OBJECTS_COLLECTION_NAME,
-                scroll_filter=Filter(must=must),
+                scroll_filter=Filter(must=must, should=should, minimum_should_match=1),
                 limit=10,
                 with_payload=True,
                 with_vectors=False,
