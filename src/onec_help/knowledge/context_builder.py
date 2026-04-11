@@ -90,6 +90,8 @@ def _infer_local_context(file_uri: str | None, symbol_name: str | None) -> dict[
 
 def _classify_query(query: str, local_context: dict[str, Any]) -> str:
     q = (query or "").strip().lower()
+    if q.startswith(("метаданные.", "metadata.", "глобальный контекст.метаданные.")):
+        return "metadata"
     if "." in q and " " not in q:
         return "api"
     if any(token in q for token in ("ошиб", "diagnostic", "warning", "review", "рефактор")):
@@ -125,12 +127,38 @@ def build_context(req: ContextRequest) -> dict[str, Any]:
 
     help_query = (req.symbol_name or q).strip()
     metadata_query = (local_context.get("object_name") or q).strip()
+    resolved_surface: dict[str, Any] = {}
+    try:
+        from .language_resolver import resolve_1c_language_query
+
+        resolved_surface = resolve_1c_language_query(q)
+        for candidate in resolved_surface.get("candidates") or []:
+            lookup = str(candidate.get("lookup") or "").strip()
+            name = str(candidate.get("name") or "").strip()
+            if lookup in {"member", "object"} and name:
+                help_query = name
+                break
+        for candidate in resolved_surface.get("candidates") or []:
+            if str(candidate.get("lookup") or "").strip() == "metadata_graph":
+                metadata_query = str(candidate.get("name") or "").strip() or metadata_query
+                break
+    except Exception:
+        resolved_surface = {}
     need_metadata = query_type in {"metadata", "mixed", "review"} or bool(
         local_context.get("object_name")
     )
     cfg_ver = _auto_config_version(req.config_version, need_metadata)
-
-    help_limit = 1 if query_type == "api" else 2 if query_type in {"mixed", "review"} else 0
+    has_resolved_help = any(
+        str(item.get("lookup") or "").strip() in {"member", "object"}
+        for item in (resolved_surface.get("candidates") or [])
+    )
+    help_limit = (
+        1
+        if query_type == "api" or has_resolved_help
+        else 2
+        if query_type in {"mixed", "review"}
+        else 0
+    )
     memory_limit = 1 if query_type in {"api", "mixed", "review"} else 0
     metadata_limit = 2 if need_metadata else 0
     per_source_limit = max(1, min(req.limit, 2))
@@ -212,6 +240,7 @@ def build_context(req: ContextRequest) -> dict[str, Any]:
     return {
         "request": asdict(req),
         "query_type": query_type,
+        "resolved_surface": resolved_surface,
         "local_context": local_context,
         "help_topics": help_topics,
         "memory": memory_items,

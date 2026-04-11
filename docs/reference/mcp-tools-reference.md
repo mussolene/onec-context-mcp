@@ -7,14 +7,15 @@
 ## Рекомендуемый порядок вызовов
 
 1. **Старт AI-сессии** — `get_1c_quick_guide(task="develop"|"refactor"|"test")`.
-2. **Точное API `Тип.Метод`** — `get_1c_api_answer(name)`; полный structured текст — `detail="full"`.
-3. **Structured API truth-source** — `get_1c_api_object(name)`.
-4. **Широкий structured lookup по платформе** — `search_1c_api(query)`; официальные примеры из справки — тот же вызов с `include_examples=True` (по умолчанию уже `True`).
-5. **Естественный вопрос по справке** — `answer_1c_help_question(question)`.
-6. **Локальный anti-hallucination context** — `get_1c_task_context(query, file_uri, symbol_name)`.
-7. **Стандарты и сниппеты** — `search_1c_standards(query)` / `search_1c_snippets(query)`.
-8. **Метаданные** — `search_1c_metadata_exact` / `search_1c_metadata_semantic` / `search_1c_metadata_fields`.
-9. **После генерации рабочего кода** — `save_1c_snippet` только для реально переиспользуемого и уже проверенного результата.
+2. **Surface-chain / exact resolve** — `resolve_1c_api_name(name)` для форм вроде `Документы.Имя.Метод`, `Константы.Имя.Получить`, `Метаданные.СвойстваОбъектов.РежимСовместимости`.
+3. **Точное API `Тип.Метод`** — `get_1c_api_answer(name)`; полный structured текст — `detail="full"`.
+4. **Structured API truth-source** — `get_1c_api_object(name)`.
+5. **Широкий structured lookup по платформе** — `search_1c_api(query)`; официальные примеры из справки — тот же вызов с `include_examples=True` (по умолчанию уже `True`).
+6. **Естественный вопрос по справке** — `answer_1c_help_question(question)`.
+7. **Локальный anti-hallucination context** — `get_1c_task_context(query, file_uri, symbol_name)`.
+8. **Стандарты и сниппеты** — `search_1c_standards(query)` / `search_1c_snippets(query)`.
+9. **Метаданные** — `search_1c_metadata_exact` / `search_1c_metadata_semantic` / `search_1c_metadata_fields`.
+10. **После генерации рабочего кода** — `save_1c_snippet` только для реально переиспользуемого и уже проверенного результата.
 
 ---
 
@@ -25,6 +26,7 @@
 | Инструмент | Передавать | Не передавать |
 |------------|-------------|----------------|
 | **search_1c_api** | `query` | — |
+| **resolve_1c_api_name** | `name` | — |
 | **get_1c_help_index_status** | без параметров (пустой объект `{}`) | — |
 | **get_1c_metadata_object** | `object_id`, при нескольких конфигурациях — `config_version` | — |
 | **search_1c_metadata_exact** | `query`, при нескольких конфигурациях — `config_version` | — |
@@ -42,6 +44,7 @@
 | Инструмент | Параметры | Описание | Лимиты / примечания |
 |------------|-----------|----------|---------------------|
 | **search_1c_api** | `query`, `limit=10`, `version`, `language`, `include_examples=True` | Широкий structured lookup по `api_members`, `api_objects` и официальным примерам. | query до 64 KB. Основной broad-search route вместо topic-layer search. |
+| **resolve_1c_api_name** | `name` | Resolver surface-синтаксиса языка 1С в канонические кандидаты structured help / metadata graph. | Первый выбор для `Документы.Имя.Метод`, `Константы.Имя.Получить`, `Метаданные.…`. |
 | **get_1c_api_answer** | `name`, `version=None`, `language=None`, `detail="compact"` | Compact exact-first ответ по точному API/функции/методу. | Первый выбор для `Тип.Метод`; `detail="full"` возвращает enriched structured payload. |
 | **get_1c_api_object** | `name`, `version=None`, `language=None` | Structured API object/type из `onec_help_api_objects`. | Low-token truth-source для агента и отладки exact API route. |
 | **answer_1c_help_question** | `question`, `version=None`, `language=None`, `detail="compact"` | Естественный вопрос по справке через structured DB-first route; вопросы про **СКД/компоновку** дополнительно маршрутизируются в structured API search. | Пустые тела примеров в индексе не выводятся как пустой блок `bsl`. |

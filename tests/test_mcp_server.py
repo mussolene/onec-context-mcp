@@ -766,6 +766,19 @@ def test_mcp_tool_resolve_1c_api_name(help_sample_dir: Path) -> None:
     assert "КонстантаМенеджер.<Имя константы>.Получить" in text
 
 
+def test_mcp_tool_resolve_1c_api_name_for_metadata_system_enum(help_sample_dir: Path) -> None:
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    result = asyncio.run(
+        app.call_tool(
+            "resolve_1c_api_name",
+            {"name": "Метаданные.СвойстваОбъектов.РежимСовместимости"},
+        )
+    )
+    text = result.content[0].text if result.content else ""
+    assert "resolver_kind: metadata_surface_chain" in text
+    assert "ПеречислимыеСвойстваОбъектовМетаданных.РежимСовместимости" in text
+
+
 def test_mcp_tool_get_1c_api_object_via_app(help_sample_dir: Path) -> None:
     """get_1c_api_object returns structured API payload from onec_help_api_objects."""
     app = mcp_server._build_mcp_app(help_sample_dir)

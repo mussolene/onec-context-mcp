@@ -92,3 +92,30 @@ def test_build_context_uses_keyword_route_for_api_queries() -> None:
     assert ctx["help_topics"][0]["path"] == "Get.html"
     mock_kw.assert_called_once()
     mock_help.assert_not_called()
+
+
+def test_build_context_uses_resolved_surface_candidate_for_metadata_system_enum() -> None:
+    with (
+        patch("onec_help.search_store.indexer.search_hybrid") as mock_help,
+        patch("onec_help.knowledge.memory.get_memory_store") as mock_mem_store,
+        patch("onec_help.knowledge.metadata_graph.search_metadata_exact") as mock_meta_exact,
+        patch("onec_help.knowledge.metadata_graph.search_metadata_semantic") as mock_meta_semantic,
+    ):
+        mock_help.return_value = [{"path": "compat.html", "title": "РежимСовместимости"}]
+        mock_mem_store.return_value.search_long.return_value = []
+        mock_meta_exact.return_value = []
+        mock_meta_semantic.return_value = []
+
+        ctx = build_context(
+            ContextRequest(
+                query="Метаданные.СвойстваОбъектов.РежимСовместимости",
+                config_version="CfgVer",
+                file_uri=None,
+                symbol_name=None,
+                limit=3,
+            )
+        )
+
+    assert ctx["resolved_surface"]["resolver_kind"] == "metadata_surface_chain"
+    assert ctx["help_topics"][0]["title"] == "РежимСовместимости"
+    mock_help.assert_called_once()

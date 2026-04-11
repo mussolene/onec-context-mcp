@@ -418,9 +418,9 @@ def _resolve_surface_api_candidates(
     version: str | None,
     language: str | None,
 ) -> list[dict[str, Any]]:
-    from ..knowledge.language_resolver import resolve_platform_surface_api_query
+    from ..knowledge.language_resolver import resolve_1c_language_query
 
-    resolved = resolve_platform_surface_api_query(name)
+    resolved = resolve_1c_language_query(name)
     items: list[dict[str, Any]] = []
     for candidate in resolved.get("candidates") or []:
         candidate_name = str(candidate.get("name") or "").strip()
@@ -1788,29 +1788,39 @@ def _build_mcp_app(help_path: Path) -> Any:
             q, target_dimension=_coll_dim if _coll_dim is not None else None
         )
 
+        resolved_items = _resolve_surface_api_candidates(q, version=version, language=language)
+        resolved_members = [item for item in resolved_items if item.get("member_name")]
+        resolved_objects = [item for item in resolved_items if not item.get("member_name")]
+
         members = sorted(
-            _filter_noise_api_hits(
-                _search_api_members(
+            _dedup_structured_hits(
+                resolved_members
+                + _filter_noise_api_hits(
+                    _search_api_members(
+                        q,
+                        limit=max(limit, 5),
+                        version=version,
+                        language=language,
+                        query_vector=_qv,
+                    ),
                     q,
-                    limit=max(limit, 5),
-                    version=version,
-                    language=language,
-                    query_vector=_qv,
-                ),
-                q,
+                )
             ),
             key=lambda item: _structured_api_sort_key(q, item),
         )
         objects = sorted(
-            _filter_noise_api_hits(
-                _search_api_objects(
+            _dedup_structured_hits(
+                resolved_objects
+                + _filter_noise_api_hits(
+                    _search_api_objects(
+                        q,
+                        limit=max(4, limit // 2),
+                        version=version,
+                        language=language,
+                        query_vector=_qv,
+                    ),
                     q,
-                    limit=max(4, limit // 2),
-                    version=version,
-                    language=language,
-                    query_vector=_qv,
-                ),
-                q,
+                )
             ),
             key=lambda item: _structured_api_sort_key(q, item),
         )
@@ -1964,9 +1974,9 @@ def _build_mcp_app(help_path: Path) -> Any:
             return err
         if not value:
             return "Provide API-like name, for example Документы.РеализацияТоваровУслуг.СоздатьДокумент."
-        from ..knowledge.language_resolver import resolve_platform_surface_api_query
+        from ..knowledge.language_resolver import resolve_1c_language_query
 
-        resolved = resolve_platform_surface_api_query(value)
+        resolved = resolve_1c_language_query(value)
         lines = [
             f"query: {resolved.get('query') or value}",
             f"normalized: {resolved.get('normalized_query') or value}",
@@ -3051,6 +3061,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         memory_items = ctx.get("memory") or []
         metadata_objects = ctx.get("metadata_objects") or []
         local_context = ctx.get("local_context") or {}
+        resolved_surface = ctx.get("resolved_surface") or {}
         if not (help_topics or memory_items or metadata_objects or local_context):
             return "No task context found."
 
@@ -3071,6 +3082,13 @@ def _build_mcp_app(help_path: Path) -> Any:
             context_lines.append(f"symbol: {local_context.get('symbol_name')}")
         if context_lines:
             parts.append("context: " + "; ".join(context_lines))
+        resolved_candidates = resolved_surface.get("candidates") or []
+        if resolved_candidates:
+            top = resolved_candidates[0]
+            parts.append(
+                "resolved: "
+                + f"{resolved_surface.get('resolver_kind') or 'resolver'} -> {top.get('name') or ''}"
+            )
         diagnostics_summary = _summarize_diagnostics_json(diagnostics_json)
         if diagnostics_summary:
             parts.append("diagnostics: " + diagnostics_summary)

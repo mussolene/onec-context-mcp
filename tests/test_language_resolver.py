@@ -33,3 +33,26 @@ def test_resolve_platform_surface_query_strips_global_context_prefix() -> None:
     assert resolved["normalized_query"] == "Документы.РеализацияТоваровУслуг.СоздатьДокумент"
     assert resolved["family"] == "Документы"
 
+
+def test_resolve_metadata_surface_query_for_system_enum_property() -> None:
+    from onec_help.knowledge.language_resolver import resolve_1c_language_query
+
+    resolved = resolve_1c_language_query("Метаданные.СвойстваОбъектов.РежимСовместимости")
+
+    assert resolved["resolver_kind"] == "metadata_surface_chain"
+    names = [item["name"] for item in resolved["candidates"]]
+    assert "ОбъектМетаданныхКонфигурация.СвойстваОбъектов" in names
+    assert "ПеречислимыеСвойстваОбъектовМетаданных.РежимСовместимости" in names
+    assert "РежимСовместимости" in names
+
+
+def test_resolve_metadata_surface_query_for_collection_object() -> None:
+    from onec_help.knowledge.language_resolver import resolve_1c_language_query
+
+    resolved = resolve_1c_language_query("Метаданные.Документы.РеализацияТоваровУслуг")
+
+    assert resolved["resolver_kind"] == "metadata_surface_chain"
+    names = [item["name"] for item in resolved["candidates"]]
+    assert "ОбъектМетаданныхКонфигурация.Документы" in names
+    assert "ОбъектМетаданных: Документ" in names
+    assert "Документы.РеализацияТоваровУслуг" in names

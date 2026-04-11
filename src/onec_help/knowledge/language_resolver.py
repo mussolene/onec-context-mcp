@@ -173,6 +173,38 @@ _GLOBAL_CONTEXT_PREFIXES = (
     "Global context.",
 )
 
+_METADATA_ROOT_PREFIXES = (
+    "Метаданные.",
+    "Metadata.",
+    "Глобальный контекст.Метаданные.",
+    "ГлобальныйКонтекст.Метаданные.",
+    "Global context.Metadata.",
+)
+
+_METADATA_COLLECTION_TO_HELP_OBJECT: dict[str, str] = {
+    "Документы": "ОбъектМетаданных: Документ",
+    "Справочники": "ОбъектМетаданных: Справочник",
+    "Перечисления": "ОбъектМетаданных: Перечисление",
+    "Константы": "ОбъектМетаданных: Константа",
+    "РегистрыСведений": "ОбъектМетаданных: РегистрСведений",
+    "РегистрыНакопления": "ОбъектМетаданных: РегистрНакопления",
+    "РегистрыБухгалтерии": "ОбъектМетаданных: РегистрБухгалтерии",
+    "РегистрыРасчета": "ОбъектМетаданных: РегистрРасчета",
+    "ПланыСчетов": "ОбъектМетаданных: ПланСчетов",
+    "ПланыВидовХарактеристик": "ОбъектМетаданных: ПланВидовХарактеристик",
+    "ПланыВидовРасчета": "ОбъектМетаданных: ПланВидовРасчета",
+    "ПланыОбмена": "ОбъектМетаданных: ПланОбмена",
+    "БизнесПроцессы": "ОбъектМетаданных: БизнесПроцесс",
+    "Задачи": "ОбъектМетаданных: Задача",
+    "Отчеты": "ОбъектМетаданных: Отчет",
+    "Отчёты": "ОбъектМетаданных: Отчет",
+    "Обработки": "ОбъектМетаданных: Обработка",
+    "ХранилищаНастроек": "ОбъектМетаданных: ХранилищеНастроек",
+    "КритерииОтбора": "ОбъектМетаданных: КритерийОтбора",
+    "ЖурналыДокументов": "ОбъектМетаданных: ЖурналДокументов",
+    "Последовательности": "ОбъектМетаданных: Последовательность",
+}
+
 
 def _collapse_dotted_segments(value: str) -> str:
     parts = [part.strip() for part in (value or "").split(".") if part.strip()]
@@ -182,6 +214,14 @@ def _collapse_dotted_segments(value: str) -> str:
 def _strip_global_context_prefix(value: str) -> str:
     current = (value or "").strip()
     for prefix in _GLOBAL_CONTEXT_PREFIXES:
+        if current.startswith(prefix):
+            return current[len(prefix) :].strip()
+    return current
+
+
+def _strip_metadata_root_prefix(value: str) -> str:
+    current = (value or "").strip()
+    for prefix in _METADATA_ROOT_PREFIXES:
         if current.startswith(prefix):
             return current[len(prefix) :].strip()
     return current
@@ -295,3 +335,134 @@ def resolve_platform_surface_candidate_names(query: str) -> list[str]:
     resolved = resolve_platform_surface_api_query(query)
     return [str(item.get("name") or "") for item in resolved.get("candidates") or [] if item.get("name")]
 
+
+def resolve_metadata_surface_query(query: str) -> dict[str, Any]:
+    original = (query or "").strip()
+    stripped = _strip_metadata_root_prefix(original)
+    if stripped == original and original not in {"Метаданные", "Metadata", "Глобальный контекст.Метаданные"}:
+        return {
+            "query": original,
+            "normalized_query": _collapse_dotted_segments(original),
+            "resolver_kind": "unresolved",
+            "family": "",
+            "segments": [],
+            "candidates": [],
+        }
+    normalized = "Метаданные" if original.strip() in {"Метаданные", "Metadata"} else _collapse_dotted_segments(stripped)
+    root_candidates: list[dict[str, str]] = [
+        {
+            "name": "Глобальный контекст.Метаданные",
+            "lookup": "member",
+            "reason": "global context property for metadata root",
+        },
+        {
+            "name": "ОбъектМетаданныхКонфигурация",
+            "lookup": "object",
+            "reason": "configuration metadata root object",
+        },
+    ]
+    if normalized == "Метаданные" or not normalized:
+        return {
+            "query": original,
+            "normalized_query": "Метаданные",
+            "resolver_kind": "metadata_surface_chain",
+            "family": "Метаданные",
+            "segments": ["Метаданные"],
+            "candidates": _dedup_candidates(root_candidates),
+        }
+
+    segments = normalized.split(".")
+    family = segments[0]
+    if family == "СвойстваОбъектов":
+        candidates: list[dict[str, str]] = []
+        if len(segments) >= 2:
+            prop_name = segments[1]
+            candidates.extend(
+                [
+                    {
+                        "name": f"ПеречислимыеСвойстваОбъектовМетаданных.{prop_name}",
+                        "lookup": "member",
+                        "reason": "system enum property on metadata property catalog",
+                    },
+                    {
+                        "name": prop_name,
+                        "lookup": "object",
+                        "reason": "system enum type returned by metadata property catalog",
+                    },
+                ]
+            )
+        candidates.extend(
+            [
+                {
+                    "name": "ОбъектМетаданныхКонфигурация.СвойстваОбъектов",
+                    "lookup": "member",
+                    "reason": "metadata property catalog on configuration metadata object",
+                },
+                {
+                    "name": "ПеречислимыеСвойстваОбъектовМетаданных",
+                    "lookup": "object",
+                    "reason": "catalog of system enums for metadata properties",
+                },
+            ]
+        )
+        candidates.extend(root_candidates)
+        return {
+            "query": original,
+            "normalized_query": f"Метаданные.{normalized}",
+            "resolver_kind": "metadata_surface_chain",
+            "family": "СвойстваОбъектов",
+            "segments": ["Метаданные", *segments],
+            "candidates": _dedup_candidates(candidates),
+        }
+
+    help_object = _METADATA_COLLECTION_TO_HELP_OBJECT.get(family)
+    if help_object:
+        candidates: list[dict[str, str]] = []
+        candidates.append(
+            {
+                "name": f"ОбъектМетаданныхКонфигурация.{family}",
+                "lookup": "member",
+                "reason": "metadata collection property on configuration metadata object",
+            }
+        )
+        candidates.append(
+            {
+                "name": help_object,
+                "lookup": "object",
+                "reason": "help object type for collection element",
+            }
+        )
+        if len(segments) >= 2:
+            object_name = segments[1]
+            candidates.append(
+                {
+                    "name": f"{family}.{object_name}",
+                    "lookup": "metadata_graph",
+                    "reason": "configuration object lookup in KD2 metadata graph",
+                }
+            )
+        candidates.extend(root_candidates)
+        return {
+            "query": original,
+            "normalized_query": f"Метаданные.{normalized}",
+            "resolver_kind": "metadata_surface_chain",
+            "family": family,
+            "segments": ["Метаданные", *segments],
+            "candidates": _dedup_candidates(candidates),
+        }
+
+    return {
+        "query": original,
+        "normalized_query": f"Метаданные.{normalized}",
+        "resolver_kind": "metadata_surface_chain",
+        "family": family,
+        "segments": ["Метаданные", *segments],
+        "candidates": _dedup_candidates(candidates),
+    }
+
+
+def resolve_1c_language_query(query: str) -> dict[str, Any]:
+    metadata = resolve_metadata_surface_query(query)
+    if metadata.get("candidates"):
+        return metadata
+    return resolve_platform_surface_api_query(query)
