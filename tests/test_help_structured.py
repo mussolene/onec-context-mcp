@@ -863,6 +863,59 @@ def test_get_api_object_never_calls_hybrid_search() -> None:
     mock_hybrid.assert_not_called()
 
 
+def test_get_api_object_exact_matches_object_name_and_full_name() -> None:
+    from unittest.mock import patch
+
+    class _Client:
+        def collection_exists(self, _name: str) -> bool:
+            return True
+
+        def scroll(self, *, scroll_filter, **_kwargs):
+            field = scroll_filter.must[0].key
+            value = scroll_filter.must[0].match.value
+            if value != "РежимСовместимости":
+                return [], None
+            if field == "full_name":
+                return [
+                    type(
+                        "_Point",
+                        (),
+                        {
+                            "payload": {
+                                "full_name": "РежимСовместимости",
+                                "object_name": "РежимСовместимости",
+                                "topic_path": "compat.html",
+                                "version": "8.3.27.1859",
+                                "content_hash": "a",
+                            }
+                        },
+                    )()
+                ], None
+            if field == "object_name":
+                return [
+                    type(
+                        "_Point",
+                        (),
+                        {
+                            "payload": {
+                                "full_name": "РежимСовместимости",
+                                "object_name": "РежимСовместимости",
+                                "topic_path": "compat.html",
+                                "version": "8.3.27.1859",
+                                "content_hash": "a",
+                            }
+                        },
+                    )()
+                ], None
+            return [], None
+
+    with patch("qdrant_client.QdrantClient", return_value=_Client()):
+        results = get_api_object("РежимСовместимости")
+
+    assert len(results) == 1
+    assert results[0]["full_name"] == "РежимСовместимости"
+
+
 def test_canonical_topic_path_strips_version_prefix() -> None:
     assert (
         canonical_topic_path("8.3.27.1859/shcntx_ru/objects/x.html", "8.3.27.1859")

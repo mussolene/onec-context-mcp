@@ -118,6 +118,101 @@ def _auto_config_version(explicit: str | None, need_metadata: bool) -> str:
     return ""
 
 
+def _normalize_help_item(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "title": item.get("title") or item.get("full_name") or item.get("object_name") or "",
+        "path": item.get("topic_path") or item.get("path") or "",
+        "text": item.get("summary") or item.get("description") or item.get("text") or "",
+        "entity_type": item.get("kind") or item.get("entity_type") or "topic",
+        "breadcrumb": item.get("breadcrumb") or [],
+        "full_name": item.get("full_name") or item.get("object_name") or "",
+    }
+
+
+def _search_structured_help_context(
+    query: str,
+    *,
+    query_type: str,
+    resolved_surface: dict[str, Any],
+    limit: int,
+    qdrant_host: str,
+    qdrant_port: int,
+) -> list[dict[str, Any]]:
+    from .help_structured import (
+        get_api_member,
+        get_api_object,
+        search_api_members,
+        search_api_objects,
+        search_api_topics,
+    )
+
+    out: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def add_items(items: list[dict[str, Any]]) -> None:
+        for item in items:
+            norm = _normalize_help_item(item)
+            key = (str(norm.get("full_name") or norm.get("title") or ""), str(norm.get("path") or ""))
+            if not key[0] or key in seen:
+                continue
+            seen.add(key)
+            out.append(norm)
+            if len(out) >= limit:
+                return
+
+    candidates = resolved_surface.get("candidates") or []
+    for candidate in candidates:
+        lookup = str(candidate.get("lookup") or "").strip()
+        name = str(candidate.get("name") or "").strip()
+        if not name or lookup == "metadata_graph":
+            continue
+        if lookup == "member":
+            add_items(get_api_member(name, qdrant_host=qdrant_host, qdrant_port=qdrant_port))
+        elif lookup == "object":
+            add_items(get_api_object(name, qdrant_host=qdrant_host, qdrant_port=qdrant_port))
+        if len(out) >= limit:
+            return out[:limit]
+
+    if query:
+        if query_type == "api":
+            add_items(
+                search_api_members(
+                    query,
+                    limit=limit,
+                    qdrant_host=qdrant_host,
+                    qdrant_port=qdrant_port,
+                )
+            )
+        else:
+            add_items(
+                search_api_members(
+                    query,
+                    limit=limit,
+                    qdrant_host=qdrant_host,
+                    qdrant_port=qdrant_port,
+                )
+            )
+            if len(out) < limit:
+                add_items(
+                    search_api_objects(
+                        query,
+                        limit=limit,
+                        qdrant_host=qdrant_host,
+                        qdrant_port=qdrant_port,
+                    )
+                )
+        if len(out) < limit:
+            add_items(
+                search_api_topics(
+                    query,
+                    limit=limit,
+                    qdrant_host=qdrant_host,
+                    qdrant_port=qdrant_port,
+                )
+            )
+    return out[:limit]
+
+
 def build_context(req: ContextRequest) -> dict[str, Any]:
     q = (req.query or "").strip()
     host = env_config.get_qdrant_host()
@@ -167,20 +262,29 @@ def build_context(req: ContextRequest) -> dict[str, Any]:
     if help_limit and help_query:
         try:
             help_limit_effective = min(per_source_limit, help_limit)
-            if query_type == "api":
-                help_topics = indexer.search_index_keyword(
-                    help_query,
-                    limit=help_limit_effective,
-                    qdrant_host=host,
-                    qdrant_port=port,
-                )
-            else:
-                help_topics = indexer.search_hybrid(
-                    help_query,
-                    limit=help_limit_effective,
-                    qdrant_host=host,
-                    qdrant_port=port,
-                )
+            help_topics = _search_structured_help_context(
+                help_query,
+                query_type=query_type,
+                resolved_surface=resolved_surface,
+                limit=help_limit_effective,
+                qdrant_host=host,
+                qdrant_port=port,
+            )
+            if not help_topics:
+                if query_type == "api":
+                    help_topics = indexer.search_index_keyword(
+                        help_query,
+                        limit=help_limit_effective,
+                        qdrant_host=host,
+                        qdrant_port=port,
+                    )
+                else:
+                    help_topics = indexer.search_hybrid(
+                        help_query,
+                        limit=help_limit_effective,
+                        qdrant_host=host,
+                        qdrant_port=port,
+                    )
         except Exception:
             help_topics = []
 

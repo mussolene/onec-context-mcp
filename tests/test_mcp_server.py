@@ -827,6 +827,33 @@ def test_mcp_tool_get_1c_api_related_via_app(help_sample_dir: Path) -> None:
     assert "ПолучитьЗаголовки" in text
 
 
+def test_mcp_tool_get_1c_api_related_accepts_exact_name_with_prefix_like_nl(
+    help_sample_dir: Path,
+) -> None:
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(
+        mcp_server,
+        "_get_api_related",
+        return_value=[
+            {
+                "source_full_name": "ПеречислимыеСвойстваОбъектовМетаданных.РежимСовместимости",
+                "target_name": "РежимСовместимости",
+                "link_kind": "returns_type",
+                "topic_path": "compat.html",
+            }
+        ],
+    ):
+        result = asyncio.run(
+            app.call_tool(
+                "get_1c_api_related",
+                {"name": "ПеречислимыеСвойстваОбъектовМетаданных.РежимСовместимости"},
+            )
+        )
+    text = result.content[0].text if result.content else ""
+    assert "РежимСовместимости" in text
+    assert "свободной форме" not in text
+
+
 def test_mcp_tool_answer_1c_help_question_uses_structured_availability(
     help_sample_dir: Path,
 ) -> None:
@@ -885,6 +912,44 @@ def test_mcp_tool_answer_1c_help_question_falls_back_to_topic_fact(help_sample_d
     text = result.content[0].text if result.content else ""
     assert "8.3.27.1859" in text
     assert "Источник" in text
+
+
+def test_help_question_exact_route_prefers_dotted_member_over_owner_type() -> None:
+    question = "Можно ли использовать HTTPСоединение.Получить на клиенте и что вместо него?"
+    member = {
+        "full_name": "HTTPСоединение.Получить",
+        "name": "HTTPСоединение.Получить",
+        "kind": "method",
+        "summary": "Получает данные.",
+        "availability": "Сервер.",
+        "restrictions": "На клиенте устарел, используйте ПолучитьАсинх.",
+        "version": "8.3.27.1859",
+        "topic_path": "get.html",
+    }
+    obj = {
+        "full_name": "HTTPСоединение",
+        "name": "HTTPСоединение",
+        "kind": "type",
+        "summary": "Тип HTTPСоединение.",
+        "availability": "Клиент и сервер.",
+        "version": "8.3.27.1859",
+        "topic_path": "http.html",
+    }
+    with patch.object(
+        mcp_server,
+        "_search_exactish_help_question_candidates",
+        return_value=[obj, member],
+    ):
+        out = mcp_server._answer_question_via_exact_api_route(
+            question,
+            intent="restriction",
+            version=None,
+            language=None,
+            detail="compact",
+        )
+    assert out is not None
+    assert "API: HTTPСоединение.Получить" in out
+    assert "ПолучитьАсинх" in out
 
 
 def test_mcp_tool_answer_1c_help_question_prefers_exact_short_api_name(
@@ -1018,7 +1083,7 @@ def test_mcp_tool_compare_1c_help_via_app(help_sample_dir: Path) -> None:
 def test_mcp_tool_compare_1c_help_resolves_structured_topic_path_before_compare(
     help_sample_dir: Path,
 ) -> None:
-    """Short compare query should be resolved to structured topic_path before delegating to indexer."""
+    """Short compare query should use structured compare before falling back to topic-layer indexer."""
     app = mcp_server._build_mcp_app(help_sample_dir)
     with patch.object(
         mcp_server,
@@ -1047,11 +1112,84 @@ def test_mcp_tool_compare_1c_help_resolves_structured_topic_path_before_compare(
                                     "version_right": "8.3.27.1859",
                                     "language": "ru",
                                 },
+                                )
                             )
-                        )
     text = result.content[0].text if result.content else ""
-    assert text == "ok"
-    assert mock_compare.call_args[0][0].endswith("Get1442.html")
+    assert "Версия 8.3.27.1859" in text
+    assert "HTTPСоединение.Получить" not in text or "Получает" in text
+    mock_compare.assert_not_called()
+
+
+def test_mcp_tool_compare_1c_help_prefers_surface_resolver_candidates(help_sample_dir: Path) -> None:
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(
+        mcp_server,
+        "_resolve_compare_structured_candidates",
+        return_value=[
+            {
+                "full_name": "ДокументМенеджер.<Имя документа>.СоздатьДокумент",
+                "surface_aliases": ["Документы.<Имя документа>.СоздатьДокумент"],
+                "topic_path": "doc-create.html",
+                "version": "8.3.27.1859",
+                "versions": ["8.3.27.1859", "8.3.20.1710"],
+            }
+        ],
+    ):
+        with patch(
+            "onec_help.search_store.indexer.compare_1c_help",
+            return_value="ok",
+        ) as mock_compare:
+            result = asyncio.run(
+                app.call_tool(
+                    "compare_1c_help",
+                    {
+                        "topic_path_or_query": "Документы.РеализацияТоваровУслуг.СоздатьДокумент",
+                        "version_left": "8.3.20.1710",
+                        "version_right": "8.3.27.1859",
+                        "language": "ru",
+                    },
+                )
+            )
+    text = result.content[0].text if result.content else ""
+    assert "Версия 8.3.27.1859" in text
+    mock_compare.assert_not_called()
+
+
+def test_mcp_tool_compare_1c_help_uses_structured_compare_for_exact_api(help_sample_dir: Path) -> None:
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(
+        mcp_server,
+        "_resolve_compare_structured_candidates",
+        return_value=[
+            {
+                "full_name": "HTTPСоединение.Получить",
+                "summary": "Получает данные.",
+                "availability": "Сервер.",
+                "restrictions": "На клиенте устарел, используйте ПолучитьАсинх.",
+                "version": "8.3.27.1859",
+                "versions": ["8.3.27.1859"],
+                "topic_path": "get.html",
+            }
+        ],
+    ):
+        with patch(
+            "onec_help.search_store.indexer.compare_1c_help",
+            return_value="indexer should not be used",
+        ) as mock_compare:
+            result = asyncio.run(
+                app.call_tool(
+                    "compare_1c_help",
+                    {
+                        "topic_path_or_query": "HTTPСоединение.Получить",
+                        "version_left": "8.3.20.1710",
+                        "version_right": "8.3.27.1859",
+                    },
+                )
+            )
+    text = result.content[0].text if result.content else ""
+    assert "Версия 8.3.27.1859" in text
+    assert "ПолучитьАсинх" in text
+    mock_compare.assert_not_called()
 
 
 def test_mcp_tool_compare_1c_help_falls_back_to_original_query_when_resolved_path_not_found(

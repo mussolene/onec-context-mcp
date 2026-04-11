@@ -2472,6 +2472,33 @@ def _scroll_exact_member_matches(
     return out[:limit]
 
 
+def _scroll_exact_object_matches(
+    client,
+    *,
+    field: str,
+    value: str,
+    version: str | None,
+    language: str | None,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    from qdrant_client.models import FieldCondition, Filter, MatchValue
+
+    must = [FieldCondition(key=field, match=MatchValue(value=value))]
+    if language:
+        must.append(FieldCondition(key="language", match=MatchValue(value=language)))
+    points, _ = client.scroll(
+        collection_name=API_OBJECTS_COLLECTION_NAME,
+        scroll_filter=Filter(must=must),
+        limit=limit * 3 if version else limit,
+        with_payload=True,
+        with_vectors=False,
+    )
+    out = [getattr(point, "payload", None) or {} for point in points or []]
+    if version:
+        out = [p for p in out if payload_matches_platform_version(p, version)]
+    return out[:limit]
+
+
 def _member_version_sort_key(version_str: str) -> tuple[int, ...]:
     """Ascending member sort: prefer newer platform when name match ties."""
     return tuple(-p for p in _version_sort_key(version_str))
@@ -2510,6 +2537,37 @@ def _member_exact_sort_key(
     return (
         priority,
         owner_priority,
+        _member_version_sort_key(str(item.get("version") or "")),
+        str(item.get("topic_path") or ""),
+    )
+
+
+def _object_exact_sort_key(query: str, item: dict[str, Any]) -> tuple[int, tuple[int, ...], str]:
+    query_clean = (query or "").strip().lower()
+    full_name = str(item.get("full_name") or item.get("object_name") or "").strip().lower()
+    object_name = str(item.get("object_name") or "").strip().lower()
+    aliases_lower = [
+        str(a).strip().lower()
+        for a in (item.get("aliases") or [])
+        if isinstance(a, str) and str(a).strip()
+    ]
+    surface_aliases_lower = [
+        str(a).strip().lower()
+        for a in (item.get("surface_aliases") or [])
+        if isinstance(a, str) and str(a).strip()
+    ]
+    if full_name == query_clean:
+        priority = 0
+    elif object_name == query_clean:
+        priority = 1
+    elif query_clean in aliases_lower:
+        priority = 2
+    elif query_clean in surface_aliases_lower:
+        priority = 2
+    else:
+        priority = 3
+    return (
+        priority,
         _member_version_sort_key(str(item.get("version") or "")),
         str(item.get("topic_path") or ""),
     )
@@ -2613,8 +2671,6 @@ def get_api_object(
     Use ``search_api_objects`` where broad/semantic search is intended.
     """
     from qdrant_client import QdrantClient
-    from qdrant_client.models import FieldCondition, Filter, MatchValue
-
     from ..shared.qdrant_errors import is_qdrant_unreachable_error
 
     name_clean = (name or "").strip()
@@ -2626,37 +2682,32 @@ def get_api_object(
         client = QdrantClient(host=host, port=port, check_compatibility=False)
         if not client.collection_exists(API_OBJECTS_COLLECTION_NAME):
             return []
-        must: list[FieldCondition] = []
-        if language:
-            must.append(FieldCondition(key="language", match=MatchValue(value=language)))
-        should = [
-            FieldCondition(key="name", match=MatchValue(value=name_clean)),
-            FieldCondition(key="full_name", match=MatchValue(value=name_clean)),
-            FieldCondition(key="object_name", match=MatchValue(value=name_clean)),
-            FieldCondition(key="aliases", match=MatchValue(value=name_clean)),
-            FieldCondition(key="surface_aliases", match=MatchValue(value=name_clean)),
-        ]
         results: list[dict[str, Any]] = []
         try:
-            points, _ = client.scroll(
-                collection_name=API_OBJECTS_COLLECTION_NAME,
-                scroll_filter=Filter(must=must, should=should, minimum_should_match=1),
-                limit=30 if version else 10,
-                with_payload=True,
-                with_vectors=False,
-            )
-            results = [getattr(point, "payload", None) or {} for point in points or []]
+            for field in ("name", "full_name", "object_name", "aliases", "surface_aliases"):
+                results.extend(
+                    _scroll_exact_object_matches(
+                        client,
+                        field=field,
+                        value=name_clean,
+                        version=version,
+                        language=language,
+                    )
+                )
         except Exception:
             results = []
-        if version:
-            results = [r for r in results if payload_matches_platform_version(r, version)]
         if results:
-            return sorted(
-                results,
-                key=lambda item: (
-                    _member_version_sort_key(str(item.get("version") or "")),
+            dedup: dict[tuple[str, str, str], dict[str, Any]] = {}
+            for item in results:
+                key = (
+                    str(item.get("full_name") or item.get("object_name") or ""),
+                    str(item.get("content_hash") or ""),
                     str(item.get("topic_path") or ""),
-                ),
+                )
+                dedup[key] = item
+            return sorted(
+                dedup.values(),
+                key=lambda item: _object_exact_sort_key(name_clean, item),
             )
         return []
     except Exception as exc:

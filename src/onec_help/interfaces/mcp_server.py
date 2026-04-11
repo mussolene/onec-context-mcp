@@ -843,6 +843,15 @@ def _structured_platform_version_key(version_str: str) -> tuple[int, ...]:
     return tuple(-p for p in _version_sort_key(version_str))
 
 
+def _structured_item_matches_version(item: dict[str, Any], version: str | None) -> bool:
+    if not version:
+        return True
+    versions = item.get("versions")
+    if isinstance(versions, list) and versions:
+        return version in {str(v).strip() for v in versions if str(v).strip()}
+    return str(item.get("version") or "").strip() == version
+
+
 def _structured_api_sort_key(
     query: str, item: dict[str, Any]
 ) -> tuple[int, int, bool, tuple[int, ...], str]:
@@ -934,7 +943,7 @@ def _is_likely_natural_language_not_exact_api_name(s: str) -> bool:
         return True
     low = t.lower()
     for p in _NL_QUESTION_PREFIXES_RU:
-        if low.startswith(p):
+        if low.startswith(p) and (len(low) == len(p) or low[len(p)].isspace()):
             return True
     if low.startswith(("how ", "what ", "where ", "why ", "when ", "can i ", "is there ")):
         return True
@@ -1243,7 +1252,7 @@ def _question_structured_sort_key(
     question: str,
     intent: str,
     item: dict[str, Any],
-) -> tuple[int, int, int, bool, tuple[int, ...], str]:
+) -> tuple[int, int, int, int, bool, tuple[int, ...], str]:
     query = (question or "").strip()
     if intent == "version":
         has_fact = bool(item.get("platform_since") or item.get("availability"))
@@ -1255,7 +1264,16 @@ def _question_structured_sort_key(
     # Only use tokens that start with an uppercase letter (proper API names, not common words).
     api_tokens = [t for t in _extract_question_api_names(query) if t and t[0].isupper()]
     candidates_to_try = [query] + api_tokens
-    best_priority = min(_structured_api_sort_key(t, item)[0] for t in candidates_to_try if t)
+    token_keys = [
+        (
+            _structured_api_sort_key(t, item)[0],
+            -t.count("."),
+            -len(t),
+        )
+        for t in candidates_to_try
+        if t
+    ]
+    best_priority, dotted_specificity, token_length_specificity = min(token_keys)
     item_name = str(item.get("name") or item.get("title") or "").lower()
     best_member = min(int(_member_sort_key(t.lower(), item_name)) for t in candidates_to_try if t)
     # For priority-3 items (no name match), check if query keywords appear in item content.
@@ -1279,6 +1297,8 @@ def _question_structured_sort_key(
                     content_no_match = 1
     return (
         best_priority,
+        dotted_specificity,
+        token_length_specificity,
         content_no_match,
         best_member,
         not has_fact,
@@ -1551,7 +1571,7 @@ def _answer_question_via_exact_api_route(
     )
     for best in candidates:
         best_sort = _question_structured_sort_key(question, intent, best)
-        pure_noise = best_sort[0] >= 3 and best_sort[1] >= 2
+        pure_noise = best_sort[0] >= 3 and best_sort[3] >= 2
         if pure_noise:
             continue
         if not _candidate_plausible_for_dcs_question(question, best):
@@ -1569,19 +1589,26 @@ def _answer_question_via_exact_api_route(
 def _resolve_compare_query_to_topic_path(
     query: str,
     *,
+    version_left: str | None,
+    version_right: str | None,
     language: str | None,
 ) -> str:
     value = (query or "").strip()
     if not value or ".md" in value or ".html" in value:
         return value
+
+    def _compare_candidate_sort_key(item: dict[str, Any]) -> tuple[int, tuple[Any, ...]]:
+        left_ok = 1 if _structured_item_matches_version(item, version_left) else 0
+        right_ok = 1 if _structured_item_matches_version(item, version_right) else 0
+        return (-(left_ok + right_ok), _structured_api_sort_key(value, item))
+
     exact_candidates = _dedup_structured_hits(
-        _get_api_member(value, language=language) + _get_api_object(value, language=language)
+        _resolve_surface_api_candidates(value, version=version_right, language=language)
+        + _get_api_member(value, language=language)
+        + _get_api_object(value, language=language)
     )
     if exact_candidates:
-        candidates = sorted(
-            exact_candidates,
-            key=lambda item: _structured_api_sort_key(value, item),
-        )
+        candidates = sorted(exact_candidates, key=_compare_candidate_sort_key)
     else:
         candidates = sorted(
             _dedup_structured_hits(
@@ -1595,6 +1622,78 @@ def _resolve_compare_query_to_topic_path(
         if topic_path:
             return topic_path
     return value
+
+
+def _resolve_compare_structured_candidates(
+    query: str,
+    *,
+    version_left: str | None,
+    version_right: str | None,
+    language: str | None,
+) -> list[dict[str, Any]]:
+    value = (query or "").strip()
+    if not value or ".md" in value or ".html" in value:
+        return []
+    candidates = _dedup_structured_hits(
+        _resolve_surface_api_candidates(value, version=version_right, language=language)
+        + _get_api_member(value, language=language)
+        + _get_api_object(value, language=language)
+    )
+    return sorted(
+        candidates,
+        key=lambda item: (
+            -int(_structured_item_matches_version(item, version_left)),
+            -int(_structured_item_matches_version(item, version_right)),
+            _structured_api_sort_key(value, item),
+        ),
+    )
+
+
+def _format_structured_compare(
+    query: str,
+    *,
+    version_left: str,
+    version_right: str,
+    candidates: list[dict[str, Any]],
+    include_diff: bool,
+) -> str | None:
+    if not candidates:
+        return None
+
+    def pick(version: str) -> dict[str, Any] | None:
+        for item in candidates:
+            if _structured_item_matches_version(item, version):
+                return item
+        return None
+
+    left = pick(version_left)
+    right = pick(version_right)
+    if not left and not right:
+        return None
+
+    def render(item: dict[str, Any] | None) -> str:
+        if not item:
+            return "(нет structured-контента)"
+        fact = _extract_fact_from_structured(item, "general", detail="compact")
+        if not fact:
+            return "(нет structured-контента)"
+        return fact
+
+    left_text = render(left)
+    right_text = render(right)
+    out = f"## Версия {version_left}\n\n{left_text}\n\n---\n\n## Версия {version_right}\n\n{right_text}"
+    if include_diff and left and right and left_text and right_text:
+        import difflib
+
+        diff = difflib.unified_diff(
+            left_text.splitlines(keepends=True),
+            right_text.splitlines(keepends=True),
+            fromfile=f"{query}@{version_left}",
+            tofile=f"{query}@{version_right}",
+            lineterm="",
+        )
+        out += "\n\n---\n\n## Diff\n\n```\n" + "".join(diff) + "\n```"
+    return out
 
 
 def _summarize_diagnostics_json(diagnostics_json: str | None) -> str:
@@ -2140,9 +2239,9 @@ def _build_mcp_app(help_path: Path) -> Any:
             for best in candidates:
                 best_sort = _question_structured_sort_key(question_clean, intent, best)
                 # Reject only pure semantic hits with no name match and no content keyword match.
-                # best_sort = (priority, content_no_match, member, no_fact, path)
+                # best_sort = (priority, dotted_specificity, token_len_specificity, content_no_match, member, no_fact, path)
                 # content_no_match: 0=in full_name, 1=in text/summary, 2=no match at all
-                pure_noise = best_sort[0] >= 3 and best_sort[1] >= 2
+                pure_noise = best_sort[0] >= 3 and best_sort[3] >= 2
                 if pure_noise:
                     continue
                 if not _candidate_plausible_for_dcs_question(question_clean, best):
@@ -2839,8 +2938,25 @@ def _build_mcp_app(help_path: Path) -> Any:
         from ..search_store.indexer import compare_1c_help as _compare
 
         original = (topic_path_or_query or "").strip()
+        structured_candidates = _resolve_compare_structured_candidates(
+            original,
+            version_left=version_left,
+            version_right=version_right,
+            language=language,
+        )
+        structured_compare = _format_structured_compare(
+            original,
+            version_left=version_left,
+            version_right=version_right,
+            candidates=structured_candidates,
+            include_diff=include_diff,
+        )
+        if structured_compare:
+            return structured_compare
         resolved = _resolve_compare_query_to_topic_path(
             original,
+            version_left=version_left,
+            version_right=version_right,
             language=language,
         )
         result = _compare(
@@ -2883,17 +2999,6 @@ def _build_mcp_app(help_path: Path) -> Any:
             f"Structured API entries: **{count}**",
             f"Embeddings: **{count}**",
         ]
-        from ..shared import env_config
-
-        storage_path = env_config.get_qdrant_storage_path()
-        if storage_path and os.path.isdir(storage_path):
-            try:
-                from ..shared._utils import dir_size_on_disk
-
-                total = dir_size_on_disk(storage_path)
-                lines.append(f"DB size: **{total / (1024 * 1024):.1f} MB**")
-            except OSError:
-                pass
         if s.get("versions"):
             lines.append(f"Versions (sample): {', '.join(s['versions'])}")
         if s.get("languages"):
