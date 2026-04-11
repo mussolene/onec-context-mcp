@@ -412,6 +412,42 @@ def _resolve_exact_api_owner_alias(
     return ranked[:5]
 
 
+def _resolve_surface_api_candidates(
+    name: str,
+    *,
+    version: str | None,
+    language: str | None,
+) -> list[dict[str, Any]]:
+    from ..knowledge.language_resolver import resolve_platform_surface_api_query
+
+    resolved = resolve_platform_surface_api_query(name)
+    items: list[dict[str, Any]] = []
+    for candidate in resolved.get("candidates") or []:
+        candidate_name = str(candidate.get("name") or "").strip()
+        lookup = str(candidate.get("lookup") or "").strip()
+        if not candidate_name:
+            continue
+        if lookup == "member":
+            hits = _get_api_member(candidate_name, version=version, language=language)
+            hits = sorted(hits, key=lambda item: _structured_api_sort_key(candidate_name, item))
+            if hits:
+                items.extend(hits[:5])
+        elif lookup == "object":
+            hits = _get_api_object(candidate_name, version=version, language=language)
+            hits = sorted(hits, key=lambda item: _structured_api_sort_key(candidate_name, item))
+            if hits:
+                items.extend(hits[:5])
+    dedup: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for item in items:
+        key = (
+            str(item.get("full_name") or item.get("name") or ""),
+            str(item.get("content_hash") or ""),
+            str(item.get("topic_path") or ""),
+        )
+        dedup[key] = item
+    return list(dedup.values())
+
+
 def _search_official_examples(
     query: str,
     limit: int = 5,
@@ -1286,6 +1322,7 @@ def _search_exactish_help_question_candidates(
     for name in names:
         exact_items.extend(_get_api_member(name, version=version, language=language))
         exact_items.extend(_get_api_object(name, version=version, language=language))
+        exact_items.extend(_resolve_surface_api_candidates(name, version=version, language=language))
     exact_items = _dedup_structured_hits(exact_items)
     if exact_items:
         return exact_items
@@ -1892,6 +1929,12 @@ def _build_mcp_app(help_path: Path) -> Any:
         structured = _get_api_member(name_clean, version=version, language=language)
         structured = sorted(structured, key=lambda item: _structured_api_sort_key(name_clean, item))
         if not structured:
+            structured = _resolve_surface_api_candidates(
+                name_clean,
+                version=version,
+                language=language,
+            )
+        if not structured:
             structured = _resolve_exact_api_owner_alias(
                 name_clean,
                 version=version,
@@ -1908,6 +1951,40 @@ def _build_mcp_app(help_path: Path) -> Any:
                 return _format_structured_api_object(best_item, include_rich_sections=True)
             return _format_structured_api_object(best_item, include_rich_sections=detail == "full")
         return _no_documented_api_answer_message(name_clean)
+
+    @mcp.tool()
+    @_record_mcp_tool
+    def resolve_1c_api_name(name: str) -> str:
+        """Resolve a BSL/platform surface-syntax chain to canonical platform-help candidates."""
+        err = _check_rate_limit()
+        if err:
+            return err
+        value, err = _truncate_if_needed((name or "").strip(), MAX_QUERY_CHARS, "name")
+        if err:
+            return err
+        if not value:
+            return "Provide API-like name, for example Документы.РеализацияТоваровУслуг.СоздатьДокумент."
+        from ..knowledge.language_resolver import resolve_platform_surface_api_query
+
+        resolved = resolve_platform_surface_api_query(value)
+        lines = [
+            f"query: {resolved.get('query') or value}",
+            f"normalized: {resolved.get('normalized_query') or value}",
+            f"resolver_kind: {resolved.get('resolver_kind') or 'unresolved'}",
+        ]
+        family = str(resolved.get("family") or "").strip()
+        if family:
+            lines.append(f"family: {family}")
+        candidates = resolved.get("candidates") or []
+        if not candidates:
+            lines.append("candidates: none")
+            return "\n".join(lines)
+        lines.append("candidates:")
+        for item in candidates:
+            lines.append(
+                f"- [{item.get('lookup') or 'lookup'}] {item.get('name') or ''} — {item.get('reason') or ''}".rstrip()
+            )
+        return "\n".join(lines)
 
     @mcp.tool()
     @_record_mcp_tool
@@ -3042,7 +3119,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         This tool is designed for autonomous AI invocation (unlike the prompt version which targets user invocation)."""
         _guide_develop = (
             "1C-HELP DEVELOP WORKFLOW:\n"
-            '1. Exact API (Тип.Метод) → get_1c_api_answer(name); full sections → get_1c_api_answer(name, detail="full"). Natural-language help → answer_1c_help_question(question). Structured object/type → get_1c_api_object(name). Related API → get_1c_api_related(name).\n'
+            '1. Exact API (Тип.Метод) → get_1c_api_answer(name); surface chains like Документы.Имя.Метод → resolve_1c_api_name(name) then get_1c_api_answer(name). Full sections → get_1c_api_answer(name, detail="full"). Natural-language help → answer_1c_help_question(question). Structured object/type → get_1c_api_object(name). Related API → get_1c_api_related(name).\n'
             "2. Broad structured lookup (members, objects, official examples) → search_1c_api(query); examples only → search_1c_api(query, include_examples=True).\n"
             "3. Local task context → get_1c_task_context(query, file_uri=..., symbol_name=...).\n"
             "4. Standards only → search_1c_standards(query). Curated snippets only → search_1c_snippets(query).\n"
@@ -3083,7 +3160,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         Not the default AI route; for autonomous workflow use get_1c_quick_guide instead."""
         block_develop = """1c-HELP + BSL LS — DEVELOP (human/onboarding prompt)
 - AI-first route: get_1c_quick_guide(task="develop") first.
-- Exact API: get_1c_api_answer(name); rich sections: get_1c_api_answer(name, detail="full"). Natural-language question: answer_1c_help_question(question). Structured object: get_1c_api_object(name). Broad structured lookup: search_1c_api(query); official examples section: search_1c_api(query, include_examples=True).
+- Exact API: get_1c_api_answer(name); rich sections: get_1c_api_answer(name, detail="full"). Surface chain (например, Документы.Имя.Метод): resolve_1c_api_name(name) → get_1c_api_answer(name). Natural-language question: answer_1c_help_question(question). Structured object: get_1c_api_object(name). Broad structured lookup: search_1c_api(query); official examples section: search_1c_api(query, include_examples=True).
 - Local anti-hallucination context: get_1c_task_context(query, file_uri=..., symbol_name=...).
 - Standards: search_1c_standards(query). Curated snippets: search_1c_snippets(query).
 - Metadata exact: search_1c_metadata_exact(query). Metadata semantic: search_1c_metadata_semantic(query). Fields: search_1c_metadata_fields(object_query, field_query).
@@ -3113,7 +3190,7 @@ def _build_mcp_app(help_path: Path) -> Any:
 
 ---
 2) 1c-HELP — ORDER OF CALLS
-- Exact API: get_1c_api_answer(name) first for Тип.Метод; use detail="full" for full structured sections. Natural-language factual question: answer_1c_help_question(question, version=...). Structured truth-source: get_1c_api_object(name). Broad structured lookup: search_1c_api(query); examples block: search_1c_api(query, include_examples=True).
+- Exact API: get_1c_api_answer(name) first for Тип.Метод; use detail="full" for full structured sections. For BSL surface chains such as Документы.Имя.Метод or Константы.Имя.Получить, first call resolve_1c_api_name(name), then get_1c_api_answer on the canonical candidate. Natural-language factual question: answer_1c_help_question(question, version=...). Structured truth-source: get_1c_api_object(name). Broad structured lookup: search_1c_api(query); examples block: search_1c_api(query, include_examples=True).
 - Task-local context: get_1c_task_context(query, file_uri=..., symbol_name=...).
 - Explicit standards/snippets: search_1c_standards(query), search_1c_snippets(query).
 - Empty or poor results: call get_1c_help_index_status first to check index health → then search_1c_api with exact Тип.Метод or short natural-language reformulation.

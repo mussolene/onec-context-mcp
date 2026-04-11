@@ -717,6 +717,55 @@ def test_mcp_tool_get_1c_api_answer_resolves_owner_alias_for_storage_manager(
     assert "Загружает настройку из хранилища" in text
 
 
+def test_mcp_tool_get_1c_api_answer_resolves_surface_document_chain(
+    help_sample_dir: Path,
+) -> None:
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(
+        mcp_server,
+        "_get_api_member",
+        side_effect=lambda name, **_: (
+            [
+                {
+                    "name": "СоздатьДокумент",
+                    "full_name": "ДокументМенеджер.<Имя документа>.СоздатьДокумент",
+                    "member_name": "СоздатьДокумент",
+                    "owner_name": "ДокументМенеджер.<Имя документа>",
+                    "summary": "Создает новый документ.",
+                    "topic_path": "CreateDocument.html",
+                    "version": "8.3.27.1859",
+                    "kind": "method",
+                }
+            ]
+            if name == "ДокументМенеджер.<Имя документа>.СоздатьДокумент"
+            else []
+        ),
+    ):
+        with patch.object(mcp_server, "_get_api_object", return_value=[]):
+            result = asyncio.run(
+                app.call_tool(
+                    "get_1c_api_answer",
+                    {"name": "Документы.РеализацияТоваровУслуг.СоздатьДокумент"},
+                )
+            )
+    text = result.content[0].text if result.content else ""
+    assert "ДокументМенеджер.<Имя документа>.СоздатьДокумент" in text
+    assert "Создает новый документ" in text
+
+
+def test_mcp_tool_resolve_1c_api_name(help_sample_dir: Path) -> None:
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    result = asyncio.run(
+        app.call_tool(
+            "resolve_1c_api_name",
+            {"name": "Константы.ИспользоватьСкидки.Получить"},
+        )
+    )
+    text = result.content[0].text if result.content else ""
+    assert "resolver_kind: platform_surface_chain" in text
+    assert "КонстантаМенеджер.<Имя константы>.Получить" in text
+
+
 def test_mcp_tool_get_1c_api_object_via_app(help_sample_dir: Path) -> None:
     """get_1c_api_object returns structured API payload from onec_help_api_objects."""
     app = mcp_server._build_mcp_app(help_sample_dir)
