@@ -451,6 +451,7 @@ def resolve_metadata_surface_query(query: str) -> dict[str, Any]:
             "candidates": _dedup_candidates(candidates),
         }
 
+    candidates = list(root_candidates)
     return {
         "query": original,
         "normalized_query": f"Метаданные.{normalized}",

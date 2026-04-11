@@ -24,6 +24,7 @@ _DEFAULT_TARGETS: dict[str, float] = {
     "syntax_pct": 70.0,
     "availability_pct": 85.0,
     "owner_name_pct": 99.5,
+    "surface_aliases_pct": 20.0,
     "method_like_params_pct": 60.0,
     "method_like_returns_pct": 60.0,
     "exact_top1_pct": 95.0,
@@ -291,6 +292,18 @@ def build_structured_help_scorecard(
         "returns_pct": _field_pct(members, "returns"),
         "availability_pct": _field_pct(members, "availability"),
         "owner_name_pct": _field_pct(members, "owner_name"),
+        "surface_aliases_pct": round(
+            (
+                sum(
+                    1
+                    for item in [*members, *objects]
+                    if item.get("surface_aliases")
+                )
+                * 100.0
+                / max(len(members) + len(objects), 1)
+            ),
+            1,
+        ),
         "method_like_params_pct": _field_pct(method_like, "params"),
         "method_like_returns_pct": _field_pct(method_like, "returns"),
         "kind_topic_pct": round(member_kinds.get("topic", 0) * 100.0 / len(members), 3)
@@ -333,6 +346,9 @@ def build_structured_help_scorecard(
             "members": len(members),
             "examples": len(examples),
             "links": len(links),
+            "typed_links": sum(
+                1 for item in links if str(item.get("link_kind") or "") != "see_also"
+            ),
         },
         "kinds": {
             "objects": dict(object_kinds.most_common()),

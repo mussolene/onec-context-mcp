@@ -1,5 +1,6 @@
 """Tests for structured API snapshot built from help topics."""
 
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -89,6 +90,30 @@ def test_extract_value_types_from_returns_sentence() -> None:
     ]
 
 
+def test_extract_structured_records_adds_surface_alias_and_typed_relations() -> None:
+    topic = {
+        "path": "8.3.27/shcntx_ru/objects/catalog63/catalog272/catalog1728/MetadataObjectEnumeratedProperties/properties/CompatibilityMode8808.html",
+        "title": "ПеречислимыеСвойстваОбъектовМетаданных.РежимСовместимости",
+        "text": (
+            "# ПеречислимыеСвойстваОбъектовМетаданных.РежимСовместимости\n\n"
+            "## Описание\n\nПредоставляет доступ к системному перечислению.\n\n"
+            "## Возвращаемое значение\n\nРежимСовместимости\n"
+        ),
+        "version": "8.3.27.1859",
+        "language": "ru",
+        "entity_type": "property",
+        "breadcrumb": ["Объекты", "ПеречислимыеСвойстваОбъектовМетаданных"],
+    }
+    _obj, member, _examples, links = extract_structured_records_from_topic(topic)
+    assert member is not None
+    assert "Метаданные.СвойстваОбъектов.РежимСовместимости" in member["surface_aliases"]
+    assert any(
+        link["link_kind"] == "metadata_enum_property_returns_system_enum"
+        and link["target_name"] == "РежимСовместимости"
+        for link in links
+    )
+
+
 def test_extract_api_records_from_topic_without_sections() -> None:
     topic = {
         "path": "8.3.27/shcntx_ru/Format.md",
@@ -131,6 +156,46 @@ def test_build_structured_api_snapshot_from_unpacked_html(tmp_path: Path) -> Non
     assert len(load_api_objects(tmp_path / "out")) == 1
     assert len(load_api_members(tmp_path / "out")) == 1
     assert len(load_api_examples(tmp_path / "out")) == 1
+
+
+def test_build_structured_api_snapshot_adds_html_links_and_surface_aliases(tmp_path: Path) -> None:
+    stem_dir = tmp_path / "8.3.27.1859" / "shcntx_ru"
+    objects_dir = stem_dir / "objects"
+    objects_dir.mkdir(parents=True)
+    (stem_dir / ".hbk_info.json").write_text(
+        '{"version":"8.3.27.1859","language":"ru"}',
+        encoding="utf-8",
+    )
+    (stem_dir / ".toc.json").write_text(
+        '[{"path":"/objects/Documents.html","title_ru":"Глобальный контекст.Документы","breadcrumb":["Глобальный контекст"],"entity_type":"property"},'
+        '{"path":"/objects/DocumentsManager.html","title_ru":"ДокументыМенеджер","breadcrumb":["Типы"],"entity_type":"type"}]',
+        encoding="utf-8",
+    )
+    (objects_dir / "Documents.html").write_text(
+        "<html><body><h1 class='V8SH_pagetitle'>Глобальный контекст.Документы</h1>"
+        "<p class='V8SH_chapter'>Возвращаемое значение:</p><p>ДокументыМенеджер</p>"
+        "<p class='V8SH_chapter'>См. также:</p><p><a href='DocumentsManager.html'>ДокументыМенеджер</a></p>"
+        "</body></html>",
+        encoding="utf-8",
+    )
+    (objects_dir / "DocumentsManager.html").write_text(
+        "<html><body><h1 class='V8SH_pagetitle'>ДокументыМенеджер</h1>"
+        "<p class='V8SH_chapter'>Описание:</p><p>Коллекция менеджеров документов.</p>"
+        "</body></html>",
+        encoding="utf-8",
+    )
+    manifest = build_structured_api_snapshot(tmp_path / "out", unpacked_dir=tmp_path)
+    assert manifest["links"] >= 3
+    members = load_api_members(tmp_path / "out")
+    docs_prop = next(item for item in members if item["full_name"] == "Глобальный контекст.Документы")
+    assert "Документы" in docs_prop["surface_aliases"]
+    links = [json.loads(line) for line in (tmp_path / "out" / "api_links.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert any(
+        link["link_kind"] == "html_href"
+        and link["source_full_name"] == "Глобальный контекст.Документы"
+        and link["target_name"] == "ДокументыМенеджер"
+        for link in links
+    )
 
 
 def test_build_structured_api_snapshot_skips_generic_topic(tmp_path: Path) -> None:

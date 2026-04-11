@@ -850,6 +850,14 @@ def _structured_api_sort_key(
     name_lower = str(item.get("name") or "").strip().lower()
     title_lower = str(item.get("title") or "").strip().lower()
     priority = _match_priority(query_lower, name_lower or title_lower, "")
+    if priority == 3 and query_lower:
+        surface_aliases = [
+            str(a).strip().lower()
+            for a in (item.get("surface_aliases") or [])
+            if isinstance(a, str) and str(a).strip()
+        ]
+        if query_lower in surface_aliases:
+            priority = 1
     # If no name match, check if query appears in item content.
     # 0 = query/suffix in full_name (stronger), 1 = query in text/summary only, 2 = no match.
     content_no_match = 2

@@ -12,6 +12,7 @@ from bs4 import BeautifulSoup
 
 from ..help_core.html2md import (
     _read_html_file,
+    extract_outgoing_links,
     extract_v8sh_sections,
     html_to_md_content,
     iter_unpacked_hbk_html_files,
@@ -87,6 +88,30 @@ _INLINE_SECTION_LABELS = {
 _INLINE_SECTION_RE = re.compile(
     "|".join(re.escape(label) for label in sorted(_INLINE_SECTION_LABELS, key=len, reverse=True))
 )
+
+_METADATA_COLLECTION_OBJECT_TYPES: dict[str, str] = {
+    "Документы": "ОбъектМетаданных: Документ",
+    "Справочники": "ОбъектМетаданных: Справочник",
+    "Перечисления": "ОбъектМетаданных: Перечисление",
+    "Константы": "ОбъектМетаданных: Константа",
+    "РегистрыСведений": "ОбъектМетаданных: РегистрСведений",
+    "РегистрыНакопления": "ОбъектМетаданных: РегистрНакопления",
+    "РегистрыБухгалтерии": "ОбъектМетаданных: РегистрБухгалтерии",
+    "РегистрыРасчета": "ОбъектМетаданных: РегистрРасчета",
+    "ПланыСчетов": "ОбъектМетаданных: ПланСчетов",
+    "ПланыВидовХарактеристик": "ОбъектМетаданных: ПланВидовХарактеристик",
+    "ПланыВидовРасчета": "ОбъектМетаданных: ПланВидовРасчета",
+    "ПланыОбмена": "ОбъектМетаданных: ПланОбмена",
+    "БизнесПроцессы": "ОбъектМетаданных: БизнесПроцесс",
+    "Задачи": "ОбъектМетаданных: Задача",
+    "Отчеты": "ОбъектМетаданных: Отчет",
+    "Отчёты": "ОбъектМетаданных: Отчет",
+    "Обработки": "ОбъектМетаданных: Обработка",
+    "ХранилищаНастроек": "ОбъектМетаданных: ХранилищеНастроек",
+    "КритерииОтбора": "ОбъектМетаданных: КритерийОтбора",
+    "ЖурналыДокументов": "ОбъектМетаданных: ЖурналДокументов",
+    "Последовательности": "ОбъектМетаданных: Последовательность",
+}
 
 
 def get_help_structured_dir() -> Path:
@@ -673,6 +698,200 @@ def _derive_table_owner_name_from_path(html_path: Path, topic_path: str) -> str:
     return _read_v8sh_page_title(str(parent_html))
 
 
+def _extend_unique(items: list[str], *values: str) -> list[str]:
+    seen = {str(item).strip().lower() for item in items if str(item).strip()}
+    out = list(items)
+    for raw in values:
+        value = str(raw or "").strip()
+        if not value:
+            continue
+        key = value.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(value)
+    return out
+
+
+def _infer_resolver_family(owner_or_object_name: str) -> str:
+    value = (owner_or_object_name or "").strip()
+    if value.startswith("Глобальный контекст."):
+        value = value.split(".", 1)[1].strip()
+    if value.startswith("ОбъектМетаданныхКонфигурация."):
+        value = value.split(".", 1)[1].strip()
+    if value == "Глобальный контекст.Метаданные" or value == "ОбъектМетаданныхКонфигурация":
+        return "Метаданные"
+    if value == "ПеречислимыеСвойстваОбъектовМетаданных":
+        return "СвойстваОбъектов"
+    if value.startswith("ОбъектМетаданных: "):
+        return value.split(": ", 1)[1].strip()
+    base = value.split(".", 1)[0].strip()
+    if base in _METADATA_COLLECTION_OBJECT_TYPES or base in {
+        "Документы",
+        "Справочники",
+        "Перечисления",
+        "Константы",
+        "РегистрыСведений",
+        "РегистрыНакопления",
+        "РегистрыБухгалтерии",
+        "РегистрыРасчета",
+        "ПланыСчетов",
+        "ПланыВидовХарактеристик",
+        "ПланыВидовРасчета",
+        "ПланыОбмена",
+        "БизнесПроцессы",
+        "Задачи",
+        "Отчеты",
+        "Отчёты",
+        "Обработки",
+        "ХранилищаНастроек",
+        "ЖурналыДокументов",
+        "КритерииОтбора",
+        "Последовательности",
+    }:
+        return base
+    return ""
+
+
+def _surface_aliases_for_member(full_name: str, owner_name: str, member_name: str) -> list[str]:
+    aliases: list[str] = []
+    if full_name == "Глобальный контекст.Метаданные":
+        return ["Метаданные"]
+    if full_name == "ОбъектМетаданныхКонфигурация.СвойстваОбъектов":
+        return ["Метаданные.СвойстваОбъектов"]
+    if owner_name == "ПеречислимыеСвойстваОбъектовМетаданных" and member_name:
+        return [f"Метаданные.СвойстваОбъектов.{member_name}"]
+    if owner_name == "ОбъектМетаданныхКонфигурация" and member_name in _METADATA_COLLECTION_OBJECT_TYPES:
+        return [f"Метаданные.{member_name}"]
+    if owner_name == "Глобальный контекст" and member_name:
+        return [member_name]
+
+    from .language_resolver import _SURFACE_FAMILY_SPECS
+
+    for spec in _SURFACE_FAMILY_SPECS.values():
+        placeholder_member = f"{spec.collection_manager}.{spec.collection_item_placeholder}"
+        if full_name == f"Глобальный контекст.{spec.family}":
+            aliases = _extend_unique(aliases, spec.family)
+        elif full_name == placeholder_member:
+            aliases = _extend_unique(aliases, f"{spec.family}.{spec.collection_item_placeholder}")
+        elif owner_name == spec.item_manager_template and member_name:
+            aliases = _extend_unique(
+                aliases,
+                f"{spec.family}.{spec.collection_item_placeholder}.{member_name}",
+            )
+    return aliases
+
+
+def _surface_aliases_for_object(object_name: str) -> list[str]:
+    aliases: list[str] = []
+    if object_name == "ОбъектМетаданныхКонфигурация":
+        return ["Метаданные"]
+    if object_name == "ПеречислимыеСвойстваОбъектовМетаданных":
+        return ["Метаданные.СвойстваОбъектов"]
+
+    from .language_resolver import _SURFACE_FAMILY_SPECS
+
+    for spec in _SURFACE_FAMILY_SPECS.values():
+        if object_name == spec.collection_manager:
+            aliases = _extend_unique(aliases, spec.family)
+        elif object_name == spec.item_manager_template:
+            aliases = _extend_unique(aliases, f"{spec.family}.{spec.collection_item_placeholder}")
+    return aliases
+
+
+def _typed_relations_for_member(
+    record: dict[str, Any],
+    *,
+    version: str,
+    language: str,
+    topic_path: str,
+) -> list[dict[str, Any]]:
+    full_name = str(record.get("full_name") or "")
+    owner_name = str(record.get("owner_name") or "")
+    member_name = str(record.get("member_name") or "")
+    relations: list[dict[str, Any]] = []
+    seq = 1
+
+    def add(target_name: str, link_kind: str, *, target_lookup: str = "object", reason: str = "") -> None:
+        nonlocal seq
+        target = str(target_name or "").strip()
+        if not target:
+            return
+        relations.append(
+            {
+                "id": _topic_point_id(f"{topic_path}#rel-{link_kind}-{seq}", version, language),
+                "source_full_name": full_name,
+                "target_name": target,
+                "target_lookup": target_lookup,
+                "source_lookup": "member",
+                "link_kind": link_kind,
+                "reason": reason,
+                "topic_path": topic_path,
+                "version": version,
+                "language": language,
+                "text": f"{full_name} -> {target}",
+            }
+        )
+        seq += 1
+
+    for type_name in record.get("value_types") or []:
+        add(type_name, "returns_type", reason="normalized value type from structured help")
+    for alias in record.get("surface_aliases") or []:
+        add(alias, "surface_alias", target_lookup="alias", reason="canonical BSL surface-syntax alias")
+
+    if full_name == "Глобальный контекст.Метаданные":
+        add("ОбъектМетаданныхКонфигурация", "global_property_returns_type")
+    elif owner_name == "ОбъектМетаданныхКонфигурация" and member_name == "СвойстваОбъектов":
+        add("ПеречислимыеСвойстваОбъектовМетаданных", "metadata_property_returns_type")
+    elif owner_name == "ПеречислимыеСвойстваОбъектовМетаданных":
+        for type_name in record.get("value_types") or []:
+            add(type_name, "metadata_enum_property_returns_system_enum")
+    elif owner_name == "ОбъектМетаданныхКонфигурация" and member_name in _METADATA_COLLECTION_OBJECT_TYPES:
+        add(
+            _METADATA_COLLECTION_OBJECT_TYPES[member_name],
+            "metadata_collection_contains_object_type",
+        )
+    return relations
+
+
+def _typed_relations_for_object(
+    record: dict[str, Any],
+    *,
+    version: str,
+    language: str,
+    topic_path: str,
+) -> list[dict[str, Any]]:
+    full_name = str(record.get("full_name") or record.get("object_name") or "")
+    relations: list[dict[str, Any]] = []
+    seq = 1
+
+    def add(target_name: str, link_kind: str, *, target_lookup: str = "alias", reason: str = "") -> None:
+        nonlocal seq
+        target = str(target_name or "").strip()
+        if not target:
+            return
+        relations.append(
+            {
+                "id": _topic_point_id(f"{topic_path}#objrel-{link_kind}-{seq}", version, language),
+                "source_full_name": full_name,
+                "target_name": target,
+                "target_lookup": target_lookup,
+                "source_lookup": "object",
+                "link_kind": link_kind,
+                "reason": reason,
+                "topic_path": topic_path,
+                "version": version,
+                "language": language,
+                "text": f"{full_name} -> {target}",
+            }
+        )
+        seq += 1
+
+    for alias in record.get("surface_aliases") or []:
+        add(alias, "surface_alias", reason="canonical BSL surface-syntax alias")
+    return relations
+
+
 def _make_object_stub(
     owner_name: str,
     *,
@@ -695,11 +914,15 @@ def _make_object_stub(
         "availability": "",
         "platform_since": "",
         "page_descriptor": "",
+        "value_types": [],
         "version": version,
         "language": language,
         "topic_path": topic_path,
         "breadcrumb": breadcrumb or [],
         "aliases": [],
+        "surface_aliases": [],
+        "resolver_family": _infer_resolver_family(owner_name),
+        "resolver_kind": "stub",
         "see_also": [],
         "source_sections": {},
     }
@@ -797,6 +1020,9 @@ def _build_structured_records(
             "topic_path": path,
             "breadcrumb": breadcrumb,
             "aliases": alias_list,
+            "surface_aliases": [],
+            "resolver_family": _infer_resolver_family(owner_name or full_name),
+            "resolver_kind": "platform_member",
             "see_also": see_also,
             "source_sections": source_sections,
         }
@@ -818,6 +1044,11 @@ def _build_structured_records(
             ) or _returns_from_description(summary)
         member_record["value_types"] = _extract_value_types(
             member_record.get("returns") or member_record.get("description") or summary
+        )
+        member_record["surface_aliases"] = _surface_aliases_for_member(
+            full_name,
+            owner_name,
+            member_name,
         )
         if member_kind == "property" and not member_record["syntax"]:
             member_record["syntax"] = full_name
@@ -869,6 +1100,9 @@ def _build_structured_records(
             "topic_path": path,
             "breadcrumb": breadcrumb,
             "aliases": obj_aliases,
+            "surface_aliases": [],
+            "resolver_family": _infer_resolver_family(full_name),
+            "resolver_kind": "platform_object",
             "see_also": see_also,
             "source_sections": source_sections,
         }
@@ -882,6 +1116,7 @@ def _build_structured_records(
         object_record["value_types"] = _extract_value_types(
             object_record.get("returns") or object_record.get("description") or summary
         )
+        object_record["surface_aliases"] = _surface_aliases_for_object(full_name)
 
     examples: list[dict[str, Any]] = []
     example_section = sections.get("example", "")
@@ -919,13 +1154,34 @@ def _build_structured_records(
                     "id": _topic_point_id(f"{path}#see-also-{idx}", version, language),
                     "source_full_name": source_full_name,
                     "target_name": target_name,
+                    "target_lookup": "unknown",
+                    "source_lookup": "member" if member_record is not None else "object",
                     "link_kind": "see_also",
+                    "reason": "textual see_also section",
                     "topic_path": path,
                     "version": version,
                     "language": language,
                     "text": f"{source_full_name} -> {target_name}",
                 }
             )
+    if member_record is not None:
+        links.extend(
+            _typed_relations_for_member(
+                member_record,
+                version=version,
+                language=language,
+                topic_path=path,
+            )
+        )
+    elif object_record is not None:
+        links.extend(
+            _typed_relations_for_object(
+                object_record,
+                version=version,
+                language=language,
+                topic_path=path,
+            )
+        )
 
     return object_record, member_record, examples, links
 
@@ -1232,6 +1488,7 @@ def iter_help_topics_from_unpacked(*, unpacked_dir: Path | None = None) -> list[
                 topics.append(
                     {
                         "html_path": html_path,
+                        "stem_dir": stem_dir,
                         "path": full_path,
                         "title": str(
                             toc_item.get("title_ru") or toc_item.get("title_en") or html_path.stem
@@ -1330,6 +1587,8 @@ def build_structured_api_snapshot(
     examples_raw: list[dict[str, Any]] = []
     links_raw: list[dict[str, Any]] = []
     topics_raw: list[dict[str, Any]] = []
+    html_links_raw: list[dict[str, Any]] = []
+    names_by_topic_path: dict[str, str] = {}
 
     for topic in html_topics:
         canon = canonical_topic_path(str(topic.get("path") or ""), str(topic.get("version") or ""))
@@ -1348,6 +1607,10 @@ def build_structured_api_snapshot(
         if object_record is not None:
             topic_path = str(object_record.get("topic_path") or "")
             if topic_path:
+                names_by_topic_path[topic_path] = str(
+                    object_record.get("full_name") or object_record.get("object_name") or ""
+                )
+            if topic_path:
                 key = (
                     str(object_record.get("version") or ""),
                     str(object_record.get("language") or ""),
@@ -1365,8 +1628,43 @@ def build_structured_api_snapshot(
                 objects_by_key[key] = object_record
         if member_record is not None:
             members_raw.append(member_record)
+            member_topic_path = str(member_record.get("topic_path") or "")
+            if member_topic_path:
+                names_by_topic_path[member_topic_path] = str(member_record.get("full_name") or "")
         examples_raw.extend(topic_examples)
         links_raw.extend(topic_links)
+
+        source_name = str(
+            (member_record or object_record or {}).get("full_name")
+            or (member_record or object_record or {}).get("object_name")
+            or ""
+        ).strip()
+        stem_dir = topic.get("stem_dir")
+        if source_name and isinstance(stem_dir, Path):
+            for idx, link in enumerate(
+                extract_outgoing_links(Path(topic["html_path"]), stem_dir),
+                1,
+            ):
+                resolved_path = str(link.get("resolved_path") or "").strip()
+                if not resolved_path:
+                    continue
+                html_links_raw.append(
+                    {
+                        "id": _topic_point_id(f"{canon}#html-link-{idx}", str(topic.get("version") or ""), str(topic.get("language") or "")),
+                        "source_full_name": source_name,
+                        "target_name": str(link.get("target_title") or link.get("link_text") or "").strip(),
+                        "target_lookup": "topic_path",
+                        "source_lookup": "member" if member_record is not None else "object",
+                        "resolved_target_topic_path": f"{stem_dir.name}/{resolved_path}",
+                        "href": str(link.get("href") or "").strip(),
+                        "link_kind": "html_href",
+                        "reason": "resolved HTML href link",
+                        "topic_path": canon,
+                        "version": str(topic.get("version") or ""),
+                        "language": str(topic.get("language") or ""),
+                        "text": f"{source_name} -> {resolved_path}",
+                    }
+                )
 
         # Topics that produced no structured API record go into the general docs index.
         if object_record is None and member_record is None:
@@ -1381,14 +1679,25 @@ def build_structured_api_snapshot(
             )
             if topic_rec is not None:
                 topics_raw.append(topic_rec)
+                names_by_topic_path[str(topic_rec.get("topic_path") or "")] = str(
+                    topic_rec.get("title") or ""
+                )
 
     for obj in objects_by_key.values():
         objects_raw.append(obj)
 
+    for link in html_links_raw:
+        resolved_target = str(link.get("resolved_target_topic_path") or "").strip()
+        if resolved_target and names_by_topic_path.get(resolved_target):
+            link["target_name"] = names_by_topic_path[resolved_target]
+            link["target_lookup"] = "topic" if resolved_target in {
+                str(item.get("topic_path") or "") for item in topics_raw
+            } else "structured_topic"
+
     object_items = _merge_snapshot_records(objects_raw, id_suffix="obj")
     members = _merge_snapshot_records(members_raw, id_suffix="mem")
     examples = _merge_snapshot_records(examples_raw, id_suffix="ex")
-    links = _merge_snapshot_records(links_raw, id_suffix="lnk")
+    links = _merge_snapshot_records(links_raw + html_links_raw, id_suffix="lnk")
     doc_topics = _merge_snapshot_records(topics_raw, id_suffix="doc")
 
     _write_jsonl(out_dir / API_OBJECTS_FILE, object_items)
@@ -1398,7 +1707,7 @@ def build_structured_api_snapshot(
     _write_jsonl(out_dir / API_TOPICS_FILE, doc_topics)
 
     manifest = {
-        "format": "onec_help_structured_api_v5",
+        "format": "onec_help_structured_api_v6",
         "objects": len(object_items),
         "members": len(members),
         "examples": len(examples),
@@ -1588,6 +1897,7 @@ def _record_embedding_text(item: dict[str, Any], *, kind: str) -> str:
     parts = [
         item.get("full_name") or item.get("object_name") or "",
         item.get("title") or "",
+        " ".join(str(x) for x in (item.get("surface_aliases") or []) if str(x).strip()),
         item.get("summary") or "",
         item.get("description") or "",
         item.get("notes") or "",
@@ -1783,6 +2093,9 @@ def index_structured_api_objects(
             "breadcrumb": item.get("breadcrumb") or [],
             "see_also": item.get("see_also") or [],
             "aliases": item.get("aliases") or [],
+            "surface_aliases": item.get("surface_aliases") or [],
+            "resolver_family": item.get("resolver_family") or "",
+            "resolver_kind": item.get("resolver_kind") or "",
             "source_sections": item.get("source_sections") or {},
             "text": _record_embedding_text(item, kind="object"),
         },
@@ -1838,6 +2151,9 @@ def index_structured_api_members(
             "breadcrumb": item.get("breadcrumb") or [],
             "see_also": item.get("see_also") or [],
             "aliases": item.get("aliases") or [],
+            "surface_aliases": item.get("surface_aliases") or [],
+            "resolver_family": item.get("resolver_family") or "",
+            "resolver_kind": item.get("resolver_kind") or "",
             "source_sections": item.get("source_sections") or {},
             "text": _record_embedding_text(item, kind="member"),
         },
@@ -1919,6 +2235,11 @@ def index_structured_api_links(
             "source_full_name": item.get("source_full_name") or "",
             "target_name": item.get("target_name") or "",
             "link_kind": item.get("link_kind") or "see_also",
+            "target_lookup": item.get("target_lookup") or "",
+            "source_lookup": item.get("source_lookup") or "",
+            "resolved_target_topic_path": item.get("resolved_target_topic_path") or "",
+            "href": item.get("href") or "",
+            "reason": item.get("reason") or "",
             "version": item.get("version") or "",
             "versions": item.get("versions") or [],
             "content_hash": item.get("content_hash") or "",
@@ -2168,12 +2489,19 @@ def _member_exact_sort_key(
         for a in (item.get("aliases") or [])
         if isinstance(a, str) and str(a).strip()
     ]
+    surface_aliases_lower = [
+        str(a).strip().lower()
+        for a in (item.get("surface_aliases") or [])
+        if isinstance(a, str) and str(a).strip()
+    ]
     owner_priority = 0 if owner_name in {"глобальный контекст", "встроенные функции языка"} else 1
     if full_name == query_clean:
         priority = 0
     elif member_name == query_clean:
         priority = 1
     elif query_clean in aliases_lower:
+        priority = 2
+    elif query_clean in surface_aliases_lower:
         priority = 2
     elif full_name.endswith("." + query_clean):
         priority = 3
@@ -2242,7 +2570,7 @@ def get_api_member(
             return []
         results: list[dict[str, Any]] = []
         try:
-            for field in ("name", "full_name", "member_name", "aliases"):
+            for field in ("name", "full_name", "member_name", "aliases", "surface_aliases"):
                 results.extend(
                     _scroll_exact_member_matches(
                         client,
@@ -2306,6 +2634,7 @@ def get_api_object(
             FieldCondition(key="full_name", match=MatchValue(value=name_clean)),
             FieldCondition(key="object_name", match=MatchValue(value=name_clean)),
             FieldCondition(key="aliases", match=MatchValue(value=name_clean)),
+            FieldCondition(key="surface_aliases", match=MatchValue(value=name_clean)),
         ]
         results: list[dict[str, Any]] = []
         try:
