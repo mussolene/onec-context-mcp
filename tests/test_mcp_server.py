@@ -218,6 +218,58 @@ def test_rank_keyword_results_prefers_exact_api_match() -> None:
     assert ranked[0]["title"] == "HTTPСоединение.Получить"
 
 
+def test_owner_alias_candidates_for_common_settings_storage() -> None:
+    out = mcp_server._owner_alias_candidates("ХранилищеОбщихНастроек")
+    assert "СтандартноеХранилищеНастроекМенеджер" in out
+    assert "ХранилищеНастроекМенеджер.<Имя хранилища>" in out
+
+    out2 = mcp_server._owner_alias_candidates("ХранилищеОбщихНастроекМенеджер")
+    assert "СтандартноеХранилищеНастроекМенеджер" in out2
+    assert "ХранилищеНастроекМенеджер.<Имя хранилища>" in out2
+
+
+def test_resolve_exact_api_owner_alias_for_common_settings_storage() -> None:
+    with patch.object(
+        mcp_server,
+        "_get_api_member",
+        return_value=[
+            {
+                "full_name": "Глобальный контекст.ХранилищеОбщихНастроек",
+                "member_name": "ХранилищеОбщихНастроек",
+                "owner_name": "Глобальный контекст",
+                "kind": "property",
+                "value_types": [
+                    "СтандартноеХранилищеНастроекМенеджер",
+                    "ХранилищеНастроекМенеджер.<Имя хранилища>",
+                ],
+                "topic_path": "CommonStorage.html",
+                "version": "8.3.27.1859",
+            },
+            {
+                "full_name": "ХранилищеНастроекМенеджер.<Имя хранилища>.Загрузить",
+                "member_name": "Загрузить",
+                "owner_name": "ХранилищеНастроекМенеджер.<Имя хранилища>",
+                "topic_path": "Load3633.html",
+                "version": "8.3.27.1859",
+            },
+            {
+                "full_name": "ЭлементПланировщика.Загрузить",
+                "member_name": "Загрузить",
+                "owner_name": "ЭлементПланировщика",
+                "topic_path": "PlannerLoad.html",
+                "version": "8.3.27.1859",
+            },
+        ],
+    ):
+        out = mcp_server._resolve_exact_api_owner_alias(
+            "ХранилищеОбщихНастроек.Загрузить",
+            version=None,
+            language="ru",
+        )
+    assert out
+    assert out[0]["full_name"] == "ХранилищеНастроекМенеджер.<Имя хранилища>.Загрузить"
+
+
 def test_hybrid_search_returns_meta() -> None:
     """_hybrid_search returns (results, meta) with has_keyword_hits and top_semantic_score."""
     with (
@@ -619,6 +671,52 @@ def test_mcp_tool_get_1c_api_answer_falls_back_to_api_object(help_sample_dir: Pa
     assert "Коллекция строк" in text
 
 
+def test_mcp_tool_get_1c_api_answer_resolves_owner_alias_for_storage_manager(
+    help_sample_dir: Path,
+) -> None:
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(
+        mcp_server,
+        "_get_api_member",
+        side_effect=[
+            [],
+            [
+                {
+                    "name": "ХранилищеОбщихНастроек",
+                    "full_name": "Глобальный контекст.ХранилищеОбщихНастроек",
+                    "member_name": "ХранилищеОбщихНастроек",
+                    "owner_name": "Глобальный контекст",
+                    "kind": "property",
+                    "value_types": [
+                        "СтандартноеХранилищеНастроекМенеджер",
+                        "ХранилищеНастроекМенеджер.<Имя хранилища>",
+                    ],
+                    "topic_path": "CommonStorage.html",
+                    "version": "8.3.27.1859",
+                }
+            ],
+            [
+                {
+                    "name": "Загрузить",
+                    "full_name": "ХранилищеНастроекМенеджер.<Имя хранилища>.Загрузить",
+                    "member_name": "Загрузить",
+                    "owner_name": "ХранилищеНастроекМенеджер.<Имя хранилища>",
+                    "summary": "Загружает настройку из хранилища.",
+                    "topic_path": "Load3633.html",
+                    "version": "8.3.27.1859",
+                }
+            ],
+        ],
+    ):
+        with patch.object(mcp_server, "_get_api_object", return_value=[]):
+            result = asyncio.run(
+                app.call_tool("get_1c_api_answer", {"name": "ХранилищеОбщихНастроек.Загрузить"})
+            )
+    text = result.content[0].text if result.content else ""
+    assert "ХранилищеНастроекМенеджер.<Имя хранилища>.Загрузить" in text
+    assert "Загружает настройку из хранилища" in text
+
+
 def test_mcp_tool_get_1c_api_object_via_app(help_sample_dir: Path) -> None:
     """get_1c_api_object returns structured API payload from onec_help_api_objects."""
     app = mcp_server._build_mcp_app(help_sample_dir)
@@ -727,6 +825,48 @@ def test_mcp_tool_answer_1c_help_question_falls_back_to_topic_fact(help_sample_d
     assert "Источник" in text
 
 
+def test_mcp_tool_answer_1c_help_question_prefers_exact_short_api_name(
+    help_sample_dir: Path,
+) -> None:
+    """Natural-language question with a short API name should prefer exact structured member over broad semantic hit."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(
+        mcp_server,
+        "_search_exactish_help_question_candidates",
+        return_value=[
+            {
+                "name": "ПрочитатьJSON",
+                "full_name": "Глобальный контекст.ПрочитатьJSON",
+                "summary": "Считывает значение из JSON-текста или файла.",
+                "description": "Объект JSON будет преобразован в соответствие или структуру.",
+                "notes": "Для Соответствия используйте параметр ПрочитатьВСоответствие.",
+                "topic_path": "ReadJSON.html",
+                "version": "8.3.27.1859",
+            }
+        ],
+    ):
+        result = asyncio.run(
+            app.call_tool(
+                "answer_1c_help_question",
+                {"question": "Как методом ПрочитатьJSON получить объект JSON как Соответствие?"},
+            )
+        )
+    text = result.content[0].text if result.content else ""
+    assert "Глобальный контекст.ПрочитатьJSON" in text
+    assert "ПрочитатьВСоответствие" in text
+
+
+def test_extract_fact_from_structured_restriction_combines_notes_and_description() -> None:
+    item = {
+        "availability": "Тонкий клиент, сервер.",
+        "notes": "На клиенте начиная с 8.3.21 метод устарел.",
+        "description": "Вместо него требуется использовать ПолучитьАсинх.",
+    }
+    fact = mcp_server._extract_fact_from_structured(item, "restriction")
+    assert "устарел" in fact
+    assert "ПолучитьАсинх" in fact
+
+
 def test_mcp_tool_search_1c_api_ranks_structured_member_first(help_sample_dir: Path) -> None:
     """search_1c_api should render structured API member in the member section."""
     app = mcp_server._build_mcp_app(help_sample_dir)
@@ -811,6 +951,83 @@ def test_mcp_tool_compare_1c_help_via_app(help_sample_dir: Path) -> None:
         )
     text = result.content[0].text if result.content else ""
     assert "8.3" in text or "Diff" in text
+
+
+def test_mcp_tool_compare_1c_help_resolves_structured_topic_path_before_compare(
+    help_sample_dir: Path,
+) -> None:
+    """Short compare query should be resolved to structured topic_path before delegating to indexer."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(
+        mcp_server,
+        "_get_api_member",
+        return_value=[
+            {
+                "full_name": "HTTPСоединение.Получить",
+                "topic_path": "shcntx_ru/objects/catalog63/catalog578/catalog2125/HTTPConnection/methods/Get1442.html",
+                "version": "8.3.27.1859",
+            }
+        ],
+    ):
+        with patch.object(mcp_server, "_get_api_object", return_value=[]):
+            with patch.object(mcp_server, "_search_api_members", return_value=[]):
+                with patch.object(mcp_server, "_search_api_objects", return_value=[]):
+                    with patch(
+                        "onec_help.search_store.indexer.compare_1c_help",
+                        return_value="ok",
+                    ) as mock_compare:
+                        result = asyncio.run(
+                            app.call_tool(
+                                "compare_1c_help",
+                                {
+                                    "topic_path_or_query": "HTTPСоединение.Получить",
+                                    "version_left": "8.3.20.1710",
+                                    "version_right": "8.3.27.1859",
+                                    "language": "ru",
+                                },
+                            )
+                        )
+    text = result.content[0].text if result.content else ""
+    assert text == "ok"
+    assert mock_compare.call_args[0][0].endswith("Get1442.html")
+
+
+def test_mcp_tool_compare_1c_help_falls_back_to_original_query_when_resolved_path_not_found(
+    help_sample_dir: Path,
+) -> None:
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    with patch.object(
+        mcp_server,
+        "_get_api_member",
+        return_value=[
+            {
+                "full_name": "HTTPСоединение.Получить",
+                "topic_path": "shcntx_ru/objects/catalog63/catalog578/catalog2125/HTTPConnection/methods/Get1442.html",
+            }
+        ],
+    ):
+        with patch.object(mcp_server, "_get_api_object", return_value=[]):
+            with patch.object(mcp_server, "_search_api_members", return_value=[]):
+                with patch.object(mcp_server, "_search_api_objects", return_value=[]):
+                    with patch(
+                        "onec_help.search_store.indexer.compare_1c_help",
+                        side_effect=["Topic not found for query: x", "fallback ok"],
+                    ) as mock_compare:
+                        result = asyncio.run(
+                            app.call_tool(
+                                "compare_1c_help",
+                                {
+                                    "topic_path_or_query": "HTTPСоединение.Получить",
+                                    "version_left": "8.3.20.1710",
+                                    "version_right": "8.3.27.1859",
+                                    "language": "ru",
+                                },
+                            )
+                        )
+    text = result.content[0].text if result.content else ""
+    assert text == "fallback ok"
+    assert mock_compare.call_count == 2
+    assert mock_compare.call_args_list[1][0][0] == "HTTPСоединение.Получить"
 
 
 def test_mcp_tool_get_form_metadata_via_app(help_sample_dir: Path) -> None:

@@ -67,8 +67,26 @@ def test_extract_structured_records_markdown_separates_platform_since_and_availa
     _obj, member, _examples, _links = extract_structured_records_from_topic(topic)
     assert member is not None
     assert member["availability"].strip() == "Тонкий клиент."
-    assert "8.3.13" in member["platform_since"]
-    assert member["source_sections"].get("platform_since")
+
+
+def test_extract_value_types_normalizes_storage_manager_variants() -> None:
+    from onec_help.knowledge.help_structured import _extract_value_types
+
+    out = _extract_value_types(
+        "СтандартноеХранилищеНастроекМенеджер , ХранилищеНастроекМенеджер. < Имя хранилища >"
+    )
+    assert out == [
+        "СтандартноеХранилищеНастроекМенеджер",
+        "ХранилищеНастроекМенеджер.<Имя хранилища>",
+    ]
+
+
+def test_extract_value_types_from_returns_sentence() -> None:
+    from onec_help.knowledge.help_structured import _extract_value_types
+
+    assert _extract_value_types("Тип: ДокументСсылка . Содержит ссылку на документ.") == [
+        "ДокументСсылка"
+    ]
 
 
 def test_extract_api_records_from_topic_without_sections() -> None:

@@ -597,6 +597,48 @@ def _returns_from_description(description: str) -> str:
     return match.group(1).strip()
 
 
+def _normalize_type_token(value: str) -> str:
+    token = " ".join((value or "").split())
+    if not token:
+        return ""
+    if token.lower().startswith("тип:"):
+        token = token[4:].strip()
+    token = re.sub(r"\.\s*<", ".<", token)
+    token = re.sub(r"<\s*", "<", token)
+    token = re.sub(r"\s*>", ">", token)
+    token = token.strip(" .,\n\t")
+    return token.strip()
+
+
+def _extract_value_types(text: str) -> list[str]:
+    """Extract normalized type names from returns/description text.
+
+    Examples:
+    - ``Тип: HTTPОтвет .`` -> ``["HTTPОтвет"]``
+    - ``СтандартноеХранилищеНастроекМенеджер , ХранилищеНастроекМенеджер. < Имя хранилища >``
+      -> two normalized types
+    """
+    value = " ".join((text or "").split())
+    if not value:
+        return []
+    if value.lower().startswith("тип:"):
+        value = value[4:].strip()
+    parts = re.split(r"\s*[,;]\s*", value)
+    out: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        candidate = re.split(r"\s+\.\s+", part, maxsplit=1)[0]
+        candidate = _normalize_type_token(candidate)
+        if not candidate:
+            continue
+        key = candidate.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(candidate)
+    return out
+
+
 def _split_full_name(name: str) -> tuple[str, str]:
     value = (name or "").strip()
     if "." in value:
@@ -746,6 +788,7 @@ def _build_structured_records(
             "syntax": _clean_syntax(sections.get("syntax", "")),
             "params": _parse_param_lines(sections.get("params", "")),
             "returns": _clean_returns(sections.get("returns", "")),
+            "value_types": [],
             "availability": sections.get("availability", ""),
             "platform_since": _normalize_text(sections.get("platform_since", "")),
             "page_descriptor": _normalize_text(sections.get("page_descriptor", "")),
@@ -773,6 +816,9 @@ def _build_structured_records(
             member_record["returns"] = _returns_from_description(
                 sections.get("description", "")
             ) or _returns_from_description(summary)
+        member_record["value_types"] = _extract_value_types(
+            member_record.get("returns") or member_record.get("description") or summary
+        )
         if member_kind == "property" and not member_record["syntax"]:
             member_record["syntax"] = full_name
             member_record["source_sections"] = {
@@ -817,6 +863,7 @@ def _build_structured_records(
             "availability": sections.get("availability", ""),
             "platform_since": _normalize_text(sections.get("platform_since", "")),
             "page_descriptor": _normalize_text(sections.get("page_descriptor", "")),
+            "value_types": [],
             "version": version,
             "language": language,
             "topic_path": path,
@@ -832,6 +879,9 @@ def _build_structured_records(
             object_record["syntax"] = syn
             object_record["params"] = prs
             object_record["returns"] = ret
+        object_record["value_types"] = _extract_value_types(
+            object_record.get("returns") or object_record.get("description") or summary
+        )
 
     examples: list[dict[str, Any]] = []
     example_section = sections.get("example", "")
@@ -1003,6 +1053,7 @@ def extract_api_records_from_topic(
                 "syntax": member_record.get("syntax") or "",
                 "params": member_record.get("params") or [],
                 "returns": member_record.get("returns") or "",
+                "value_types": member_record.get("value_types") or [],
                 "availability": member_record.get("availability") or "",
                 "platform_since": member_record.get("platform_since") or "",
                 "page_descriptor": member_record.get("page_descriptor") or "",
@@ -1029,6 +1080,7 @@ def extract_api_records_from_topic(
                 "syntax": "",
                 "params": [],
                 "returns": "",
+                "value_types": object_record.get("value_types") or [],
                 "availability": object_record.get("availability") or "",
                 "platform_since": object_record.get("platform_since") or "",
                 "page_descriptor": object_record.get("page_descriptor") or "",
@@ -1717,6 +1769,7 @@ def index_structured_api_objects(
             "syntax": item.get("syntax") or "",
             "params": item.get("params") or [],
             "returns": item.get("returns") or "",
+            "value_types": item.get("value_types") or [],
             "availability": item.get("availability") or "",
             "platform_since": item.get("platform_since") or "",
             "page_descriptor": item.get("page_descriptor") or "",
@@ -1771,6 +1824,7 @@ def index_structured_api_members(
             "syntax": item.get("syntax") or "",
             "params": item.get("params") or [],
             "returns": item.get("returns") or "",
+            "value_types": item.get("value_types") or [],
             "availability": item.get("availability") or "",
             "platform_since": item.get("platform_since") or "",
             "page_descriptor": item.get("page_descriptor") or "",

@@ -273,6 +273,145 @@ def _get_api_member(
     return get_api_member(name, version=version, language=language)
 
 
+_OWNER_ALIAS_REWRITE_MAP: dict[str, tuple[str, ...]] = {
+    "ХранилищеОбщихНастроек": (
+        "СтандартноеХранилищеНастроекМенеджер",
+        "ХранилищеНастроекМенеджер.<Имя хранилища>",
+    ),
+    "ХранилищеВариантовОтчетов": (
+        "СтандартноеХранилищеНастроекМенеджер",
+        "ХранилищеНастроекМенеджер.<Имя хранилища>",
+    ),
+    "ХранилищеПользовательскихНастроекОтчетов": (
+        "СтандартноеХранилищеНастроекМенеджер",
+        "ХранилищеНастроекМенеджер.<Имя хранилища>",
+    ),
+    "ХранилищеПользовательскихНастроекФорм": (
+        "СтандартноеХранилищеНастроекМенеджер",
+        "ХранилищеНастроекМенеджер.<Имя хранилища>",
+    ),
+    "ХранилищеСистемныхНастроек": ("СтандартноеХранилищеНастроекМенеджер",),
+}
+
+
+def _split_owner_member(name: str) -> tuple[str, str]:
+    value = (name or "").strip()
+    if "." not in value:
+        return ("", value)
+    owner, member = value.rsplit(".", 1)
+    return (owner.strip(), member.strip())
+
+
+def _owner_alias_candidates(owner: str) -> list[str]:
+    value = (owner or "").strip()
+    if not value:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def add(item: str) -> None:
+        v = (item or "").strip()
+        if not v:
+            return
+        key = v.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        out.append(v)
+
+    add(value)
+    base_value = value.removesuffix("Менеджер") if value.endswith("Менеджер") else value
+    if value.endswith("Менеджер"):
+        add(value.removesuffix("Менеджер"))
+    else:
+        add(value + "Менеджер")
+
+    for key in (value, base_value):
+        for alias in _OWNER_ALIAS_REWRITE_MAP.get(key, ()):
+            add(alias)
+    return out
+
+
+def _item_value_types(item: dict[str, Any]) -> list[str]:
+    values = item.get("value_types")
+    if isinstance(values, list):
+        return [str(v).strip() for v in values if str(v).strip()]
+    try:
+        from ..knowledge.help_structured import _extract_value_types
+
+        return _extract_value_types(
+            str(item.get("returns") or "")
+            or str(item.get("description") or "")
+            or str(item.get("summary") or "")
+        )
+    except Exception:
+        return []
+
+
+def _owner_match_priority(owner_aliases: list[str], item: dict[str, Any]) -> tuple[int, int, str]:
+    owner_name = str(item.get("owner_name") or "").strip()
+    full_name = str(item.get("full_name") or "").strip()
+    alias_values = [
+        str(a).strip()
+        for a in (item.get("aliases") or [])
+        if isinstance(a, str) and str(a).strip()
+    ]
+    candidates = [owner_name, full_name, *alias_values]
+    best = (3, 1, str(item.get("topic_path") or ""))
+    for alias in owner_aliases:
+        alias_lower = alias.lower()
+        for candidate in candidates:
+            candidate_lower = candidate.lower()
+            if not candidate_lower:
+                continue
+            if candidate_lower == alias_lower or candidate_lower.startswith(alias_lower + "."):
+                score = (0, 0 if "<имя" in candidate_lower else 1, str(item.get("topic_path") or ""))
+            elif alias_lower in candidate_lower:
+                score = (1, 0 if "<имя" in candidate_lower else 1, str(item.get("topic_path") or ""))
+            elif owner_name and _match_priority(alias_lower, owner_name.lower(), "") < 3:
+                score = (2, 1, str(item.get("topic_path") or ""))
+            else:
+                continue
+            if score < best:
+                best = score
+    return best
+
+
+def _resolve_exact_api_owner_alias(
+    name: str,
+    *,
+    version: str | None,
+    language: str | None,
+) -> list[dict[str, Any]]:
+    owner, member = _split_owner_member(name)
+    if not owner or not member:
+        return []
+    owner_aliases = _owner_alias_candidates(owner)
+    property_hits = _get_api_member(owner, version=version, language=language)
+    for prop in property_hits:
+        if str(prop.get("kind") or "").strip() not in {"property", "field"}:
+            continue
+        for type_name in _item_value_types(prop):
+            if type_name not in owner_aliases:
+                owner_aliases.append(type_name)
+    member_hits = _get_api_member(member, version=version, language=language)
+    if not member_hits:
+        return []
+    ranked = sorted(
+        (
+            item
+            for item in member_hits
+            if _owner_match_priority(owner_aliases, item)[0] < 3
+        ),
+        key=lambda item: (
+            _owner_match_priority(owner_aliases, item),
+            _member_sort_key(member.lower(), str(item.get("member_name") or "").lower()),
+            _structured_platform_version_key(str(item.get("version") or "")),
+        ),
+    )
+    return ranked[:5]
+
+
 def _search_official_examples(
     query: str,
     limit: int = 5,
@@ -866,7 +1005,7 @@ def _format_structured_api_object(
     include_path: bool = True,
     include_rich_sections: bool = False,
 ) -> str:
-    lines = [f"### {item.get('name') or item.get('title') or 'API'}"]
+    lines = [f"### {item.get('full_name') or item.get('name') or item.get('title') or 'API'}"]
     if item.get("page_descriptor"):
         lines.append(str(item.get("page_descriptor")))
     meta: list[str] = []
@@ -967,6 +1106,42 @@ _QUESTION_RESTRICTION_MARKERS = (
     "интерактивный ввод",
     "доступность",
 )
+_QUESTION_REPLACEMENT_MARKERS = (
+    "устар",
+    "deprecated",
+    "вместо",
+    "замен",
+    "чем заменить",
+)
+_QUESTION_API_STOPWORDS = {
+    "как",
+    "что",
+    "где",
+    "когда",
+    "зачем",
+    "почему",
+    "можно",
+    "нужно",
+    "ли",
+    "метод",
+    "методом",
+    "метода",
+    "функция",
+    "функции",
+    "параметр",
+    "параметром",
+    "объект",
+    "объекта",
+    "получить",
+    "получения",
+    "использовать",
+    "используется",
+    "клиенте",
+    "клиента",
+    "сервере",
+    "вместо",
+    "него",
+}
 _QUESTION_HEADINGS: dict[str, tuple[str, ...]] = {
     "version": ("Доступность", "Использование в версии", "Примечание", "Описание"),
     "restriction": ("Доступность", "Примечание", "Описание"),
@@ -981,7 +1156,9 @@ def _classify_help_question(question: str) -> str:
         return "version"
     if any(marker in q for marker in _QUESTION_EXAMPLE_MARKERS):
         return "example"
-    if any(marker in q for marker in _QUESTION_RESTRICTION_MARKERS):
+    if any(marker in q for marker in _QUESTION_RESTRICTION_MARKERS) or any(
+        marker in q for marker in _QUESTION_REPLACEMENT_MARKERS
+    ):
         return "restriction"
     return "general"
 
@@ -1082,6 +1259,44 @@ def _search_help_question_candidates(
     # Include general documentation topics so conceptual articles are reachable.
     items.extend(_search_api_topics(question, limit=4, version=version, language=language))
     return _dedup_structured_hits(items)
+
+
+def _search_exactish_help_question_candidates(
+    question: str,
+    *,
+    version: str | None,
+    language: str | None,
+) -> list[dict[str, Any]]:
+    """Prefer exact/near-exact API matches extracted from a prose question.
+
+    This keeps natural-language answers grounded in structured API rows before
+    broader semantic search introduces nearby but wrong topics.
+    """
+    names = []
+    for token in _extract_question_api_names(question):
+        value = (token or "").strip()
+        if not value or not value[0].isupper():
+            continue
+        if value.lower() in _QUESTION_API_STOPWORDS:
+            continue
+        names.append(value)
+    names = names[:8]
+
+    exact_items: list[dict[str, Any]] = []
+    for name in names:
+        exact_items.extend(_get_api_member(name, version=version, language=language))
+        exact_items.extend(_get_api_object(name, version=version, language=language))
+    exact_items = _dedup_structured_hits(exact_items)
+    if exact_items:
+        return exact_items
+
+    broad_items: list[dict[str, Any]] = []
+    for name in names:
+        if "." in name:
+            continue
+        broad_items.extend(_search_api_members(name, limit=5, version=version, language=language))
+        broad_items.extend(_search_api_objects(name, limit=3, version=version, language=language))
+    return _dedup_structured_hits(broad_items)
 
 
 _DCS_HELP_ROUTE_MARKERS = (
@@ -1202,6 +1417,7 @@ def _extract_fact_from_structured(
                 return text
         return ""
     if intent == "restriction":
+        parts: list[str] = []
         for value in (
             item.get("restrictions"),
             item.get("availability"),
@@ -1211,8 +1427,18 @@ def _extract_fact_from_structured(
         ):
             text = str(value or "").strip()
             if text:
-                return text
-        return ""
+                parts.append(text)
+        if not parts:
+            return ""
+        uniq: list[str] = []
+        seen: set[str] = set()
+        for part in parts:
+            key = " ".join(part.split()).lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            uniq.append(part)
+        return "\n\n".join(uniq[:3])[:1600]
     if detail == "full":
         return _format_structured_api_object(item, include_rich_sections=True)
     note_top = str(item.get("notes") or "").strip()
@@ -1260,6 +1486,70 @@ def _format_question_answer(
         if meta:
             lines.append("Источник: " + " | ".join(meta))
     return "\n".join(lines)
+
+
+def _answer_question_via_exact_api_route(
+    question: str,
+    *,
+    intent: str,
+    version: str | None,
+    language: str | None,
+    detail: str,
+) -> str | None:
+    candidates = sorted(
+        _search_exactish_help_question_candidates(
+            question,
+            version=version,
+            language=language,
+        ),
+        key=lambda item: _question_structured_sort_key(question, intent, item),
+    )
+    for best in candidates:
+        best_sort = _question_structured_sort_key(question, intent, best)
+        pure_noise = best_sort[0] >= 3 and best_sort[1] >= 2
+        if pure_noise:
+            continue
+        if not _candidate_plausible_for_dcs_question(question, best):
+            continue
+        fact = _extract_fact_from_structured(best, intent, detail=detail)
+        if fact:
+            return _format_question_answer(
+                question,
+                answer=fact,
+                candidate=best,
+            )
+    return None
+
+
+def _resolve_compare_query_to_topic_path(
+    query: str,
+    *,
+    language: str | None,
+) -> str:
+    value = (query or "").strip()
+    if not value or ".md" in value or ".html" in value:
+        return value
+    exact_candidates = _dedup_structured_hits(
+        _get_api_member(value, language=language) + _get_api_object(value, language=language)
+    )
+    if exact_candidates:
+        candidates = sorted(
+            exact_candidates,
+            key=lambda item: _structured_api_sort_key(value, item),
+        )
+    else:
+        candidates = sorted(
+            _dedup_structured_hits(
+                _search_api_members(value, limit=5, language=language)
+                + _search_api_objects(value, limit=3, language=language)
+            ),
+            key=lambda item: _structured_api_sort_key(value, item),
+        )
+    for item in candidates:
+        topic_path = str(item.get("topic_path") or item.get("path") or "").strip()
+        if topic_path:
+            return topic_path
+    return value
 
 
 def _summarize_diagnostics_json(diagnostics_json: str | None) -> str:
@@ -1602,6 +1892,12 @@ def _build_mcp_app(help_path: Path) -> Any:
         structured = _get_api_member(name_clean, version=version, language=language)
         structured = sorted(structured, key=lambda item: _structured_api_sort_key(name_clean, item))
         if not structured:
+            structured = _resolve_exact_api_owner_alias(
+                name_clean,
+                version=version,
+                language=language,
+            )
+        if not structured:
             structured = _get_api_object(name_clean, version=version, language=language)
             structured = sorted(
                 structured, key=lambda item: _structured_api_sort_key(name_clean, item)
@@ -1717,6 +2013,16 @@ def _build_mcp_app(help_path: Path) -> Any:
                             "topic_path": best.get("topic_path"),
                         },
                     )
+
+        exact_answer = _answer_question_via_exact_api_route(
+            question_clean,
+            intent=intent,
+            version=version,
+            language=language,
+            detail=detail,
+        )
+        if exact_answer:
+            return exact_answer
 
         dcs_answer = _answer_help_via_dcs_structured_search(
             question_clean,
@@ -2437,13 +2743,32 @@ def _build_mcp_app(help_path: Path) -> Any:
         For best predictability pass an exact path from the internal topic index when available. include_diff: if True, append unified diff."""
         from ..search_store.indexer import compare_1c_help as _compare
 
-        return _compare(
-            topic_path_or_query,
+        original = (topic_path_or_query or "").strip()
+        resolved = _resolve_compare_query_to_topic_path(
+            original,
+            language=language,
+        )
+        result = _compare(
+            resolved,
             version_left,
             version_right,
             language=language,
             include_diff=include_diff,
         )
+        if (
+            resolved
+            and original
+            and resolved != original
+            and result.startswith("Topic not found")
+        ):
+            return _compare(
+                original,
+                version_left,
+                version_right,
+                language=language,
+                include_diff=include_diff,
+            )
+        return result
 
     @mcp.tool()
     @_record_mcp_tool
