@@ -26,7 +26,10 @@ jobs:
       - name: Audit dependencies
         run: |
           pip install pip-audit
-          pip-audit
+          # PYSEC-2025-183 is currently reported for the latest PyJWT release
+          # pulled transitively by the official MCP SDK stack. There is no fixed
+          # PyJWT version available yet, and the advisory is disputed upstream.
+          pip-audit --ignore-vuln PYSEC-2025-183
 
   dockerfile:
     runs-on: ubuntu-latest
@@ -45,4 +48,3 @@ jobs:
           scan-type: "fs"
           scan-ref: "."
           severity: "CRITICAL,HIGH"
-
