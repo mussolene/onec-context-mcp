@@ -1967,7 +1967,7 @@ def cmd_qdrant_restore(args: argparse.Namespace) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        prog="onec_help", description="1C Help: HBK -> structured JSONL -> index -> MCP"
+        prog="onec_help", description="1C Context MCP: HBK -> structured JSONL -> index -> MCP"
     )
     sub = parser.add_subparsers(dest="command", required=True)
 

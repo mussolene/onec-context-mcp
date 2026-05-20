@@ -7,7 +7,7 @@
 Из корня репозитория:
 
 ```bash
-for d in 1c-explain-object 1c-mcp-development 1c-mcp-token-budget 1c-mcp-tools-report 1c-platform-cli bsl-language-server-local; do
+for d in 1c-explain-object 1c-mcp-development 1c-mcp-token-budget 1c-mcp-tools-report 1c-platform-cli bsl-language-server-local oacs-repo-memory; do
   mkdir -p .cursor/skills/$d
   rsync -a --delete "docs/cursor-examples/$d/" ".cursor/skills/$d/"
 done
@@ -26,16 +26,17 @@ cp docs/cursor-examples/rules/*.mdc .cursor/rules/
 
 | Каталог | Назначение |
 |---------|------------|
-| `1c-mcp-development/` | Основной workflow: MCP 1c-help, BSL LS, тесты Python, метаданные. См. `reference.md`. |
+| `1c-mcp-development/` | Основной workflow: MCP onec-context-mcp, BSL LS, тесты Python, метаданные. См. `reference.md`. |
 | `1c-mcp-token-budget/` | Порядок вызовов MCP, экономия контекста, шпаргалки по СКД. |
 | `1c-mcp-tools-report/` | Как читать отчёт о полноте инструментов MCP. |
 | `1c-explain-object/` | Авто-документирование объектов конфигурации. |
 | `1c-platform-cli/` | ragent/rac, ibcmd, временная ИБ, epf и т.д. |
 | `bsl-language-server-local/` | CLI `analyze` / `format`; JAR не в git — см. `README.md` в каталоге. |
+| `oacs-repo-memory/` | OACS/ACS consumer pack: selective context gate, evidence refs, checkpoints. |
 
 ## Rules (`rules/*.mdc`)
 
-Краткие правила для контекста: конвенции проекта, workflow MCP, тесты, BSL, источники справки. Копируйте в `.cursor/rules/` (см. выше).
+Краткие правила для контекста: конвенции проекта, workflow MCP, тесты, BSL, источники справки и OACS/ACS memory workflow. Копируйте в `.cursor/rules/` (см. выше).
 
 ## Связь с документацией проекта
 

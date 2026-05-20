@@ -70,7 +70,7 @@ def fetch_repo_archive(
     zip_url = f"https://github.com/{owner}/{repo}/archive/refs/heads/{branch}.zip"
     if not zip_url.lower().startswith("https://"):
         raise ValueError("Only https:// scheme allowed (SSRF protection)")
-    req = Request(zip_url, headers={"User-Agent": "onec_help/1.0"})
+    req = Request(zip_url, headers={"User-Agent": "onec-context-mcp/1.0"})
     with urlopen(req, timeout=60, context=get_ssl_context()) as resp:
         data = resp.read()
     tmp = Path(tempfile.mkdtemp(prefix="onec_standards_"))

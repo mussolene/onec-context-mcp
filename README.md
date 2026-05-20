@@ -1,12 +1,12 @@
-# 1C Help MCP
+# 1C Context MCP
 
-[![Test](https://github.com/mussolene/1c_hbk_helper/actions/workflows/test.yml/badge.svg)](https://github.com/mussolene/1c_hbk_helper/actions/workflows/test.yml)
-[![Lint](https://github.com/mussolene/1c_hbk_helper/actions/workflows/lint.yml/badge.svg)](https://github.com/mussolene/1c_hbk_helper/actions/workflows/lint.yml)
-[![Lint Commits](https://github.com/mussolene/1c_hbk_helper/actions/workflows/commitlint.yml/badge.svg)](https://github.com/mussolene/1c_hbk_helper/actions/workflows/commitlint.yml)
-[![Coverage](https://codecov.io/gh/mussolene/1c_hbk_helper/graph/badge.svg)](https://codecov.io/gh/mussolene/1c_hbk_helper)
-[![Release](https://github.com/mussolene/1c_hbk_helper/actions/workflows/release.yml/badge.svg)](https://github.com/mussolene/1c_hbk_helper/releases)
+[![Test](https://github.com/mussolene/onec-context-mcp/actions/workflows/test.yml/badge.svg)](https://github.com/mussolene/onec-context-mcp/actions/workflows/test.yml)
+[![Lint](https://github.com/mussolene/onec-context-mcp/actions/workflows/lint.yml/badge.svg)](https://github.com/mussolene/onec-context-mcp/actions/workflows/lint.yml)
+[![Lint Commits](https://github.com/mussolene/onec-context-mcp/actions/workflows/commitlint.yml/badge.svg)](https://github.com/mussolene/onec-context-mcp/actions/workflows/commitlint.yml)
+[![Coverage](https://codecov.io/gh/mussolene/onec-context-mcp/graph/badge.svg)](https://codecov.io/gh/mussolene/onec-context-mcp)
+[![Release](https://github.com/mussolene/onec-context-mcp/actions/workflows/release.yml/badge.svg)](https://github.com/mussolene/onec-context-mcp/releases)
 
-1C Help MCP распаковывает `.hbk`, строит structured `JSONL` из HTML-справки, индексирует его в Qdrant и поднимает MCP-сервер для поиска по API, snippets, standards и метаданным 1С.
+1C Context MCP распаковывает `.hbk`, строит structured `JSONL` из HTML-справки, индексирует его в Qdrant и поднимает MCP-сервер для поиска по API, snippets, standards, метаданным 1С и агентному контексту.
 
 ## Что здесь есть
 
@@ -24,6 +24,7 @@
 Минимальные команды:
 
 ```bash
+# если /opt/1cv8 не доступен Docker Desktop, задайте HOST_HELP_SOURCE_BASE в .env
 make up
 make ingest-up
 ```
@@ -65,6 +66,7 @@ make reinit ARGS='--force'
 - [docs/reference/structured-help-scorecard.md](docs/reference/structured-help-scorecard.md) - метрики качества structured help и stop criteria для extractor
 - [docs/reference/structured-help-jsonl-first-plan.md](docs/reference/structured-help-jsonl-first-plan.md) - план перехода к JSONL-first help
 - [docs/reference/1c-testing-guide.md](docs/reference/1c-testing-guide.md) - тестирование Python и 1С-сценариев
+- [docs/codex-examples/README.md](docs/codex-examples/README.md) - Codex-native OACS consumer pack
 
 ## Для контрибьюторов
 

@@ -1,24 +1,24 @@
 ---
 name: 1c-mcp-tools-report
-description: Выжимка по роли MCP 1c-help и проверке BSL через Language Server (CLI/IDE). Применять при вопросах «какой tool когда» и настройке workflow.
+description: Выжимка по роли MCP onec-context-mcp и проверке BSL через Language Server (CLI/IDE). Применять при вопросах «какой tool когда» и настройке workflow.
 ---
 
 # Отчёт по инструментам MCP (выжимка)
 
-Основано на [docs/archive/mcp-1c-help-tools-report.md](../../archive/mcp-1c-help-tools-report.md). Полный отчёт — таблицы по инструментам 1c-help и исторический контекст BSL LS, лимиты и подводные камни.
+Основано на [docs/archive/mcp-1c-help-tools-report.md](../../archive/mcp-1c-help-tools-report.md). Полный отчёт — таблицы по инструментам onec-context-mcp и исторический контекст BSL LS, лимиты и подводные камни.
 
 ## Полнота знаний: когда чего хватает
 
-| Задача | 1c-help | BSL LS (CLI/IDE) | Комментарий |
+| Задача | onec-context-mcp | BSL LS (CLI/IDE) | Комментарий |
 |--------|---------|------------------|-------------|
 | Понять проект (тип модуля, форма) | Да | — | `get_module_info`, `get_form_metadata` |
 | Разработка / дописывание (API, примеры) | Да | — | `get_1c_api_answer`, `get_1c_api_object`, `answer_1c_help_question`, `search_1c_api` (примеры — `include_examples=True`), `search_1c_snippets` |
-| Поддержка (рефакторинг, стандарты) | Частично | Да | 1c-help — справка; анализ и стиль — BSL LS |
+| Поддержка (рефакторинг, стандарты) | Частично | Да | onec-context-mcp — справка; анализ и стиль — BSL LS |
 | Тестирование (проверка кода) | Нет | Да | `analyze` / IDE; YaxUnit/Vanessa — вручную |
 | Сравнение версий платформы | Да | — | `compare_1c_help` |
 | Сохранение переиспользуемого кода | Да | — | `save_1c_snippet` |
 
-**Вывод:** `1c-help` — MCP справки этого репозитория. BSL LS — отдельно (см. `bsl-language-server-local`, `docs/reference/bsl-ls-mcp-setup.md`).
+**Вывод:** `onec-context-mcp` — MCP справки этого репозитория. BSL LS — отдельно (см. `bsl-language-server-local`, `docs/reference/bsl-ls-mcp-setup.md`).
 
 ## Иерархия выбора инструментов
 
@@ -46,7 +46,7 @@ description: Выжимка по роли MCP 1c-help и проверке BSL ч
 
 ## Подводные камни (из отчёта)
 
-- **Пустые/нерелевантные ответы 1c-help:** проверить `get_1c_help_index_status`; перейти на `get_1c_api_answer` с точным именем API (`Тип.Метод`) или `search_1c_api`.
+- **Пустые/нерелевантные ответы onec-context-mcp:** проверить `get_1c_help_index_status`; перейти на `get_1c_api_answer` с точным именем API (`Тип.Метод`) или `search_1c_api`.
 - **compare_1c_help:** специализированный low-level tool поверх внутреннего topic index; не использовать как основной runtime route.
 - **get_form_metadata:** передавать полный XML формы с xmlns; усечённый без namespace даёт ошибку разбора.
 - **Пути:** для `get_module_info` — путь к `.bsl` в workspace; при `file://` с кириллицей — URL-encoding.
@@ -54,7 +54,7 @@ description: Выжимка по роли MCP 1c-help и проверке BSL ч
 
 **Чек-лист перед коммитом/ревью:** правило 1c-mcp-workflow: справка использована? BSL LS без критичных замечаний? `save_1c_snippet` только для проверенного кода?
 
-## Лимиты 1c-help
+## Лимиты onec-context-mcp
 
 - query / xml_content: до 64 KB (MAX_QUERY_CHARS).
 - Сниппет в результатах поиска: MCP_SNIPPET_MAX_CHARS (1200).
@@ -62,5 +62,5 @@ description: Выжимка по роли MCP 1c-help и проверке BSL ч
 
 ## Ссылки
 
-- **В этом репозитории (1c_hbk_helper):** шпаргалка [mcp-tools-cheatsheet.md](../../reference/mcp-tools-cheatsheet.md), отчёт [mcp-1c-help-tools-report.md](../../archive/mcp-1c-help-tools-report.md), [mcp-tools-reference.md](../../reference/mcp-tools-reference.md), [AGENTS.md](../../../AGENTS.md).
-- **Вне этого репозитория:** те же руководства можно получить через MCP 1c-help — промпт **get_mcp_guides_bundle** (если сервер запущен с MCP_CURSOR_DOCS_PATH).
+- **В этом репозитории (onec-context-mcp):** шпаргалка [mcp-tools-cheatsheet.md](../../reference/mcp-tools-cheatsheet.md), отчёт [mcp-1c-help-tools-report.md](../../archive/mcp-1c-help-tools-report.md), [mcp-tools-reference.md](../../reference/mcp-tools-reference.md), [AGENTS.md](../../../AGENTS.md).
+- **Вне этого репозитория:** те же руководства можно получить через MCP onec-context-mcp — промпт **get_mcp_guides_bundle** (если сервер запущен с MCP_CURSOR_DOCS_PATH).

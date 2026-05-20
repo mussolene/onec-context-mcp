@@ -63,7 +63,7 @@ services:
       # Конфигурация 1С для metadata graph: primary route — /data/metadata_export внутри контейнера.
       ONEC_CONFIG_SOURCE_DIR: ${ONEC_CONFIG_SOURCE_DIR:-/data/metadata_export}
     volumes:
-      - /opt/1cv8:/opt/1cv8:ro
+      - ${HOST_HELP_SOURCE_BASE:-/opt/1cv8}:/opt/1cv8:ro
       - ./data/help_structured:/app/data/help_structured
       - ./data/qdrant:/qdrant_storage:ro
       - ./data/ingest_cache:/app/var/ingest_cache

@@ -1,4 +1,4 @@
-# Архитектура 1C Help MCP
+# Архитектура 1C Context MCP
 
 Читайте этот файл, если нужен технический reference по сервисам, deployment-режимам и operational поведению.
 
@@ -10,6 +10,7 @@
 |--------|------|---------|------|
 | **qdrant** | Векторная БД (structured help, onec_help_memory, metadata) | Хранилище | 6333 |
 | **mcp** | MCP API — structured API search/answers, memory, metadata | I/O, embedding для memory | 8050 |
+| **redis** | Кэш ingest/watchdog, progress markers, MCP metrics | Память + volume | — |
 | **ingest-worker** | Batch ETL: ingest, cron, load-snippets, watchdog | CPU, RAM, embedding API | — |
 | **bsl (compose)** | Опционально: BSL Language Server в Docker (`make bsl-start`) | Java/BSL LS | — |
 
@@ -33,17 +34,20 @@
 flowchart LR
     subgraph split [Split mode]
         mcpApi[mcp]
+        redis[redis]
         ingestWorker[ingest-worker]
         qdrant[qdrant]
     end
     mcpApi -->|read| qdrant
+    mcpApi -->|metrics/cache| redis
     ingestWorker -->|write| qdrant
+    ingestWorker -->|cache/progress| redis
 ```
 
 Запуск:
 ```bash
-docker compose up -d
-# или: make up
+make up
+# или: docker compose -f docker-compose.base.yml -f docker-compose.yml up -d
 ```
 
 Индексация: **`make ingest-up`** — в **ingest-worker** уже работает **cron** (watchdog при старте и каждые 10 мин, полный ingest в 3:00). **`make ingest`** — опционально, если нужен немедленный полный прогон.

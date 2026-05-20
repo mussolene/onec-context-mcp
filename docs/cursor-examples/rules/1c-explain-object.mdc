@@ -8,11 +8,11 @@ alwaysApply: false
 
 При вопросе «как работает / где заполняется / что делает» — вызывать инструменты в порядке:
 
-1. **[1c-help]** `search_1c_metadata_exact` / `search_1c_metadata_semantic` / `search_1c_metadata_fields` → `get_1c_metadata_object(object_id)` — структура объекта, реквизиты, табличные части
-2. **[1c-help]** `get_form_metadata(xml_content)` — если есть Form.xml: элементы формы → DataPath → обработчики событий
+1. **[onec-context-mcp]** `search_1c_metadata_exact` / `search_1c_metadata_semantic` / `search_1c_metadata_fields` → `get_1c_metadata_object(object_id)` — структура объекта, реквизиты, табличные части
+2. **[onec-context-mcp]** `get_form_metadata(xml_content)` — если есть Form.xml: элементы формы → DataPath → обработчики событий
 3. **Код:** `rg` / поиск в IDE по имени реквизита, процедуры, формы — где читается/пишется и какие модули задействованы
 4. **BSL LS:** `java -jar … analyze` на затронутых `.bsl` или диагностики IDE после правок
-5. **[1c-help]** `get_1c_api_answer` / `answer_1c_help_question` / `search_1c_api` / `search_1c_standards` / `search_1c_snippets` — платформенный контекст, правила и примеры
+5. **[onec-context-mcp]** `get_1c_api_answer` / `answer_1c_help_question` / `search_1c_api` / `search_1c_standards` / `search_1c_snippets` — платформенный контекст, правила и примеры
 
 **Структура ответа:** Что это → Где заполняется → Как изменяется → Где проверяется → Где исправить
 

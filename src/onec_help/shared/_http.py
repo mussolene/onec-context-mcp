@@ -35,7 +35,7 @@ def get_opener_for_base_url(
     base_url: str,
     path: str = "/",
     timeout: int = 10,
-    user_agent: str = "Mozilla/5.0 (compatible; 1c-help-parser)",
+    user_agent: str = "Mozilla/5.0 (compatible; onec-context-mcp-parser)",
 ) -> urllib.request.OpenerDirector:
     """Return opener; use unverified SSL if default fails (certificate verify issues)."""
     opener = create_opener()
@@ -54,7 +54,7 @@ def fetch_url(
     url: str,
     opener: urllib.request.OpenerDirector,
     timeout: int = 30,
-    user_agent: str = "Mozilla/5.0 (compatible; 1c-help-parser)",
+    user_agent: str = "Mozilla/5.0 (compatible; onec-context-mcp-parser)",
 ) -> str:
     """Fetch URL with opener; return decoded UTF-8 body."""
     req = urllib.request.Request(url, headers={"User-Agent": user_agent})

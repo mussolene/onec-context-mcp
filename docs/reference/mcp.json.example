@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "1c-help": {
+    "onec-context-mcp": {
       "url": "http://localhost:8050/mcp"
     }
   }

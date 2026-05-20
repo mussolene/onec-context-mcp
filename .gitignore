@@ -34,6 +34,8 @@ htmlcov/
 # Local env / secrets (do not commit)
 .env
 .env.*
+.agent/oacs/
+.oacs/
 
 # Data / artifacts (do not commit)
 data/

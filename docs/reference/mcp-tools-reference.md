@@ -1,4 +1,4 @@
-# Справочник MCP-инструментов 1c-help
+# Справочник MCP-инструментов onec-context-mcp
 
 Читайте этот файл, когда уже нужен полный reference по MCP tools: параметры, лимиты, порядок вызовов и частые ошибки в аргументах.
 
@@ -134,7 +134,7 @@
 ## См. также
 
 - [../archive/mcp-1c-help-tools-report.md](../archive/mcp-1c-help-tools-report.md) — исторический отчёт по инструментам и прогонам (в т.ч. BSL LS).
-- [../../AGENTS.md](../../AGENTS.md) — порядок вызовов: MCP 1c-help + BSL LS (CLI/IDE).
+- [../../AGENTS.md](../../AGENTS.md) — порядок вызовов: MCP onec-context-mcp + BSL LS (CLI/IDE).
 - [../cursor-examples/README.md](../cursor-examples/README.md) — Skill и Rules для Cursor.
 - [../archive/mcp-analysis.md](../archive/mcp-analysis.md) — анализ использования и типовые просадки.
 - [../archive/quality-and-pitfalls-analysis.md](../archive/quality-and-pitfalls-analysis.md) — влияние индексации, обрезка эмбеддингов, как получать готовый код и типичные подводные камни.

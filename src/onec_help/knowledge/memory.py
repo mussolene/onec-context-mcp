@@ -170,7 +170,7 @@ class MemoryStore:
         topic_path = payload.get("topic_path", "")
         tags = str(topic_path) if topic_path else ""
         if title or query or tags:
-            return f"1C Help: {title} | {query} | {tags}"
+            return f"1C Context MCP: {title} | {query} | {tags}"
         desc = payload.get("description", "") or ""
         code = (payload.get("code_snippet", "") or "")[:300]
         return f"1C snippet: {desc} | {code}"

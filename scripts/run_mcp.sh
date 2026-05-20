@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run 1C Help MCP server from project root. Sets PYTHONPATH so pip install is not required.
+# Run 1C Context MCP server from project root. Sets PYTHONPATH so pip install is not required.
 # Requires Python 3.11+ for fastmcp.
 
 set -e
@@ -15,5 +15,5 @@ for py in python3.14 python3.12 python3.11 python3; do
     exec "$py" -m onec_help mcp "$HELP_DIR"
   fi
 done
-echo "1c-help MCP: need Python 3.11+ and fastmcp. Run: pip install -e \".[mcp]\" (in a venv with Python 3.11+)." >&2
+echo "onec-context-mcp: need Python 3.11+ and fastmcp. Run: pip install -e \".[mcp]\" (in a venv with Python 3.11+)." >&2
 exit 1

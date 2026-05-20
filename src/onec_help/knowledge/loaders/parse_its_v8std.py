@@ -36,7 +36,7 @@ def _get_its_delay_sec() -> float:
     return env_config.get_its_v8std_delay()
 
 
-_USER_AGENT = "Mozilla/5.0 (compatible; 1c-help-its-v8std-parser/1.0)"
+_USER_AGENT = "Mozilla/5.0 (compatible; onec-context-mcp-its-v8std-parser/1.0)"
 # Строки навигации/футера ITS — выкидываем из контента
 _NAV_NOISE = re.compile(
     r"^(Вход|Об 1С:ИТС|Тест-драйв|Заказать ИТС|Задать вопрос|Обновить ПО|"

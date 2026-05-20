@@ -1,4 +1,4 @@
-# Запуск 1C Help
+# Запуск 1C Context MCP
 
 Читайте этот файл, если нужен расширенный запуск: локальный `pip`, Docker Compose details, advanced сценарии и troubleshooting.
 
@@ -15,41 +15,41 @@
 docker run -d -p 6333:6333 -v qdrant_data:/qdrant/storage qdrant/qdrant:v1.12.0
 
 # Ingest из каталога с версиями 1С
-HELP_SOURCE_BASE=/opt/1cv8 QDRANT_HOST=localhost python -m onec_help ingest
+HELP_SOURCE_BASE=/opt/1cv8 QDRANT_HOST=localhost PYTHONPATH=src python3 -m onec_help ingest
 
 # MCP (structured JSONL из Qdrant; каталог может быть пустым)
-python -m onec_help mcp . --transport streamable-http --host 0.0.0.0 --port 8050
+PYTHONPATH=src python3 -m onec_help mcp . --transport streamable-http --host 0.0.0.0 --port 8050
 ```
 
 ### Вариант B: пошагово (unpack → build-index)
 
 1. Установить зависимости: `pip install -e ".[dev]"` (и при необходимости `.[mcp]` для MCP).
 2. Распаковать справку:
-   - Один архив: `python -m onec_help unpack /path/to/file.hbk -o ./unpacked`
-   - Все .hbk из каталога: `python -m onec_help unpack-dir /opt/1cv8 -o ./unpacked -l ru`
+   - Один архив: `PYTHONPATH=src python3 -m onec_help unpack /path/to/file.hbk -o ./unpacked`
+   - Все .hbk из каталога: `PYTHONPATH=src python3 -m onec_help unpack-dir /opt/1cv8 -o ./unpacked -l ru`
 4. Запустить Qdrant (Docker): `docker run -d -p 6333:6333 -v qdrant_data:/qdrant/storage qdrant/qdrant:v1.12.0`
-5. Построить structured snapshot и индекс:  
-   `QDRANT_HOST=localhost QDRANT_PORT=6333 python -m onec_help build-index ./unpacked`
-6. MCP локально (stdio или HTTP):  
-   `python -m onec_help mcp data/help_structured` (stdio) или  
-   `python -m onec_help mcp data/help_structured --transport streamable-http --host 0.0.0.0 --port 8050`
+5. Построить structured snapshot и индекс:
+   `QDRANT_HOST=localhost QDRANT_PORT=6333 PYTHONPATH=src python3 -m onec_help build-index ./unpacked`
+6. MCP локально (stdio или HTTP):
+   `PYTHONPATH=src python3 -m onec_help mcp data/help_structured` (stdio) или
+   `PYTHONPATH=src python3 -m onec_help mcp data/help_structured --transport streamable-http --host 0.0.0.0 --port 8050`
 
 ## Docker Compose
 
-- Данные справки: монтируется **`HELP_SOURCE_BASE`** (по умолчанию `/opt/1cv8`) в контейнеры **mcp** и **ingest-worker**, подпапки = версии 1С. На Windows при монтировании `C:\Program Files\1cv8` учтите подпапку `bin` — поиск `.hbk` рекурсивный. После ingest канонический runtime-layer лежит в `data/help_structured`.
+- Данные справки: хостовый каталог **`HOST_HELP_SOURCE_BASE`** монтируется в контейнеры **mcp** и **ingest-worker** как `/opt/1cv8`; внутри контейнера ingest читает **`HELP_SOURCE_BASE`** (по умолчанию `/opt/1cv8`). Подпапки = версии 1С. На Windows при монтировании `C:\Program Files\1cv8` учтите подпапку `bin` — поиск `.hbk` рекурсивный. После ingest канонический runtime-layer лежит в `data/help_structured`.
 - **Split (по умолчанию):** `make up` — Qdrant, Redis, **mcp** с **`MCP_MODE=api`** (только API, без фонового ingest/cron). **`make ingest-up`** — добавляет **ingest-worker** (профиль **ingest**): внутри него **cron** — при старте **`watchdog --once`**, далее **`watchdog --once` каждые 10 мин**, полный **`ingest` в 3:00** (см. `crontab` в репозитории). Разовый полный ingest без ожидания cron: **`make ingest`** (exec в **ingest-worker**).
 - **Full:** `make up-full` — один контейнер **mcp** с **`MCP_MODE=full`**, фоновый ingest, cron и watchdog в том же образе (см. `entrypoint.sh`).
 - Запуск split: `make up` или `docker compose -f docker-compose.base.yml -f docker-compose.yml up -d`. Без `-f` base-файла команда `docker compose up -d` выдаст ошибку.
 - Порты по умолчанию: 8050 (MCP, streamable-http), 6333 (Qdrant).
-- **Только распаковка:** тот же образ `mcp`, команда `unpack-dir`. Запуск вручную:  
-  `docker compose run --rm -v /opt/1cv8:/input:ro -v $(pwd)/unpacked:/output mcp python -m onec_help unpack-dir /input -o /output -l ru`
+- **Только распаковка:** тот же образ `mcp`, команда `unpack-dir`. Запуск вручную:
+  `docker compose -f docker-compose.base.yml -f docker-compose.yml run --rm -v "${HOST_HELP_SOURCE_BASE:-/opt/1cv8}:/input:ro" -v "$(pwd)/unpacked:/output" mcp python -m onec_help unpack-dir /input -o /output -l ru`
 - **Логи ingest / watchdog (split):** `make ingest-logs` или `docker compose ... exec ingest-worker tail -f /app/var/log/ingest.log` и `.../watchdog.log`
 
 ## Подключение MCP к Cursor
 
 MCP работает **в контейнере** по протоколу **streamable-http** (не stdio). В проекте уже есть **`.cursor/mcp.json`**:
 
-- Сервер: `1c-help`, URL: `http://localhost:8050/mcp`.
+- Сервер: `onec-context-mcp`, URL: `http://localhost:8050/mcp`.
 - После `make up` (или `docker compose -f docker-compose.base.yml -f docker-compose.yml up -d`) Cursor подключается к контейнеру по этому URL. Перезапустите Cursor после правок конфига.
 
 Инструменты: `get_1c_api_answer`, `search_1c_api`, `get_1c_api_object`.

@@ -3,9 +3,9 @@ requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "onec-help"
+name = "onec-context-mcp"
 version = "1.0.11"
-description = "1C Help: unpack .hbk, build structured JSONL, index in Qdrant, MCP server"
+description = "1C Context MCP: unpack .hbk, build structured JSONL, index in Qdrant, serve help, snippets, standards, and metadata over MCP"
 license = { text = "MIT" }
 readme = "README.md"
 requires-python = ">=3.11"
@@ -33,6 +33,7 @@ dev = [
 ]
 
 [project.scripts]
+onec-context-mcp = "onec_help.interfaces.cli:main"
 onec_help = "onec_help.interfaces.cli:main"
 
 [tool.setuptools.packages.find]

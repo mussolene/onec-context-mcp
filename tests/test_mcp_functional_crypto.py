@@ -1,4 +1,4 @@
-"""Functional tests for MCP 1c-help over session-aware streamable-http."""
+"""Functional tests for MCP onec-context-mcp over session-aware streamable-http."""
 
 from __future__ import annotations
 

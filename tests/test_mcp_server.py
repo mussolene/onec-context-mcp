@@ -763,7 +763,8 @@ def test_mcp_tool_resolve_1c_api_name(help_sample_dir: Path) -> None:
     )
     text = result.content[0].text if result.content else ""
     assert "resolver_kind: platform_surface_chain" in text
-    assert "КонстантаМенеджер.<Имя константы>.Получить" in text
+    assert "КонстантыМенеджер.<Имя константы>" in text
+    assert "КонстантаМенеджерЗначения.<Имя константы>.Прочитать" in text
 
 
 def test_mcp_tool_resolve_1c_api_name_for_metadata_system_enum(help_sample_dir: Path) -> None:

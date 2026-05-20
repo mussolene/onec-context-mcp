@@ -1,6 +1,6 @@
 # Снимки схем инструментов для Cursor MCP
 
-Cursor кэширует JSON-дескрипторы инструментов в `~/.cursor/projects/<project>/mcps/user-1c-help/tools/`. После обновления `mcp_server.py` или смены версии FastMCP дескрипторы могут отставать до переподключения к серверу.
+Cursor кэширует JSON-дескрипторы инструментов в `~/.cursor/projects/<project>/mcps/user-onec-context-mcp/tools/`. После обновления `mcp_server.py` или смены версии FastMCP дескрипторы могут отставать до переподключения к серверу.
 
 **Источник правды:** сигнатуры в [`mcp_server.py`](../../../src/onec_help/interfaces/mcp_server.py) и таблица в [`mcp-tools-reference.md`](../mcp-tools-reference.md).
 

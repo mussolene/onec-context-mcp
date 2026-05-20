@@ -1,4 +1,4 @@
-# MCP 1c-help — шпаргалка
+# MCP onec-context-mcp — шпаргалка
 
 Читайте этот файл, если нужна короткая памятка по выбору инструмента без полного reference.
 
@@ -6,7 +6,7 @@
 
 ---
 
-## 1c-help: Tier 1, Tier 2, Tier 3
+## onec-context-mcp: Tier 1, Tier 2, Tier 3
 
 | Tier | Инструмент | Ключевой параметр | Назначение |
 |------|------------|-------------------|------------|
@@ -36,17 +36,17 @@
 
 ---
 
-## Инструменты (tools) 1c-help для AI
+## Инструменты (tools) onec-context-mcp для AI
 
 | Инструмент | Параметр | Назначение |
 |------------|----------|------------|
 | **get_1c_quick_guide** | task=develop\|refactor\|test | Единственный канонический AI entry point. Вызывать в начале задачи. |
 
-## Промпты 1c-help
+## Промпты onec-context-mcp
 
 | Промпт | Назначение |
 |--------|------------|
-| how_to_use_1c_help_and_bsl_ls | Длинная human/onboarding инструкция: 1c-help + BSL LS (CLI/IDE). |
+| how_to_use_1c_help_and_bsl_ls | Длинная human/onboarding инструкция: onec-context-mcp + BSL LS (CLI/IDE). |
 | get_1c_common_pitfalls | Типичные ловушки 1С/BSL с wrong/right примерами кода (11+ паттернов). |
 | get_mcp_workflow_guide | Текст руководства по порядку вызовов (workflow). |
 | get_mcp_tools_tips | Подсказки: пустые ответы, URI, координаты. |

@@ -1,12 +1,12 @@
 ---
-description: AI-first workflow при редактировании кода 1С: MCP 1c-help + BSL Language Server (CLI/IDE). Минимальный маршрут без лишних ветвлений.
+description: AI-first workflow при редактировании кода 1С: MCP onec-context-mcp + BSL Language Server (CLI/IDE). Минимальный маршрут без лишних ветвлений.
 globs: "**/*.bsl"
 alwaysApply: false
 ---
 
 # 1C MCP Workflow (инструкция по умолчанию при работе с .bsl)
 
-При редактировании `.bsl`: **1c-help** (MCP этого репозитория) — справка и метаданные; **BSL LS** — статический анализ и форматирование (не через второй MCP здесь).
+При редактировании `.bsl`: **onec-context-mcp** (MCP этого репозитория) — справка и метаданные; **BSL LS** — статический анализ и форматирование (не через второй MCP здесь).
 
 **Новый чат по 1С (AI-агент):** вызвать только `get_1c_quick_guide(task="develop"|"refactor"|"test")`. Длинные prompt-based guides не считать обязательной частью AI workflow.
 
@@ -14,7 +14,7 @@ alwaysApply: false
 
 ## Канонический маршрут
 
-**1c-help (наш MCP):**
+**onec-context-mcp (наш MCP):**
 1. Точный API/идентификатор: `get_1c_api_answer("Тип.Метод")`.
 2. Structured truth-source и официальные примеры: `get_1c_api_object("Тип.Метод")`, `search_1c_api(query, include_examples=True)`.
 3. Общий API-вопрос / broad structured lookup: `answer_1c_help_question(question)` или `search_1c_api(query)`.
@@ -25,11 +25,11 @@ alwaysApply: false
 **BSL Language Server:**
 1. После правок: `java -jar … analyze -s <каталог или файл> -r json -o <существующий каталог>` (см. `docs/cursor-examples/bsl-language-server-local/SKILL.md`) или диагностики панели IDE.
 2. **Навигация:** поиск по репозиторию (rg, git grep), «перейти к символу» в IDE, чтение модулей по путям выгрузки.
-3. Опционально в этом репозитории: `make fetch-bsl-ls-docker-deps` и `make bsl-start` — отдельный контейнер с BSL LS (не MCP 1c-help).
+3. Опционально в этом репозитории: `make fetch-bsl-ls-docker-deps` и `make bsl-start` — отдельный контейнер с BSL LS (не MCP onec-context-mcp).
 
 ## Чек-лист перед коммитом / ревью
 
-- [ ] Использован минимальный route `1c-help` без broad/legacy tools по умолчанию?
+- [ ] Использован минимальный route `onec-context-mcp` без broad/legacy tools по умолчанию?
 - [ ] При необходимости использованы узкие tools (`get_1c_api_answer`, `answer_1c_help_question`, `search_1c_api`, `search_1c_standards`, `search_1c_snippets`, metadata exact/semantic/fields)?
 - [ ] BSL LS (`analyze` или IDE) по изменённым `.bsl` — нет критичных Error/нужных Warning устранены?
 - [ ] `save_1c_snippet` вызывался только для действительно переиспользуемого и проверенного кода?

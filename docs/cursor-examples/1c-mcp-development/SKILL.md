@@ -1,6 +1,6 @@
 ---
 name: 1c-mcp-development
-description: AI-first skill для разработки 1С (BSL): MCP 1c-help + BSL Language Server (CLI analyze/format, IDE или опционально Docker).
+description: AI-first skill для разработки 1С (BSL): MCP onec-context-mcp + BSL Language Server (CLI analyze/format, IDE или опционально Docker).
 ---
 
 # Разработка 1С с MCP
@@ -17,10 +17,10 @@ description: AI-first skill для разработки 1С (BSL): MCP 1c-help +
 
 ## Архитектурная граница
 
-- **1c-help** — наш MCP: справка по платформе, память, метаданные, компактные AI-ориентированные ответы.
-- **BSL LS** — отдельно: `java -jar … analyze` / `format`, расширение IDE или `make bsl-start` (см. `docs/reference/bsl-ls-mcp-setup.md`). Не является инструментом MCP 1c-help.
+- **onec-context-mcp** — наш MCP: справка по платформе, память, метаданные, компактные AI-ориентированные ответы.
+- **BSL LS** — отдельно: `java -jar … analyze` / `format`, расширение IDE или `make bsl-start` (см. `docs/reference/bsl-ls-mcp-setup.md`). Не является инструментом MCP onec-context-mcp.
 - **Опционально — MCP lsp-bsl-bridge** (внешний сервер): диагностика и навигация по проекту (`document_diagnostics`, `project_analysis`, …) вместо или вместе с CLI; в этот репозиторий не входит.
-- Базовый AI workflow начинается с `1c-help`; проверку `.bsl` делайте BSL LS после правок.
+- Базовый AI workflow начинается с `onec-context-mcp`; проверку `.bsl` делайте BSL LS после правок.
 
 ## Tiered toolset
 
@@ -28,22 +28,22 @@ description: AI-first skill для разработки 1С (BSL): MCP 1c-help +
 
 | Сценарий | Источник | Инструмент | Заметки |
 |----------|----------|------------|---------|
-| Старт задачи | 1c-help | `get_1c_quick_guide` | Единственный канонический AI entry point. |
-| Точный API / идентификатор | 1c-help | `get_1c_api_answer` | Exact-first compact ответ для `Тип.Метод`. |
-| Structured API object | 1c-help | `get_1c_api_object` | Low-token truth-source из `onec_help_api`. |
-| Официальные примеры из справки | 1c-help | `search_1c_api` (`include_examples=True`, по умолчанию) | Те же hits, что раньше давал отдельный tool; не смешивать с `search_1c_snippets`. |
-| Естественный вопрос / широкий API lookup | 1c-help | `answer_1c_help_question`, `search_1c_api` | Structured DB-first route вместо topic-layer поиска. |
-| Локальный task context | 1c-help | `get_1c_task_context` | Компактный anti-hallucination context по `file_uri` / `symbol_name`. |
-| Явные стандарты | 1c-help | `search_1c_standards` | Только standards memory. |
-| Явные сниппеты | 1c-help | `search_1c_snippets` | Только code examples / community_help. |
-| Объекты конфигурации | 1c-help | `search_1c_metadata_exact`, `search_1c_metadata_semantic`, `search_1c_metadata_fields`, `get_1c_metadata_object` | Exact, semantic и field-level routes. |
-| Метаданные формы | 1c-help | `get_form_metadata` | Полный Form.xml. |
-| Тип модуля | 1c-help | `get_module_info` | По пути к `.bsl`. |
-| Статус индекса | 1c-help | `get_1c_help_index_status` | Проверка полноты/здоровья индекса. |
+| Старт задачи | onec-context-mcp | `get_1c_quick_guide` | Единственный канонический AI entry point. |
+| Точный API / идентификатор | onec-context-mcp | `get_1c_api_answer` | Exact-first compact ответ для `Тип.Метод`. |
+| Structured API object | onec-context-mcp | `get_1c_api_object` | Low-token truth-source из `onec_help_api`. |
+| Официальные примеры из справки | onec-context-mcp | `search_1c_api` (`include_examples=True`, по умолчанию) | Те же hits, что раньше давал отдельный tool; не смешивать с `search_1c_snippets`. |
+| Естественный вопрос / широкий API lookup | onec-context-mcp | `answer_1c_help_question`, `search_1c_api` | Structured DB-first route вместо topic-layer поиска. |
+| Локальный task context | onec-context-mcp | `get_1c_task_context` | Компактный anti-hallucination context по `file_uri` / `symbol_name`. |
+| Явные стандарты | onec-context-mcp | `search_1c_standards` | Только standards memory. |
+| Явные сниппеты | onec-context-mcp | `search_1c_snippets` | Только code examples / community_help. |
+| Объекты конфигурации | onec-context-mcp | `search_1c_metadata_exact`, `search_1c_metadata_semantic`, `search_1c_metadata_fields`, `get_1c_metadata_object` | Exact, semantic и field-level routes. |
+| Метаданные формы | onec-context-mcp | `get_form_metadata` | Полный Form.xml. |
+| Тип модуля | onec-context-mcp | `get_module_info` | По пути к `.bsl`. |
+| Статус индекса | onec-context-mcp | `get_1c_help_index_status` | Проверка полноты/здоровья индекса. |
 | Диагностика файла | BSL LS | `java -jar … analyze` | После каждой правки; см. **bsl-language-server-local**. |
 | Форматирование | BSL LS | `java -jar … format` | По политике проекта. |
 | Навигация | IDE / rg / git | — | Поиск символов и чтение модулей по путям выгрузки. |
-| Опционально Docker | этот репозиторий | `make bsl-start` | Отдельный compose, не MCP 1c-help. |
+| Опционально Docker | этот репозиторий | `make bsl-start` | Отдельный compose, не MCP onec-context-mcp. |
 
 ### Tier 2 — ситуативные
 
@@ -61,13 +61,13 @@ description: AI-first skill для разработки 1С (BSL): MCP 1c-help +
 
 Думать как senior-разработчик 1С: понимать влияние правок до их внесения.
 
-- **Перед любым изменением:** начать с `1c-help` для платформенного контекста; структуру кода смотреть поиском и IDE.
+- **Перед любым изменением:** начать с `onec-context-mcp` для платформенного контекста; структуру кода смотреть поиском и IDE.
 - **Перед рефакторингом:** найти все вхождения символа (rg) и затронутые модули.
 - **Модульность:** использовать `#Область ПрограммныйИнтерфейс` и `#Область СлужебныеПроцедурыИФункции`; избегать монолитных процедур.
 - **Контекст выполнения:** учитывать клиент/сервер, реквизиты формы, СКД vs запрос, толстый/тонкий клиент.
 - **Антипаттерны:** процедуры >100 строк, магические числа, отсутствие явной обработки ошибок.
 
-## Токен-бюджет MCP 1c-help
+## Токен-бюджет MCP onec-context-mcp
 
 Подробный чеклист: skill **1c-mcp-token-budget**. Кратко: метаданные или точное `Тип.Метод` → `get_1c_api_answer` (**compact** по умолчанию), затем `search_1c_api`; `answer_1c_help_question` — когда нет имени API; не раздувать параллельные вызовы.
 

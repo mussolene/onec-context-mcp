@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Тестирование бэкендов эмбеддингов для проекта 1c_hbk_helper.
+Тестирование бэкендов эмбеддингов для проекта onec-context-mcp.
 
 Проверяет: deterministic, local (sentence-transformers), LM Studio (localhost:1234),
 Ollama (localhost:11434). Измеряет размерность, задержку и корректность на русских текстах.
@@ -233,7 +233,7 @@ print(json.dumps(out))
 
 
 def main() -> None:
-    print("=== Embedding backends benchmark (1c_hbk_helper) ===\n")
+    print("=== Embedding backends benchmark (onec-context-mcp) ===\n")
     results = []
 
     # 1) Deterministic

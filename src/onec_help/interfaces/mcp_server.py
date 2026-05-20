@@ -1,4 +1,4 @@
-"""MCP server for 1C Help structured API, metadata, memory and diagnostics."""
+"""MCP server for 1C Context MCP structured API, metadata, memory and diagnostics."""
 
 import functools
 import inspect
@@ -1894,7 +1894,7 @@ def _build_mcp_app(help_path: Path) -> Any:
     except Exception:
         pass  # anyio not available in test context or API differs — not fatal
 
-    mcp = FastMCP("1C Help")
+    mcp = FastMCP("1C Context MCP")
     if _HAS_ERROR_MIDDLEWARE and ErrorHandlingMiddleware is not None:
         mcp.add_middleware(ErrorHandlingMiddleware(error_callback=_mcp_error_to_redis_callback))
 
@@ -3399,7 +3399,7 @@ def _build_mcp_app(help_path: Path) -> Any:
             "1. Find symbols: IDE go-to-symbol, or search repo (rg/git grep) for procedure/function names.\n"
             "2. Read/edit modules with clear paths (Documents/…/ObjectModule.bsl, Forms/…/Module.bsl).\n"
             "3. After edits: run BSL LS analyze on changed paths (CLI JAR or `make bsl-start` stack).\n"
-            "4. Rename/refactor in Configurator or IDE; keep modules consistent with metadata from 1c-help.\n"
+            "4. Rename/refactor in Configurator or IDE; keep modules consistent with metadata from onec-context-mcp.\n"
             "5. Prefer small commits; re-run analyze on touched .bsl trees."
         )
         _guide_test = (
@@ -3418,9 +3418,9 @@ def _build_mcp_app(help_path: Path) -> Any:
 
     @mcp.prompt
     def how_to_use_1c_help_and_bsl_ls(task: str = "all") -> str:
-        """Human/onboarding prompt: 1c-help MCP + BSL Language Server (CLI/IDE), not a second MCP.
+        """Human/onboarding prompt: onec-context-mcp MCP + BSL Language Server (CLI/IDE), not a second MCP.
         Not the default AI route; for autonomous workflow use get_1c_quick_guide instead."""
-        block_develop = """1c-HELP + BSL LS — DEVELOP (human/onboarding prompt)
+        block_develop = """onec-context-mcp + BSL LS — DEVELOP (human/onboarding prompt)
 - AI-first route: get_1c_quick_guide(task="develop") first.
 - Exact API: get_1c_api_answer(name); rich sections: get_1c_api_answer(name, detail="full"). Surface chain (например, Документы.Имя.Метод): resolve_1c_api_name(name) → get_1c_api_answer(name). Natural-language question: answer_1c_help_question(question). Structured object: get_1c_api_object(name). Broad structured lookup: search_1c_api(query); official examples section: search_1c_api(query, include_examples=True).
 - Local anti-hallucination context: get_1c_task_context(query, file_uri=..., symbol_name=...).
@@ -3433,7 +3433,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         block_refactor = """BSL LS + репозиторий — REFACTOR (human/onboarding prompt)
 - Навигация: поиск по проекту (rg/git grep), «перейти к символу» в IDE, чтение модулей по путям выгрузки (Documents/…/ObjectModule.bsl, Forms/…/Module.bsl).
 - После правок: `analyze` на затронутые каталоги или файлы .bsl (JAR BSL LS) либо диагностики IDE.
-- Рефакторинг имён и структуры — в конфигураторе или инструментах IDE; метаданные сверяйте с 1c-help (search_1c_metadata_*, get_1c_metadata_object)."""
+- Рефакторинг имён и структуры — в конфигураторе или инструментах IDE; метаданные сверяйте с onec-context-mcp (search_1c_metadata_*, get_1c_metadata_object)."""
         block_test = """BSL LS — TEST (human/onboarding prompt)
 - После правок .bsl: прогон BSL LS analyze (или панель проблем IDE) — устранить Error и значимые Warning по политике команды.
 - Чеклист перед коммитом: использован get_1c_quick_guide? BSL LS без критичных замечаний? save_1c_snippet только для проверенного переиспользуемого кода?"""
@@ -3443,15 +3443,15 @@ def _build_mcp_app(help_path: Path) -> Any:
             return block_refactor
         if task == "test":
             return block_test
-        return """Human/onboarding guide for 1c-help + BSL Language Server (CLI/IDE). For AI work prefer get_1c_quick_guide; use this prompt for a long manual. Shorter blocks: task=develop|refactor|test.
+        return """Human/onboarding guide for onec-context-mcp + BSL Language Server (CLI/IDE). For AI work prefer get_1c_quick_guide; use this prompt for a long manual. Shorter blocks: task=develop|refactor|test.
 
 ---
 1) ЧТО ГДЕ
-- Только MCP 1c-help: справка платформы, примеры, метаданные конфигурации (KD2), сниппеты, стандарты, compare_1c_help, save_1c_snippet.
+- Только MCP onec-context-mcp: справка платформы, примеры, метаданные конфигурации (KD2), сниппеты, стандарты, compare_1c_help, save_1c_snippet.
 - BSL LS не входит в MCP этого репозитория: статический анализ и форматирование — через exec-JAR (`analyze`/`format`), расширение IDE или опционально `make bsl-start` (Docker).
 
 ---
-2) 1c-HELP — ORDER OF CALLS
+2) onec-context-mcp — ORDER OF CALLS
 - Exact API: get_1c_api_answer(name) first for Тип.Метод; use detail="full" for full structured sections. For BSL surface chains such as Документы.Имя.Метод or Константы.Имя.Получить, first call resolve_1c_api_name(name), then get_1c_api_answer on the canonical candidate. Natural-language factual question: answer_1c_help_question(question, version=...). Structured truth-source: get_1c_api_object(name). Broad structured lookup: search_1c_api(query); examples block: search_1c_api(query, include_examples=True).
 - Task-local context: get_1c_task_context(query, file_uri=..., symbol_name=...).
 - Explicit standards/snippets: search_1c_standards(query), search_1c_snippets(query).
@@ -3463,8 +3463,8 @@ def _build_mcp_app(help_path: Path) -> Any:
 ---
 3) BSL LANGUAGE SERVER — ПРАКТИКА
 - JAR: см. docs/cursor-examples/bsl-language-server-local/SKILL.md (`analyze -s <dir> -r json -o <existing-dir>`, `format -s <path>`).
-- В репозитории 1c_hbk_helper: опционально `make fetch-bsl-ls-docker-deps` затем `make bsl-start` — отдельный контейнер с BSL LS (не путать с MCP 1c-help на :8050).
-- Семантику платформы при спорах сверяйте с 1c-help, а не только с замечаниями LS.
+- В репозитории onec-context-mcp: опционально `make fetch-bsl-ls-docker-deps` затем `make bsl-start` — отдельный контейнер с BSL LS (не путать с MCP onec-context-mcp на :8050).
+- Семантику платформы при спорах сверяйте с onec-context-mcp, а не только с замечаниями LS.
 
 ---
 4) COMMON 1C PITFALLS
@@ -3477,7 +3477,7 @@ def _build_mcp_app(help_path: Path) -> Any:
 - УстановитьПривилегированныйРежим: don't use for every operation — it disables RLS for the entire procedure.
 
 ---
-5) METADATA (1c-help)
+5) METADATA (onec-context-mcp)
 - search_1c_metadata_exact(query, config_version=None, object_type=None, limit=20): exact-first object lookup.
 - search_1c_metadata_semantic(query, config_version=None, object_type=None, limit=20): natural-language object lookup.
 - search_1c_metadata_fields(object_query, field_query, config_version=None, object_type=None): field/requisite lookup.
@@ -3769,7 +3769,7 @@ def _main() -> None:
     import sys
 
     p = argparse.ArgumentParser(
-        description="Run 1C Help MCP server (fast startup, no CLI). Use same args as 'onec_help mcp'."
+        description="Run 1C Context MCP server (fast startup, no CLI). Use same args as 'onec_help mcp'."
     )
     p.add_argument(
         "directory",

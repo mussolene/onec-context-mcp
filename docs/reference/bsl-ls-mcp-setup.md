@@ -1,6 +1,6 @@
 # BSL Language Server: CLI, IDE и опционально Docker
 
-Читайте этот файл, если нужно проверять и форматировать `.bsl` рядом с MCP **1c-help**. Справка платформы — только через 1c-help; статический анализ BSL — через **BSL Language Server** (не через второй MCP в этом репозитории).
+Читайте этот файл, если нужно проверять и форматировать `.bsl` рядом с MCP **onec-context-mcp**. Справка платформы — только через onec-context-mcp; статический анализ BSL — через **BSL Language Server** (не через второй MCP в этом репозитории).
 
 ## Рекомендуемый путь: exec-JAR (`analyze` / `format`)
 
@@ -30,9 +30,9 @@ make bsl-start                  # docker compose -f docker-compose.bsl.yml up -d
 
 Остановка: `make bsl-stop`. Переменные см. в `docker-compose.bsl.yml` и `.env`.
 
-Это **не** MCP **1c-help** (он на порту 8050). Подключение второго MCP в Cursor для обёртки LSP в этом документе не описывается: для агентов достаточно CLI `analyze` и инструментов IDE.
+Это **не** MCP **onec-context-mcp** (он на порту 8050). Подключение второго MCP в Cursor для обёртки LSP в этом документе не описывается: для агентов достаточно CLI `analyze` и инструментов IDE.
 
 ## См. также
 
-- [mcp-tools-reference.md](mcp-tools-reference.md) — инструменты только 1c-help.
-- [run.md](run.md) — запуск Qdrant и MCP 1c-help.
+- [mcp-tools-reference.md](mcp-tools-reference.md) — инструменты только onec-context-mcp.
+- [run.md](run.md) — запуск Qdrant и MCP onec-context-mcp.

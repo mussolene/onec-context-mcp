@@ -1,5 +1,5 @@
-# 1C Help MCP — Docker commands
-# По умолчанию: make up = qdrant + mcp; make ingest-up = + ingest-worker (watchdog). Full: make up-full.
+# 1C Context MCP — Docker commands
+# По умолчанию: make up = qdrant + mcp + redis; make ingest-up = + ingest-worker (watchdog). Full: make up-full.
 # Usage: make parse-fastcode | make load-snippets | make snippets
 # Pages: auto by default. Limit: ARGS="--pages 1-5 --no-fetch-detail"
 
@@ -10,7 +10,7 @@ ifeq ($(OS),Windows_NT)
 endif
 
 ARGS ?=
-HELP_SOURCE_PATH ?= /opt/1cv8
+HELP_SOURCE_PATH ?= $(or $(HOST_HELP_SOURCE_BASE),/opt/1cv8)
 UNPACK_OUTPUT ?= data/unpacked
 HELP_LANGS ?= ru
 
@@ -151,9 +151,9 @@ unpack-sync:
 ingest-from-unpacked:
 	$(COMPOSE) exec $(INGEST_SERVICE) python -m onec_help ingest-from-unpacked $(ARGS)
 
-# Start (split: qdrant + mcp + ingest-worker)
+# Start (split: qdrant + mcp + redis; ingest-worker только через make ingest-up)
 # Каталоги data/* создаются Docker при volume mount — кросс-платформенно
-# По умолчанию только qdrant + mcp
+# По умолчанию только qdrant + mcp + redis
 up:
 	$(COMPOSE) up -d --remove-orphans
 
@@ -274,7 +274,7 @@ qdrant-restore:
 	$(COMPOSE) exec mcp python -m onec_help qdrant-restore --backup-dir /data/backup
 
 help:
-	@echo "1C Help MCP — Docker (по умолчанию split)"
+	@echo "1C Context MCP — Docker (по умолчанию split)"
 	@echo ""
 	@echo "  make build            Сборка образов mcp+ingest-worker (split). SERVICE=mcp|ingest-worker"
 	@echo "  make build-nocache    Сборка образов mcp+ingest-worker (split). SERVICE=mcp|ingest-worker" --no-cache
@@ -295,7 +295,7 @@ help:
 	@echo "  make add-bm25         Добавить BM25 sparse. ARGS='--collection onec_config_metadata' — только эта коллекция"
 	@echo "  make dashboard        Дашборд (Tasks, Errors, Qdrant). ARGS='--once' — один кадр"
 	@echo "  make fetch-bsl-ls-docker-deps  Клонировать зависимость для docker-compose.bsl.yml"
-	@echo "  make up               Start qdrant + mcp (по умолчанию только эти два)"
+	@echo "  make up               Start qdrant + mcp + redis"
 	@echo "  make ingest-up        Start + ingest-worker (watchdog, индексация)"
 	@echo "  make ingest-down      Stop ingest-worker"
 	@echo "  make up-full          Start full (один контейнер mcp)"
@@ -315,7 +315,7 @@ help:
 	@echo "  make qdrant-restore   Восстановить из data/backup/"
 	@echo ""
 	@echo "При qdrant exit 101: make qdrant-logs, затем make qdrant-reset && make up && make ingest"
-	@echo "Миграция индекса с другого хоста: docs/qdrant-migration.md"
+	@echo "Миграция индекса с другого хоста: docs/archive/qdrant-migration.md"
 	@echo "Compose требует оба файла: -f docker-compose.base.yml -f docker-compose.yml"
 	@echo ""
 	@echo "Args: ARGS=...  make ingest ARGS='--dry-run'"

@@ -1,4 +1,4 @@
-# AGENTS.md — 1C Help MCP
+# AGENTS.md — 1C Context MCP
 
 ## Назначение проекта
 
@@ -61,7 +61,7 @@
 
 ## MCP и конфиг Cursor
 
-- MCP **1c-help** работает **в контейнере** по протоколу **streamable-http** (порт 8050). Рабочий конфиг: **`.cursor/mcp.json`** с полем `url: "http://localhost:8050/mcp"` (без command/stdio). Пример — `docs/reference/mcp.json.example`. Полный справочник инструментов (параметры, лимиты): `docs/reference/mcp-tools-reference.md`. Исторический отчёт по полноте инструментов и прогонам: **`docs/archive/mcp-1c-help-tools-report.md`**. Проверка и стиль **BSL-кода** делаются **BSL Language Server** (CLI `analyze`/`format`, расширение IDE или опционально `make bsl-start` — см. `docs/reference/bsl-ls-mcp-setup.md`); отдельный MCP для LS в этом репозитории не документируется. Для AI-агента канонический entry point — `get_1c_quick_guide`; длинные guide/prompts — для человека и onboarding. При `MCP_CURSOR_DOCS_PATH` (в Docker по умолчанию `/app/docs`) MCP отдаёт руководства через промпты `get_mcp_workflow_guide`, `get_mcp_tools_tips`, `get_mcp_tools_summary`, `get_mcp_guides_bundle` (самодокументируемый MCP).
+- MCP **onec-context-mcp** работает **в контейнере** по протоколу **streamable-http** (порт 8050). Рабочий конфиг: **`.cursor/mcp.json`** с полем `url: "http://localhost:8050/mcp"` (без command/stdio). Пример — `docs/reference/mcp.json.example`. Полный справочник инструментов (параметры, лимиты): `docs/reference/mcp-tools-reference.md`. Исторический отчёт по полноте инструментов и прогонам: **`docs/archive/mcp-1c-help-tools-report.md`**. Проверка и стиль **BSL-кода** делаются **BSL Language Server** (CLI `analyze`/`format`, расширение IDE или опционально `make bsl-start` — см. `docs/reference/bsl-ls-mcp-setup.md`); отдельный MCP для LS в этом репозитории не документируется. Для AI-агента канонический entry point — `get_1c_quick_guide`; длинные guide/prompts — для человека и onboarding. При `MCP_CURSOR_DOCS_PATH` (в Docker по умолчанию `/app/docs`) MCP отдаёт руководства через промпты `get_mcp_workflow_guide`, `get_mcp_tools_tips`, `get_mcp_tools_summary`, `get_mcp_guides_bundle` (самодокументируемый MCP).
 - **Skill и Rules:** эталон в git — `docs/cursor-examples/` (команды копирования в `.cursor/` — в `docs/cursor-examples/README.md`). Папка `.cursor/` не в репозитории. При доработке MCP или workflow обновляйте примеры там же.
 - **Рекомендуемый порядок вызовов:**
   1. Для AI-сессии — `get_1c_quick_guide(task="develop"|"refactor"|"test")`.
@@ -78,12 +78,12 @@
 - **Статьи ITS (папка standards/its-v8std):** в **data/standards/its-v8std** могут лежать .md статьи (например, выгруженные с its.1c.ru/db/v8std или сохранённые после `load-standards --its-v8std`). Они попадают в **onec_help_memory** только если при запуске **load-standards** папка **STANDARDS_DIR/its-v8std** существует (например, `data/standards/its-v8std` при STANDARDS_DIR=data/standards). load-standards по умолчанию загружает репо v8-code-style и v8std, затем **дополнительно** обходит `STANDARDS_DIR/its-v8std` и добавляет все .md в индекс. Если MCP работает в Docker, нужен монтирование, при котором эта папка видна контейнеру (например, `.:/app` и STANDARDS_DIR=/app/data/standards). В логе load-standards при успешной подгрузке с диска будет строка «ITS from disk: N items ← …/its-v8std». Если в ответах нет статей ITS — перезапустите `make load-standards` и проверьте, что в выводе есть «ITS from disk: …».
 - **При добавлении новых MCP-сервисов** их нужно прописать в `.cursor/mcp.json`: для удалённого сервера — запись в `mcpServers` с полем `url`; для локального — `command`, `args`, при необходимости `env`. После изменений конфига Cursor перезапускают.
 
-### Чек-лист сценариев 1c-help (для ассистента)
+### Чек-лист сценариев onec-context-mcp (для ассистента)
 
 - **Только справка и память:** ingest выполнен, Qdrant доступен → `get_1c_help_index_status` показывает structured API и memory → основной AI-маршрут: `get_1c_quick_guide`, `get_1c_api_answer`, `answer_1c_help_question`, `search_1c_api`, `get_1c_api_object`, `search_1c_standards`, `search_1c_snippets`, `get_1c_task_context`, `compare_1c_help`, `get_module_info`, `get_form_metadata`. `save_1c_snippet` — только для реально переиспользуемого и проверенного кода.
 - **Справка + метаданные конфигурации:** основной вариант — запустить [tools/1c/MetadataExport.epf](tools/1c/MetadataExport.epf), получить KD 2.0 XML, затем `metadata-snapshot-build` → `metadata-graph-build` (или прямой `metadata-graph-build --source-format metadata-xml`) → в `get_1c_help_index_status` видна коллекция onec_config_metadata. Exact-first поиск по имени/идентификатору — `search_1c_metadata_exact`; natural-language — `search_1c_metadata_semantic`; поля/реквизиты — `search_1c_metadata_fields`. `config_version` опционален, если в графе одна версия (подставляется автоматически). Индексация метаданных идёт только из KD2 XML или compact snapshot (`ONEC_CONFIG_SOURCE_DIR`). Широкий контекст задачи — `get_1c_task_context` и узкие вызовы help/metadata, без отдельного bundle-tool.
 - **Написание кода:** справка (и при необходимости метаданные) → генерация/адаптация кода → BSL LS (`analyze` / IDE) → при успехе и переиспользовании — `save_1c_snippet`.
-- **Поддержка/рефакторинг:** навигация по коду (IDE, rg/git grep); для справки по API — 1c-help; после правок — снова BSL LS на затронутых модулях.
+- **Поддержка/рефакторинг:** навигация по коду (IDE, rg/git grep); для справки по API — onec-context-mcp; после правок — снова BSL LS на затронутых модулях.
 
 ## Безопасность
 
@@ -111,15 +111,15 @@
 
 ### Работа с 1С-кодом
 
-- **MCP 1c-help** — справка, метаданные, сниппеты, стандарты из этого репозитория. **BSL LS** — отдельно: CLI, IDE или опционально `make bsl-start` (см. `docs/reference/bsl-ls-mcp-setup.md`). Если индекса справки нет — опираться на LS и локальный контекст, но основной маршрут фактов по платформе — 1c-help после ingest.
+- **MCP onec-context-mcp** — справка, метаданные, сниппеты, стандарты из этого репозитория. **BSL LS** — отдельно: CLI, IDE или опционально `make bsl-start` (см. `docs/reference/bsl-ls-mcp-setup.md`). Если индекса справки нет — опираться на LS и локальный контекст, но основной маршрут фактов по платформе — onec-context-mcp после ingest.
 - **После правок 1С:** прогон BSL LS (`analyze` на каталог/файл или диагностики в IDE) до приемлемого уровня замечаний.
-- **Стандарты:** BSL LS + v8-code-style и v8std из `load-standards` (через 1c-help `search_1c_standards`).
+- **Стандарты:** BSL LS + v8-code-style и v8std из `load-standards` (через onec-context-mcp `search_1c_standards`).
 
 ## Workflow разработки 1С с BSL LS
 
 Циклы с проверками; при ошибках — возврат к шагу исправления.
 
-1. **Индексация справки.** `make up` или `docker compose up -d` для Qdrant и MCP 1c-help. **Опционально:** `make bsl-start` — отдельный контейнер BSL LS с монтированием `.:/projects:ro`.
+1. **Индексация справки.** `make up` или `docker compose up -d` для Qdrant и MCP onec-context-mcp. **Опционально:** `make bsl-start` — отдельный контейнер BSL LS с монтированием `.:/projects:ro`.
 2. **Ориентирование по коду.** Поиск по проекту (rg, IDE), чтение модулей по путям выгрузки.
 
 ### Цикл «Написание кода»
@@ -135,3 +135,53 @@
 - **BSL LS:** `analyze` (JAR) или диагностики IDE — статический анализ (не runtime). После каждой правки; цикл до приемлемой чистоты.
 - **Python (onec_help):** `PYTHONPATH=src python3 -m pytest tests -v --cov=src/onec_help --cov-report=term-missing` (порог покрытия — из `pyproject.toml`); `ruff check src tests && ruff format --check src tests`. При падении покрытия — добавить тесты. Для проверки инструментов на живом MCP: поднять сервисы (`make up` и т.д.), затем `MCP_INTEGRATION=1 PYTHONPATH=src python3 -m pytest tests/test_mcp_integration.py tests/test_mcp_functional_crypto.py -v --no-cov` (см. `docs/archive/mcp-1c-help-verification-report.md`).
 - **1C runtime:** YaxUnit (unit-тесты процедур/функций; искать в `Tests/`), Vanessa-Automation (BDD, xdd, UI; искать в `features/`, `BDD/`), CoverageBSL. При новой логике — предлагать unit (YaxUnit) или сценарий (Vanessa). Подробно: `docs/reference/1c-testing-guide.md`.
+
+## OACS / ACS Repository Workflow
+
+For substantial features, refactors, bug fixes, investigations, and release
+work, use OACS/ACS as the governed local context, evidence, and checkpoint
+layer. Do not create a parallel private task-artifact tree unless the user asks
+for one.
+
+Required sequence:
+
+1. State task scope and explicit acceptance criteria (`AC1`, `AC2`, ...).
+2. Ask the reference context gate before building context:
+   `acs context gate --intent repo_development --scope project --task "<task>" --json`.
+   Treat `decision=build` as the signal to continue with context build; treat
+   `decision=skip` as permission to proceed from visible files and user
+   instructions.
+3. Build or inspect repository context through OACS only when the gate says
+   `build` or prior project memory/evidence clearly matters:
+   `acs context build --intent repo_development --scope project --json`.
+4. Run external tools normally. OACS does not schedule tools; it records their
+   canonical results as governed evidence.
+5. Treat command outputs, external retrieval, CI results, package publication,
+   deployment results, and manual verification as evidence:
+   `acs tool ingest-result ...`.
+6. Inspect important evidence with `acs evidence inspect <ev_...> --json`.
+7. If evidence should become durable project knowledge, distill it into memory
+   and attach the evidence ref with the memory lifecycle commands.
+8. Record a checkpoint for each completed iteration with outcome, evidence
+   refs, and next step:
+   `acs checkpoint add ... --evidence <ev_...> --json`.
+9. Run current verification and a leak/secret check before claiming completion.
+
+Hard rules:
+
+- Do not claim completion unless every acceptance criterion is `PASS`.
+- Do not claim completion unless current verification, OACS evidence, and an
+  OACS checkpoint exist for the iteration.
+- Verifiers judge current files and current command results, not chat claims.
+- OACS is not the tool orchestrator; it is the governed memory/context/evidence
+  layer.
+- Do not prepend OACS context unconditionally. Use `acs context gate` or an
+  equivalent explicit decision before context build.
+- Standalone tool-result evidence does not enter `ContextCapsule.evidence_refs`
+  by itself. It is projected only through included memories that reference it.
+- Preserve attribution when distilling memory: user instructions, agent
+  decisions, tool observations, project policies, human approvals, derived
+  memory, and system policy are different roles.
+- Do not read, print, or commit `.agent/oacs/key.json`,
+  `.agent/oacs/unlocked.key`, `.agent/oacs`, `.oacs`, local databases,
+  passphrases, or private agent state.

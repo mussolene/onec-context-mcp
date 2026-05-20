@@ -1,4 +1,4 @@
-# 1C Help: app container (Python + p7zip-full + cron для индексации по расписанию).
+# 1C Context MCP: app container (Python + p7zip-full + cron для индексации по расписанию).
 # Сборка в два этапа: builder ставит зависимости и пакет, runtime — только runtime-зависимости и артефакты.
 # По умолчанию образ без local-эмбеддингов (только openai_api/deterministic). С sentence-transformers: --build-arg EMBEDDING_BACKEND=local
 # Кэш зависимостей: BuildKit cache mount для uv. Требует DOCKER_BUILDKIT=1 (по умолчанию в Docker 23+).
@@ -48,13 +48,13 @@ RUN chmod +x /app/entrypoint.sh /app/entrypoint-mcp-only.sh \
     && mkdir -p /app/var/log \
     && chown -R app:app /app
 
-ENV PORT=5000
+ENV PORT=8050
 ENV MCP_CURSOR_DOCS_PATH=/app/docs
 ENV PYTHONPATH=/app/src
-EXPOSE 5000
+EXPOSE 8050
 
 ENV HELP_PATH=/data
 VOLUME ["/data"]
 
 ENTRYPOINT ["/app/entrypoint.sh"]
-CMD ["python", "-m", "onec_help", "serve", "/data"]
+CMD ["python", "-m", "onec_help.interfaces.mcp_server", "/app/data/help_structured", "--host", "0.0.0.0", "--port", "8050", "--path", "/mcp"]

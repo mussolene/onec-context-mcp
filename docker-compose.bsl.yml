@@ -3,6 +3,8 @@
 #
 # Требует deps/mcp-bsl-lsp-bridge (make fetch-bsl-ls-docker-deps).
 
+name: onec-context-mcp-bsl
+
 services:
   bsl-bridge:
     build:
@@ -10,7 +12,7 @@ services:
       dockerfile: Dockerfile
       args:
         BSL_LS_VERSION: ${BSL_LS_VERSION:-latest}
-    container_name: mcp-lsp-1c-hbk-helper
+    container_name: onec-context-mcp-bsl-bridge
     restart: unless-stopped
     mem_limit: ${BSL_CONTAINER_MEMORY:-4g}
     cpus: ${BSL_CONTAINER_CPUS:-4}
