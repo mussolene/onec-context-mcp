@@ -64,7 +64,6 @@ make reinit ARGS='--force'
 - [docs/reference/mcp-tools-reference.md](docs/reference/mcp-tools-reference.md) - полный справочник MCP-инструментов
 - [docs/reference/metadata-export.md](docs/reference/metadata-export.md) - route для метаданных 1С
 - [docs/reference/structured-help-scorecard.md](docs/reference/structured-help-scorecard.md) - метрики качества structured help и stop criteria для extractor
-- [docs/reference/structured-help-jsonl-first-plan.md](docs/reference/structured-help-jsonl-first-plan.md) - план перехода к JSONL-first help
 - [docs/reference/1c-testing-guide.md](docs/reference/1c-testing-guide.md) - тестирование Python и 1С-сценариев
 - [docs/codex-examples/README.md](docs/codex-examples/README.md) - Codex-native OACS consumer pack
 
@@ -74,5 +73,3 @@ make reinit ARGS='--force'
 - [docs/reference/embedding.md](docs/reference/embedding.md) - embedding pipeline и backends
 - [docs/reference/bsl-ls-mcp-setup.md](docs/reference/bsl-ls-mcp-setup.md) - BSL Language Server (CLI / IDE / опционально Docker)
 - [docs/cursor-examples/README.md](docs/cursor-examples/README.md) - skill и rules для Cursor
-
-Исторические планы, анализы и отчеты вынесены из основного маршрута в [docs/archive/README.md](docs/archive/README.md).

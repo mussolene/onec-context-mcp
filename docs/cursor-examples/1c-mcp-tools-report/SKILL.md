@@ -3,9 +3,9 @@ name: 1c-mcp-tools-report
 description: Выжимка по роли MCP onec-context-mcp и проверке BSL через Language Server (CLI/IDE). Применять при вопросах «какой tool когда» и настройке workflow.
 ---
 
-# Отчёт по инструментам MCP (выжимка)
+# Инструменты MCP (выжимка)
 
-Основано на [docs/archive/mcp-1c-help-tools-report.md](../../archive/mcp-1c-help-tools-report.md). Полный отчёт — таблицы по инструментам onec-context-mcp и исторический контекст BSL LS, лимиты и подводные камни.
+Основано на текущем reference проекта: [mcp-tools-cheatsheet.md](../../reference/mcp-tools-cheatsheet.md) и [mcp-tools-reference.md](../../reference/mcp-tools-reference.md). Этот skill нужен как короткая operational-памятка для выбора инструментов onec-context-mcp и BSL LS.
 
 ## Полнота знаний: когда чего хватает
 
@@ -44,7 +44,7 @@ description: Выжимка по роли MCP onec-context-mcp и проверк
 7. **Навигация:** rg/IDE/чтение модулей по путям выгрузки.
 8. **После рабочего кода:** `save_1c_snippet` только для действительно переиспользуемого результата.
 
-## Подводные камни (из отчёта)
+## Подводные камни
 
 - **Пустые/нерелевантные ответы onec-context-mcp:** проверить `get_1c_help_index_status`; перейти на `get_1c_api_answer` с точным именем API (`Тип.Метод`) или `search_1c_api`.
 - **compare_1c_help:** специализированный low-level tool поверх внутреннего topic index; не использовать как основной runtime route.
@@ -62,5 +62,5 @@ description: Выжимка по роли MCP onec-context-mcp и проверк
 
 ## Ссылки
 
-- **В этом репозитории (onec-context-mcp):** шпаргалка [mcp-tools-cheatsheet.md](../../reference/mcp-tools-cheatsheet.md), отчёт [mcp-1c-help-tools-report.md](../../archive/mcp-1c-help-tools-report.md), [mcp-tools-reference.md](../../reference/mcp-tools-reference.md), [AGENTS.md](../../../AGENTS.md).
+- **В этом репозитории (onec-context-mcp):** шпаргалка [mcp-tools-cheatsheet.md](../../reference/mcp-tools-cheatsheet.md), полный reference [mcp-tools-reference.md](../../reference/mcp-tools-reference.md), [AGENTS.md](../../../AGENTS.md).
 - **Вне этого репозитория:** те же руководства можно получить через MCP onec-context-mcp — промпт **get_mcp_guides_bundle** (если сервер запущен с MCP_CURSOR_DOCS_PATH).

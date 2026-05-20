@@ -315,7 +315,7 @@ help:
 	@echo "  make qdrant-restore   Восстановить из data/backup/"
 	@echo ""
 	@echo "При qdrant exit 101: make qdrant-logs, затем make qdrant-reset && make up && make ingest"
-	@echo "Миграция индекса с другого хоста: docs/archive/qdrant-migration.md"
+	@echo "Миграция индекса с другого хоста: make qdrant-backup / make qdrant-restore"
 	@echo "Compose требует оба файла: -f docker-compose.base.yml -f docker-compose.yml"
 	@echo ""
 	@echo "Args: ARGS=...  make ingest ARGS='--dry-run'"

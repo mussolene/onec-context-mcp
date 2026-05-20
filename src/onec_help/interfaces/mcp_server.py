@@ -3486,7 +3486,8 @@ def _build_mcp_app(help_path: Path) -> Any:
 
 ---
 6) LIMITS
-- query and xml_content: up to 64 KB. Full report: docs/archive/mcp-1c-help-tools-report.md."""
+- query and xml_content: up to 64 KB.
+- Full tool reference: docs/reference/mcp-tools-reference.md."""
 
     @mcp.prompt
     def get_mcp_workflow_guide() -> str:
