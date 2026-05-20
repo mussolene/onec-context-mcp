@@ -13,10 +13,10 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12", "3.14"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -31,10 +31,10 @@ jobs:
         env:
           COVERAGE_FILE: .coverage.${{ matrix.python-version }}
 
-      # v3: загрузка без токена для публичных репо; для бейджа добавьте репо на codecov.io
+      # Public repository upload is tokenless; add CODECOV_TOKEN if the repo becomes private.
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.14'
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v6
         with:
           files: ./coverage.xml
           fail_ci_if_error: false
