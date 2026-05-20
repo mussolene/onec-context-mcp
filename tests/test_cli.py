@@ -26,6 +26,7 @@ from onec_help.interfaces.cli import (
     cmd_load_snippets,
     cmd_load_standards,
     cmd_mcp,
+    cmd_mesh_scorecard,
     cmd_parse_fastcode,
     cmd_parse_helpf,
     cmd_qdrant_backup,
@@ -240,6 +241,35 @@ def test_cmd_structured_help_scorecard_error() -> None:
     ):
         args = make_args(snapshot_dir=None, benchmark_file=None, output_file=None)
         assert cmd_structured_help_scorecard(args) == 1
+
+
+def test_cmd_mesh_scorecard(tmp_path: Path) -> None:
+    scorecard = {
+        "summary": {
+            "overall_case_pass_pct": 90.0,
+            "route_hit_pct": 100.0,
+            "help_hit_pct": 85.0,
+            "workflow_hit_pct": 80.0,
+        }
+    }
+    out = tmp_path / "mesh_scorecard.json"
+    with patch(
+        "onec_help.knowledge.mesh_scorecard.build_mesh_scorecard",
+        return_value=scorecard,
+    ) as mock_build:
+        args = make_args(benchmark_file=str(tmp_path / "bench.json"), output_file=str(out))
+        assert cmd_mesh_scorecard(args) == 0
+    mock_build.assert_called_once()
+    assert json.loads(out.read_text(encoding="utf-8")) == scorecard
+
+
+def test_cmd_mesh_scorecard_error() -> None:
+    with patch(
+        "onec_help.knowledge.mesh_scorecard.build_mesh_scorecard",
+        side_effect=RuntimeError("broken mesh scorecard"),
+    ):
+        args = make_args(benchmark_file=None, output_file=None)
+        assert cmd_mesh_scorecard(args) == 1
 
 
 @patch("onec_help.knowledge.kd2_metadata.crawl_kd2_xml")

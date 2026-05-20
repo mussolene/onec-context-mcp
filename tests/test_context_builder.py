@@ -85,7 +85,12 @@ def test_build_context_uses_keyword_route_for_api_queries() -> None:
         patch("onec_help.knowledge.memory.get_memory_store") as mock_mem_store,
     ):
         mock_help_members.return_value = [
-            {"topic_path": "Get.html", "title": "HTTPСоединение.Получить", "summary": "Описание", "kind": "method"}
+            {
+                "topic_path": "Get.html",
+                "title": "HTTPСоединение.Получить",
+                "summary": "Описание",
+                "kind": "method",
+            }
         ]
         mock_help_objects.return_value = []
         mock_help_topics.return_value = []
@@ -120,12 +125,26 @@ def test_build_context_uses_resolved_surface_candidate_for_metadata_system_enum(
         patch("onec_help.knowledge.metadata_graph.search_metadata_semantic") as mock_meta_semantic,
     ):
         mock_get_member.side_effect = lambda name, **_: (
-            [{"topic_path": "compat-prop.html", "title": name, "summary": "enum prop", "kind": "property"}]
+            [
+                {
+                    "topic_path": "compat-prop.html",
+                    "title": name,
+                    "summary": "enum prop",
+                    "kind": "property",
+                }
+            ]
             if name == "ПеречислимыеСвойстваОбъектовМетаданных.РежимСовместимости"
             else []
         )
         mock_get_object.side_effect = lambda name, **_: (
-            [{"topic_path": "compat-type.html", "title": name, "summary": "enum type", "kind": "type"}]
+            [
+                {
+                    "topic_path": "compat-type.html",
+                    "title": name,
+                    "summary": "enum type",
+                    "kind": "type",
+                }
+            ]
             if name == "РежимСовместимости"
             else []
         )

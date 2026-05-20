@@ -352,9 +352,7 @@ def _owner_match_priority(owner_aliases: list[str], item: dict[str, Any]) -> tup
     owner_name = str(item.get("owner_name") or "").strip()
     full_name = str(item.get("full_name") or "").strip()
     alias_values = [
-        str(a).strip()
-        for a in (item.get("aliases") or [])
-        if isinstance(a, str) and str(a).strip()
+        str(a).strip() for a in (item.get("aliases") or []) if isinstance(a, str) and str(a).strip()
     ]
     candidates = [owner_name, full_name, *alias_values]
     best = (3, 1, str(item.get("topic_path") or ""))
@@ -365,9 +363,17 @@ def _owner_match_priority(owner_aliases: list[str], item: dict[str, Any]) -> tup
             if not candidate_lower:
                 continue
             if candidate_lower == alias_lower or candidate_lower.startswith(alias_lower + "."):
-                score = (0, 0 if "<имя" in candidate_lower else 1, str(item.get("topic_path") or ""))
+                score = (
+                    0,
+                    0 if "<имя" in candidate_lower else 1,
+                    str(item.get("topic_path") or ""),
+                )
             elif alias_lower in candidate_lower:
-                score = (1, 0 if "<имя" in candidate_lower else 1, str(item.get("topic_path") or ""))
+                score = (
+                    1,
+                    0 if "<имя" in candidate_lower else 1,
+                    str(item.get("topic_path") or ""),
+                )
             elif owner_name and _match_priority(alias_lower, owner_name.lower(), "") < 3:
                 score = (2, 1, str(item.get("topic_path") or ""))
             else:
@@ -398,11 +404,7 @@ def _resolve_exact_api_owner_alias(
     if not member_hits:
         return []
     ranked = sorted(
-        (
-            item
-            for item in member_hits
-            if _owner_match_priority(owner_aliases, item)[0] < 3
-        ),
+        (item for item in member_hits if _owner_match_priority(owner_aliases, item)[0] < 3),
         key=lambda item: (
             _owner_match_priority(owner_aliases, item),
             _member_sort_key(member.lower(), str(item.get("member_name") or "").lower()),
@@ -1350,18 +1352,13 @@ def _search_exactish_help_question_candidates(
     for name in names:
         exact_items.extend(_get_api_member(name, version=version, language=language))
         exact_items.extend(_get_api_object(name, version=version, language=language))
-        exact_items.extend(_resolve_surface_api_candidates(name, version=version, language=language))
+        exact_items.extend(
+            _resolve_surface_api_candidates(name, version=version, language=language)
+        )
     exact_items = _dedup_structured_hits(exact_items)
     if exact_items:
         return exact_items
-
-    broad_items: list[dict[str, Any]] = []
-    for name in names:
-        if "." in name:
-            continue
-        broad_items.extend(_search_api_members(name, limit=5, version=version, language=language))
-        broad_items.extend(_search_api_objects(name, limit=3, version=version, language=language))
-    return _dedup_structured_hits(broad_items)
+    return []
 
 
 _DCS_HELP_ROUTE_MARKERS = (
@@ -1551,6 +1548,44 @@ def _format_question_answer(
         if meta:
             lines.append("Источник: " + " | ".join(meta))
     return "\n".join(lines)
+
+
+def _format_orchestrated_answer(question: str, orchestrated: dict[str, Any]) -> str | None:
+    help_topics = orchestrated.get("help_topics") or []
+    guidance = orchestrated.get("guidance") or []
+    if not help_topics and not guidance:
+        return None
+    answer_parts: list[str] = []
+    candidate: dict[str, Any] | None = None
+    if help_topics:
+        best = help_topics[0]
+        candidate = {
+            "full_name": best.get("full_name") or best.get("title"),
+            "topic_path": best.get("path"),
+        }
+        text = str(best.get("text") or "").strip()
+        if text:
+            answer_parts.append(text[:900])
+    if guidance:
+        best_guidance = guidance[0]
+        title = str(best_guidance.get("title") or "").strip()
+        description = str(
+            best_guidance.get("description") or best_guidance.get("text") or ""
+        ).strip()
+        if title or description:
+            guidance_block = "Рекомендация"
+            if title:
+                guidance_block += f": {title}"
+            if description:
+                guidance_block += f"\n{description[:500]}"
+            answer_parts.append(guidance_block)
+    if not answer_parts:
+        return None
+    return _format_question_answer(
+        question,
+        answer="\n\n".join(answer_parts),
+        candidate=candidate,
+    )
 
 
 def _answer_question_via_exact_api_route(
@@ -2071,12 +2106,14 @@ def _build_mcp_app(help_path: Path) -> Any:
 
     @mcp.tool()
     @_record_mcp_tool
-    def resolve_1c_api_name(name: str) -> str:
+    def resolve_1c_api_name(name: str | None = None, query: str | None = None) -> str:
         """Resolve a BSL/platform surface-syntax chain to canonical platform-help candidates."""
         err = _check_rate_limit()
         if err:
             return err
-        value, err = _truncate_if_needed((name or "").strip(), MAX_QUERY_CHARS, "name")
+        raw_value = (name or query or "").strip()
+        field_name = "name" if name else "query"
+        value, err = _truncate_if_needed(raw_value, MAX_QUERY_CHARS, field_name)
         if err:
             return err
         if not value:
@@ -2208,15 +2245,30 @@ def _build_mcp_app(help_path: Path) -> Any:
                         },
                     )
 
-        exact_answer = _answer_question_via_exact_api_route(
-            question_clean,
-            intent=intent,
-            version=version,
-            language=language,
-            detail=detail,
-        )
-        if exact_answer:
-            return exact_answer
+        if intent == "general":
+            exact_answer = _answer_question_via_exact_api_route(
+                question_clean,
+                intent=intent,
+                version=version,
+                language=language,
+                detail=detail,
+            )
+            if exact_answer:
+                return exact_answer
+
+            try:
+                from ..knowledge.orchestrator import resolve_1c_answer
+
+                orchestrated = resolve_1c_answer(
+                    question_clean,
+                    version=version,
+                    language=language,
+                )
+                rendered = _format_orchestrated_answer(question_clean, orchestrated or {})
+                if rendered:
+                    return rendered
+            except Exception:
+                pass
 
         dcs_answer = _answer_help_via_dcs_structured_search(
             question_clean,
@@ -2253,6 +2305,31 @@ def _build_mcp_app(help_path: Path) -> Any:
                         answer=fact,
                         candidate=best,
                     )
+
+        if intent != "general":
+            exact_answer = _answer_question_via_exact_api_route(
+                question_clean,
+                intent=intent,
+                version=version,
+                language=language,
+                detail=detail,
+            )
+            if exact_answer:
+                return exact_answer
+
+            try:
+                from ..knowledge.orchestrator import resolve_1c_answer
+
+                orchestrated = resolve_1c_answer(
+                    question_clean,
+                    version=version,
+                    language=language,
+                )
+                rendered = _format_orchestrated_answer(question_clean, orchestrated or {})
+                if rendered:
+                    return rendered
+            except Exception:
+                pass
 
         return (
             "Не удалось уверенно ответить по structured help layer. "
@@ -2966,12 +3043,7 @@ def _build_mcp_app(help_path: Path) -> Any:
             language=language,
             include_diff=include_diff,
         )
-        if (
-            resolved
-            and original
-            and resolved != original
-            and result.startswith("Topic not found")
-        ):
+        if resolved and original and resolved != original and result.startswith("Topic not found"):
             return _compare(
                 original,
                 version_left,
@@ -3023,6 +3095,14 @@ def _build_mcp_app(help_path: Path) -> Any:
                         lines.append(
                             f"Metadata (**onec_config_metadata**): **{_meta_count}** points"
                         )
+                elif coll.get("name") == "onec_config_metadata_fields":
+                    _meta_fields_count = coll.get("points_count")
+                    if _meta_fields_count is not None:
+                        lines.append("")
+                        lines.append(
+                            "Metadata fields (**onec_config_metadata_fields**): "
+                            f"**{_meta_fields_count}** points"
+                        )
                 elif coll.get("name") == "onec_help_api_members":
                     _api_count = coll.get("points_count")
                     if _api_count is not None:
@@ -3051,6 +3131,23 @@ def _build_mcp_app(help_path: Path) -> Any:
                         lines.append(
                             f"API links (**onec_help_api_links**): **{_links_count}** points"
                         )
+        except Exception:
+            pass
+        try:
+            from ..knowledge.platform_graph.qdrant_mesh_store import get_qdrant_mesh_status
+
+            mesh_status = get_qdrant_mesh_status()
+            if mesh_status.get("exists"):
+                lines.append("")
+                lines.append(
+                    "Mesh runtime (Qdrant-only): "
+                    f"api_members={mesh_status.get('api_members', 0)}, "
+                    f"api_objects={mesh_status.get('api_objects', 0)}, "
+                    f"api_edges={mesh_status.get('api_edges', 0)}, "
+                    f"metadata_nodes={mesh_status.get('metadata_nodes', 0)}, "
+                    f"metadata_fields={mesh_status.get('metadata_fields', 0)}, "
+                    f"guidance={mesh_status.get('guidance', 0)}"
+                )
         except Exception:
             pass
         try:
@@ -3172,10 +3269,12 @@ def _build_mcp_app(help_path: Path) -> Any:
         )
         help_topics = ctx.get("help_topics") or []
         memory_items = ctx.get("memory") or []
+        guidance_items = ctx.get("guidance") or []
+        workflow_items = ctx.get("workflow") or []
         metadata_objects = ctx.get("metadata_objects") or []
         local_context = ctx.get("local_context") or {}
         resolved_surface = ctx.get("resolved_surface") or {}
-        if not (help_topics or memory_items or metadata_objects or local_context):
+        if not (help_topics or memory_items or guidance_items or metadata_objects or local_context):
             return "No task context found."
 
         parts = [f"## Task context: {q}"]
@@ -3217,6 +3316,21 @@ def _build_mcp_app(help_path: Path) -> Any:
                 lines.append(line)
             parts.append("### Metadata\n" + "\n".join(lines))
 
+        if workflow_items:
+            lines = []
+            for item in workflow_items[:5]:
+                title = item.get("full_name") or item.get("object_name") or item.get("title") or ""
+                kind = item.get("kind") or item.get("entity_type") or ""
+                path = item.get("topic_path") or item.get("path") or ""
+                line = f"- **{title}**"
+                if kind:
+                    line += f" [{kind}]"
+                if path:
+                    line += f" ({path})"
+                lines.append(line)
+            if lines:
+                parts.append("### Workflow\n" + "\n".join(lines))
+
         if help_topics:
             lines = []
             for item in help_topics[:2]:
@@ -3239,6 +3353,23 @@ def _build_mcp_app(help_path: Path) -> Any:
                 for item in memory_items[:1]
             ]
             parts.append("### Memory\n" + "\n\n".join(blocks))
+
+        if guidance_items:
+            lines = []
+            for item in guidance_items[:2]:
+                title = str(item.get("title") or item.get("source_ref") or "").strip()
+                domain = str(item.get("domain") or "").strip()
+                text = _compact_text(
+                    str(item.get("description") or item.get("text") or "").strip(),
+                    220,
+                )
+                line = f"- **{title}**" if title else "- guidance"
+                if domain:
+                    line += f" ({domain})"
+                lines.append(line)
+                if text:
+                    lines.append(f"  {text}")
+            parts.append("### Guidance\n" + "\n".join(lines))
 
         return "\n\n".join(parts)
 

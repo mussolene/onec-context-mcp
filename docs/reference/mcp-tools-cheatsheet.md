@@ -13,7 +13,7 @@
 | 1 | get_1c_quick_guide | task | Канонический AI entry point; короткий маршрут без лишних ветвлений. |
 | 1 | get_1c_api_answer | name | Exact-first compact ответ для `Тип.Метод`. |
 | 1 | get_1c_api_object | name | Structured API truth-source из `onec_help_api`. |
-| 1 | answer_1c_help_question | question | Естественный вопрос по справке через structured DB-first route. |
+| 1 | answer_1c_help_question | question | Естественный вопрос по справке через structured Qdrant-first route. |
 | 1 | search_1c_api | query, include_examples | Широкий structured lookup по API members/objects/examples; примеры из справки — `include_examples=True` (по умолчанию). |
 | 1 | search_1c_standards | query | Только стандарты из памяти. |
 | 1 | search_1c_snippets | query | Только code snippets и community_help. |

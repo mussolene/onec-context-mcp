@@ -1,0 +1,63 @@
+[
+  {
+    "id": "doc_create_surface",
+    "profile": "exact_api_surface",
+    "runner": "task_context",
+    "query": "Документы.РеализацияТоваровУслуг.СоздатьДокумент",
+    "expected_route_kind": "platform_surface_chain",
+    "expected_candidate_contains": ["ДокументМенеджер.<Имя документа>.СоздатьДокумент"],
+    "expected_help_contains": ["ДокументМенеджер.<Имя документа>.СоздатьДокумент"]
+  },
+  {
+    "id": "const_get_surface",
+    "profile": "exact_api_surface",
+    "runner": "task_context",
+    "query": "Константы.ИспользоватьСкидки.Получить",
+    "expected_route_kind": "platform_surface_chain",
+    "expected_candidate_contains": ["КонстантыМенеджер.<Имя константы>"],
+    "expected_help_contains": ["КонстантыМенеджер.<Имя константы>"]
+  },
+  {
+    "id": "http_get_exact",
+    "profile": "exact_api_surface",
+    "runner": "task_context",
+    "query": "HTTPСоединение.Получить",
+    "expected_help_contains": ["HTTPСоединение.Получить"]
+  },
+  {
+    "id": "metadata_enum_surface",
+    "profile": "metadata_navigation",
+    "runner": "task_context",
+    "query": "Метаданные.СвойстваОбъектов.РежимСовместимости",
+    "expected_route_kind": "metadata_surface_chain",
+    "expected_candidate_contains": ["ПеречислимыеСвойстваОбъектовМетаданных.РежимСовместимости"],
+    "expected_help_contains": ["ПеречислимыеСвойстваОбъектовМетаданных.РежимСовместимости"]
+  },
+  {
+    "id": "metadata_document_exact",
+    "profile": "metadata_navigation",
+    "runner": "task_context",
+    "query": "Метаданные.Документы.РеализацияТоваровУслуг",
+    "config_version": "3.0.184.16",
+    "expected_route_kind": "metadata_surface_chain",
+    "expected_metadata_contains": ["Document.РеализацияТоваровУслуг"]
+  },
+  {
+    "id": "metadata_field_document_comment",
+    "profile": "metadata_navigation",
+    "runner": "metadata_field",
+    "object_query": "Document.РеализацияТоваровУслуг",
+    "field_query": "Комментарий",
+    "config_version": "3.0.184.16",
+    "expected_field_contains": ["Комментарий"]
+  },
+  {
+    "id": "dcs_value_table_workflow",
+    "profile": "workflow_context",
+    "runner": "task_context",
+    "query": "как получить результат СКД в ТаблицуЗначений",
+    "expected_route_kind": "conceptual_help",
+    "expected_help_contains": ["ПроцессорВыводаРезультатаКомпоновкиДанныхВКоллекциюЗначений.Вывести"],
+    "expected_workflow_contains": ["СхемаКомпоновкиДанных"]
+  }
+]

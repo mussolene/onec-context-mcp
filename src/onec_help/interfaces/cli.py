@@ -431,6 +431,36 @@ def cmd_build_metadata_graph(args: argparse.Namespace) -> int:
                     file=sys.stderr,
                     flush=True,
                 )
+        try:
+            fields_inserted = metadata_graph.build_metadata_fields_from_snapshot(
+                base,
+                client=client,
+                collection_name=metadata_graph.METADATA_FIELDS_COLLECTION_NAME,
+                recreate=bool(getattr(args, "recreate", False)),
+            )
+            if fields_inserted > 0 and env_config.get_bm25_enabled():
+                from ..search_store.indexer import add_bm25_to_collection
+
+                progress_line(
+                    "metadata-graph-build │ rebuilding BM25 for onec_config_metadata_fields"
+                )
+                add_bm25_to_collection(
+                    qdrant_host=qhost,
+                    qdrant_port=qport,
+                    collection=metadata_graph.METADATA_FIELDS_COLLECTION_NAME,
+                    batch_size=200,
+                    verbose=True,
+                )
+            progress_done(
+                "metadata-graph-build │ "
+                f"✓ {fields_inserted} field(s) → {metadata_graph.METADATA_FIELDS_COLLECTION_NAME}"
+            )
+        except Exception as field_exc:
+            print(
+                f"metadata-graph-build │ metadata fields indexing failed: {field_exc}",
+                file=sys.stderr,
+                flush=True,
+            )
         # Записываем "last run" в Redis — дашборд покажет результат как у standards/snippets
         try:
             from ..runtime import redis_cache as _rc
@@ -572,6 +602,34 @@ def cmd_structured_help_scorecard(args: argparse.Namespace) -> int:
             f"coverage={scorecard['path_coverage']['path_coverage_pct']}% "
             f"top1={scorecard['benchmark']['exact_top1_pct']}% "
             f"sufficient={scorecard['benchmark']['structured_sufficient_pct']}%"
+        )
+        return 0
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_mesh_scorecard(args: argparse.Namespace) -> int:
+    """Build scorecard for deterministic mesh runtime behavior."""
+    from ..knowledge.mesh_scorecard import build_mesh_scorecard
+
+    benchmark_file = getattr(args, "benchmark_file", None)
+    output_file = getattr(args, "output_file", None)
+    try:
+        scorecard = build_mesh_scorecard(
+            benchmark_path=Path(benchmark_file).expanduser().resolve() if benchmark_file else None
+        )
+        if output_file:
+            Path(output_file).expanduser().resolve().write_text(
+                json.dumps(scorecard, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        print(
+            "Mesh scorecard: "
+            f"pass={scorecard['summary']['overall_case_pass_pct']}% "
+            f"route={scorecard['summary']['route_hit_pct']}% "
+            f"help={scorecard['summary']['help_hit_pct']}% "
+            f"workflow={scorecard['summary']['workflow_hit_pct']}%"
         )
         return 0
     except Exception as e:
@@ -1631,7 +1689,7 @@ def _clear_before_reinit(
     qdrant_port: int = 6333,
     collection: str = "onec_help",
 ) -> bool:
-    """Delete Qdrant collections (onec_help, onec_help_memory) and ingest cache. Returns True on success."""
+    """Delete Qdrant runtime collections and ingest cache. Returns True on success."""
     try:
         from qdrant_client import QdrantClient
 
@@ -1643,6 +1701,9 @@ def _clear_before_reinit(
             "onec_help_api_objects",
             "onec_help_examples",
             "onec_help_api_links",
+            "onec_help_topics",
+            "onec_config_metadata",
+            "onec_config_metadata_fields",
         ):
             if client.collection_exists(coll):
                 client.delete_collection(coll)
@@ -2102,6 +2163,24 @@ def main() -> int:
         help="Optional JSON output path for the scorecard",
     )
     p_api_score.set_defaults(func=cmd_structured_help_scorecard)
+
+    p_mesh_score = sub.add_parser(
+        "mesh-scorecard",
+        help="Measure deterministic mesh runtime behavior and latency",
+    )
+    p_mesh_score.add_argument(
+        "--benchmark-file",
+        type=str,
+        default=None,
+        help="JSON benchmark file (default: packaged mesh_scorecard_benchmark.json)",
+    )
+    p_mesh_score.add_argument(
+        "--output-file",
+        type=str,
+        default=None,
+        help="Optional JSON output path for the scorecard",
+    )
+    p_mesh_score.set_defaults(func=cmd_mesh_scorecard)
 
     # add-bm25
     p_add_bm25 = sub.add_parser(

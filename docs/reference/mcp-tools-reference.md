@@ -47,7 +47,7 @@
 | **resolve_1c_api_name** | `name` | Resolver surface-синтаксиса языка 1С в канонические кандидаты structured help / metadata graph. | Первый выбор для `Документы.Имя.Метод`, `Константы.Имя.Получить`, `Метаданные.…`. |
 | **get_1c_api_answer** | `name`, `version=None`, `language=None`, `detail="compact"` | Compact exact-first ответ по точному API/функции/методу. | Первый выбор для `Тип.Метод`; `detail="full"` возвращает enriched structured payload. |
 | **get_1c_api_object** | `name`, `version=None`, `language=None` | Structured API object/type из `onec_help_api_objects`. | Low-token truth-source для агента и отладки exact API route. |
-| **answer_1c_help_question** | `question`, `version=None`, `language=None`, `detail="compact"` | Естественный вопрос по справке через structured DB-first route; вопросы про **СКД/компоновку** дополнительно маршрутизируются в structured API search. | Пустые тела примеров в индексе не выводятся как пустой блок `bsl`. |
+| **answer_1c_help_question** | `question`, `version=None`, `language=None`, `detail="compact"` | Естественный вопрос по справке через structured Qdrant-first route; вопросы про **СКД/компоновку** дополнительно маршрутизируются в structured API search. | Пустые тела примеров в индексе не выводятся как пустой блок `bsl`. |
 | **search_1c_standards** | `query`, `limit=5` | Поиск только по стандартам в памяти (v8std, v8-code-style, ITS). | Первый выбор для style/rule вопросов. |
 | **search_1c_snippets** | `query`, `limit=5` | Поиск только по примерам кода и snippets/community_help. | Первый выбор для code examples. |
 | **get_1c_api_related** | `name`, `version=None`, `language=None` | Связанные API-элементы (`see_also` и другие structured links). | Structured replacement для topic-related lookup. |

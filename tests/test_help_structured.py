@@ -187,9 +187,15 @@ def test_build_structured_api_snapshot_adds_html_links_and_surface_aliases(tmp_p
     manifest = build_structured_api_snapshot(tmp_path / "out", unpacked_dir=tmp_path)
     assert manifest["links"] >= 3
     members = load_api_members(tmp_path / "out")
-    docs_prop = next(item for item in members if item["full_name"] == "Глобальный контекст.Документы")
+    docs_prop = next(
+        item for item in members if item["full_name"] == "Глобальный контекст.Документы"
+    )
     assert "Документы" in docs_prop["surface_aliases"]
-    links = [json.loads(line) for line in (tmp_path / "out" / "api_links.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
+    links = [
+        json.loads(line)
+        for line in (tmp_path / "out" / "api_links.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
     assert any(
         link["link_kind"] == "html_href"
         and link["source_full_name"] == "Глобальный контекст.Документы"

@@ -805,6 +805,24 @@ def _bm25_text_from_payload(collection: str, payload: dict[str, Any]) -> str:
                 None, [payload.get("config_name"), payload.get("name"), payload.get("full_name")]
             )
         )
+    if collection == "onec_config_metadata_fields":
+        text = (payload.get("text") or "").strip()
+        if text:
+            return text
+        return " ".join(
+            filter(
+                None,
+                [
+                    payload.get("object_id"),
+                    payload.get("object_name"),
+                    payload.get("field_name"),
+                    payload.get("synonym"),
+                    payload.get("field_kind"),
+                    payload.get("group_name"),
+                    " ".join(payload.get("types_short") or []),
+                ],
+            )
+        )
     if collection in (
         "onec_help_api",
         "onec_help_api_members",

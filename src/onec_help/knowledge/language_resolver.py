@@ -312,14 +312,32 @@ def resolve_platform_surface_api_query(query: str) -> dict[str, Any]:
 
     if len(segments) >= 3:
         tail = ".".join(segments[2:])
-        candidates.insert(
-            0,
-            {
-                "name": f"{spec.item_manager_template}.{tail}",
-                "lookup": "member",
-                "reason": "member on item manager placeholder object",
-            },
-        )
+        if spec.family == "Константы" and tail == "Получить":
+            candidates.insert(
+                0,
+                {
+                    "name": f"{spec.collection_manager}.{spec.collection_item_placeholder}",
+                    "lookup": "member",
+                    "reason": "constant value access through constants manager property",
+                },
+            )
+            candidates.insert(
+                1,
+                {
+                    "name": "КонстантаМенеджерЗначения.<Имя константы>.Прочитать",
+                    "lookup": "member",
+                    "reason": "constant value manager read method",
+                },
+            )
+        else:
+            candidates.insert(
+                0,
+                {
+                    "name": f"{spec.item_manager_template}.{tail}",
+                    "lookup": "member",
+                    "reason": "member on item manager placeholder object",
+                },
+            )
 
     return {
         "query": original,
@@ -333,13 +351,19 @@ def resolve_platform_surface_api_query(query: str) -> dict[str, Any]:
 
 def resolve_platform_surface_candidate_names(query: str) -> list[str]:
     resolved = resolve_platform_surface_api_query(query)
-    return [str(item.get("name") or "") for item in resolved.get("candidates") or [] if item.get("name")]
+    return [
+        str(item.get("name") or "") for item in resolved.get("candidates") or [] if item.get("name")
+    ]
 
 
 def resolve_metadata_surface_query(query: str) -> dict[str, Any]:
     original = (query or "").strip()
     stripped = _strip_metadata_root_prefix(original)
-    if stripped == original and original not in {"Метаданные", "Metadata", "Глобальный контекст.Метаданные"}:
+    if stripped == original and original not in {
+        "Метаданные",
+        "Metadata",
+        "Глобальный контекст.Метаданные",
+    }:
         return {
             "query": original,
             "normalized_query": _collapse_dotted_segments(original),
@@ -348,7 +372,11 @@ def resolve_metadata_surface_query(query: str) -> dict[str, Any]:
             "segments": [],
             "candidates": [],
         }
-    normalized = "Метаданные" if original.strip() in {"Метаданные", "Metadata"} else _collapse_dotted_segments(stripped)
+    normalized = (
+        "Метаданные"
+        if original.strip() in {"Метаданные", "Metadata"}
+        else _collapse_dotted_segments(stripped)
+    )
     root_candidates: list[dict[str, str]] = [
         {
             "name": "Глобальный контекст.Метаданные",

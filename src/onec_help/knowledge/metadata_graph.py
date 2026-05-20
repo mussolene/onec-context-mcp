@@ -11,6 +11,8 @@ Design goals:
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import sys
 from typing import Any, cast
@@ -18,6 +20,8 @@ from typing import Any, cast
 from ..shared import env_config
 from .metadata_ids import make_metadata_object_id
 from .metadata_models import ConfigObject, ConfigRelation, CrawlResult
+
+METADATA_FIELDS_COLLECTION_NAME = "onec_config_metadata_fields"
 
 # Типы объектов метаданных по-русски (для понимания конфигурации и единообразия с справкой).
 _OBJECT_TYPE_RU: dict[str, str] = {
@@ -400,6 +404,41 @@ _METADATA_INDEXED_FIELDS: tuple[str, ...] = (
     "full_name",
     "path",
 )
+_METADATA_FIELDS_INDEXED_FIELDS: tuple[str, ...] = (
+    "config_version",
+    "object_id",
+    "object_type",
+    "object_name",
+    "field_name",
+    "field_name_norm",
+    "synonym",
+    "synonym_norm",
+    "field_kind",
+    "group_name",
+    "tabular_section",
+)
+
+
+def _metadata_field_point_id(
+    *,
+    object_id: str,
+    config_version: str,
+    field_name: str,
+    field_kind: str,
+    group_name: str,
+    tabular_section: str,
+) -> int:
+    key = "|".join(
+        (
+            str(config_version or "").strip(),
+            str(object_id or "").strip(),
+            str(group_name or "").strip(),
+            str(tabular_section or "").strip(),
+            str(field_kind or "").strip(),
+            str(field_name or "").strip(),
+        )
+    )
+    return int(hashlib.sha256(key.encode("utf-8")).hexdigest()[:14], 16) % (2**63)
 
 
 def _ensure_collection(
@@ -486,6 +525,158 @@ def _ensure_payload_indexes(
         except Exception:
             # Qdrant may report "already exists" or reject duplicate create; indexing is best-effort.
             continue
+
+
+def _ensure_metadata_fields_payload_indexes(
+    client: Any,
+    collection_name: str,
+    *,
+    qmodels: Any,
+) -> None:
+    if not hasattr(client, "create_payload_index"):
+        return
+    for field in _METADATA_FIELDS_INDEXED_FIELDS:
+        try:
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name=field,
+                field_schema=qmodels.PayloadSchemaType.KEYWORD,
+                wait=True,
+            )
+        except Exception:
+            continue
+
+
+def _iter_metadata_snapshot_dirs(base: str | Any) -> list[Any]:
+    from pathlib import Path
+
+    root = Path(base).expanduser().resolve()
+    if not root.exists():
+        return []
+    if (root / "manifest.json").is_file():
+        return [root]
+    snapshots = root / "snapshots"
+    if snapshots.is_dir():
+        return sorted(path.parent for path in snapshots.glob("*/manifest.json") if path.is_file())
+    return sorted(path.parent for path in root.glob("*/manifest.json") if path.is_file())
+
+
+def _metadata_field_payload_from_snapshot_row(
+    item: dict[str, Any],
+    *,
+    config_name: str,
+    config_version: str,
+) -> dict[str, Any]:
+    field_name = str(item.get("name") or "").strip()
+    synonym = str(item.get("synonym") or "").strip()
+    object_id = str(item.get("object_id") or "").strip()
+    object_name = str(item.get("object_name") or "").strip()
+    object_type = str(item.get("object_type") or "").strip()
+    group_name = str(item.get("group") or "").strip()
+    field_kind = str(item.get("kind") or "").strip()
+    tabular_section = str(item.get("tabular_section") or "").strip()
+    types = item.get("types") if isinstance(item.get("types"), list) else []
+    types_short = [str(raw).strip() for raw in types if str(raw).strip()][:20]
+    payload: dict[str, Any] = {
+        "object_id": object_id,
+        "config_name": config_name,
+        "config_version": str(item.get("config_version") or config_version).strip(),
+        "object_type": object_type,
+        "object_name": object_name,
+        "field_name": field_name,
+        "field_name_norm": field_name.lower(),
+        "synonym": synonym,
+        "synonym_norm": synonym.lower(),
+        "field_kind": field_kind,
+        "group_name": group_name,
+        "tabular_section": tabular_section,
+        "usage": str(item.get("usage") or "").strip(),
+        "types_short": types_short,
+    }
+    if item.get("defined_type"):
+        payload["defined_type"] = str(item.get("defined_type") or "").strip()
+    payload["text"] = "\n".join(
+        part
+        for part in (
+            object_id,
+            object_name,
+            field_name,
+            synonym,
+            field_kind,
+            group_name,
+            tabular_section,
+            " ".join(types_short),
+            payload.get("usage") or "",
+        )
+        if part
+    )
+    return payload
+
+
+def build_metadata_fields_from_snapshot(
+    snapshot_base: str | Any,
+    *,
+    client: Any,
+    collection_name: str = METADATA_FIELDS_COLLECTION_NAME,
+    recreate: bool = True,
+    batch_size: int = 500,
+) -> int:
+    from pathlib import Path
+
+    from qdrant_client import models as qmodels  # type: ignore[import-not-found]
+
+    total = 0
+    dim = 1
+    if recreate or not client.collection_exists(collection_name):
+        client.recreate_collection(
+            collection_name=collection_name,
+            vectors_config=qmodels.VectorParams(size=dim, distance=qmodels.Distance.COSINE),
+        )
+    _ensure_metadata_fields_payload_indexes(client, collection_name, qmodels=qmodels)
+
+    all_points: list[Any] = []
+    for snapshot_dir in _iter_metadata_snapshot_dirs(Path(snapshot_base)):
+        manifest_path = snapshot_dir / "manifest.json"
+        if not manifest_path.is_file():
+            continue
+        manifest = cast(dict[str, Any], json.loads(manifest_path.read_text(encoding="utf-8")))
+        config_name = str(manifest.get("config_name") or "").strip()
+        config_version = str(manifest.get("config_version") or "").strip()
+        fields_path = snapshot_dir / "fields.jsonl"
+        if not fields_path.is_file():
+            continue
+        with fields_path.open("r", encoding="utf-8") as fp:
+            for line in fp:
+                line = line.strip()
+                if not line:
+                    continue
+                row = cast(dict[str, Any], json.loads(line))
+                payload = _metadata_field_payload_from_snapshot_row(
+                    row,
+                    config_name=config_name,
+                    config_version=config_version,
+                )
+                point_id = _metadata_field_point_id(
+                    object_id=payload.get("object_id", ""),
+                    config_version=payload.get("config_version", ""),
+                    field_name=payload.get("field_name", ""),
+                    field_kind=payload.get("field_kind", ""),
+                    group_name=payload.get("group_name", ""),
+                    tabular_section=payload.get("tabular_section", ""),
+                )
+                all_points.append(
+                    qmodels.PointStruct(
+                        id=point_id, vector=[0.0], payload=_payload_no_none(payload)
+                    )
+                )
+                if len(all_points) >= batch_size:
+                    client.upsert(collection_name=collection_name, points=all_points)
+                    total += len(all_points)
+                    all_points = []
+    if all_points:
+        client.upsert(collection_name=collection_name, points=all_points)
+        total += len(all_points)
+    return total
 
 
 def build_metadata_graph_from_crawl(
@@ -1265,6 +1456,10 @@ def search_metadata_fields(
     """Search requisites/tabular sections/commands inside matched metadata objects."""
     if not config_version or not object_query or not field_query:
         return []
+    try:
+        from qdrant_client import models as qmodels  # type: ignore[import-not-found]
+    except Exception:
+        qmodels = None
     object_matches = (
         search_metadata_exact(
             object_query,
@@ -1288,28 +1483,91 @@ def search_metadata_fields(
         )
     variants = _metadata_query_variants(field_query)
     ranked: list[tuple[int, dict[str, Any]]] = []
-    for obj in object_matches:
-        for field_payload in _collect_field_values(obj):
-            priority = _field_match_priority(field_payload, variants)
-            if priority > 2:
-                continue
-            ranked.append(
-                (
-                    priority,
-                    {
-                        "object_id": obj.get("id", ""),
-                        "object_name": obj.get("name", ""),
-                        "object_type": obj.get("object_type", ""),
-                        "config_name": obj.get("config_name", ""),
-                        "config_version": obj.get("config_version", config_version),
-                        "field_group": field_payload.get("group", ""),
-                        "field_name": field_payload.get("name", ""),
-                        "field_synonym": field_payload.get("synonym", ""),
-                        "field_type": format_requisite_type_display(field_payload),
-                        "field_tabular_section": field_payload.get("tabular_section") or "",
-                    },
+    if qmodels is not None:
+        client = client or _get_default_client()
+        try:
+            if client.collection_exists(METADATA_FIELDS_COLLECTION_NAME):
+                for obj in object_matches:
+                    object_id = str(obj.get("id") or "").strip()
+                    if not object_id:
+                        continue
+                    filt = qmodels.Filter(
+                        must=[
+                            qmodels.FieldCondition(
+                                key="config_version",
+                                match=qmodels.MatchValue(value=config_version),
+                            ),
+                            qmodels.FieldCondition(
+                                key="object_id",
+                                match=qmodels.MatchValue(value=object_id),
+                            ),
+                        ]
+                    )
+                    points = _scroll_points(
+                        client,
+                        collection_name=METADATA_FIELDS_COLLECTION_NAME,
+                        filt=filt,
+                        limit=max(limit * 8, 50),
+                    )
+                    for point in points:
+                        payload = _payload_from_point(point)
+                        field_payload = {
+                            "name": payload.get("field_name", ""),
+                            "synonym": payload.get("synonym", ""),
+                            "group": payload.get("group_name", ""),
+                            "kind": payload.get("field_kind", ""),
+                            "tabular_section": payload.get("tabular_section", ""),
+                            "type": "",
+                            "types": payload.get("types_short") or [],
+                            "defined_type": payload.get("defined_type") or "",
+                        }
+                        priority = _field_match_priority(field_payload, variants)
+                        if priority > 2:
+                            continue
+                        ranked.append(
+                            (
+                                priority,
+                                {
+                                    "object_id": object_id,
+                                    "object_name": obj.get("name", ""),
+                                    "object_type": obj.get("object_type", ""),
+                                    "config_name": payload.get(
+                                        "config_name", obj.get("config_name", "")
+                                    ),
+                                    "config_version": payload.get("config_version", config_version),
+                                    "field_group": payload.get("group_name", ""),
+                                    "field_name": payload.get("field_name", ""),
+                                    "field_synonym": payload.get("synonym", ""),
+                                    "field_type": format_requisite_type_display(field_payload),
+                                    "field_tabular_section": payload.get("tabular_section") or "",
+                                },
+                            )
+                        )
+        except Exception:
+            ranked = []
+    if not ranked:
+        for obj in object_matches:
+            for field_payload in _collect_field_values(obj):
+                priority = _field_match_priority(field_payload, variants)
+                if priority > 2:
+                    continue
+                ranked.append(
+                    (
+                        priority,
+                        {
+                            "object_id": obj.get("id", ""),
+                            "object_name": obj.get("name", ""),
+                            "object_type": obj.get("object_type", ""),
+                            "config_name": obj.get("config_name", ""),
+                            "config_version": obj.get("config_version", config_version),
+                            "field_group": field_payload.get("group", ""),
+                            "field_name": field_payload.get("name", ""),
+                            "field_synonym": field_payload.get("synonym", ""),
+                            "field_type": format_requisite_type_display(field_payload),
+                            "field_tabular_section": field_payload.get("tabular_section") or "",
+                        },
+                    )
                 )
-            )
     ranked.sort(
         key=lambda item: (
             item[0],

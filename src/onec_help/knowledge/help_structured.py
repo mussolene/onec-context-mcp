@@ -33,6 +33,16 @@ API_EXAMPLES_COLLECTION_NAME = "onec_help_examples"
 API_LINKS_COLLECTION_NAME = "onec_help_api_links"
 API_TOPICS_FILE = "api_topics.jsonl"
 API_TOPICS_COLLECTION_NAME = "onec_help_topics"
+_WORKFLOW_RELATIONS: tuple[tuple[str, str], ...] = (
+    ("СхемаКомпоновкиДанных", "ИсточникДоступныхНастроекКомпоновкиДанных"),
+    ("ИсточникДоступныхНастроекКомпоновкиДанных", "КомпоновщикНастроекКомпоновкиДанных"),
+    ("КомпоновщикНастроекКомпоновкиДанных", "КомпоновщикМакетаКомпоновкиДанных"),
+    ("КомпоновщикМакетаКомпоновкиДанных", "ПроцессорКомпоновкиДанных"),
+    (
+        "ПроцессорКомпоновкиДанных",
+        "ПроцессорВыводаРезультатаКомпоновкиДанныхВКоллекциюЗначений",
+    ),
+)
 
 # Backward-compatible alias used by callers/tests from the previous structured layer.
 API_COLLECTION_NAME = API_MEMBERS_COLLECTION_NAME
@@ -529,9 +539,12 @@ def _extract_see_also(section_text: str) -> list[str]:
     if not section_text:
         return []
     values: list[str] = []
+    skip_values = {"описание", "description", "см. также", "see also"}
     for raw in section_text.splitlines():
         line = raw.strip().strip("-").strip()
         if not line:
+            continue
+        if line.lower() in skip_values:
             continue
         values.append(line)
     seen: set[str] = set()
@@ -646,7 +659,8 @@ def _extract_value_types(text: str) -> list[str]:
     value = " ".join((text or "").split())
     if not value:
         return []
-    if value.lower().startswith("тип:"):
+    explicit_type_prefix = value.lower().startswith("тип:")
+    if explicit_type_prefix:
         value = value[4:].strip()
     parts = re.split(r"\s*[,;]\s*", value)
     out: list[str] = []
@@ -656,12 +670,50 @@ def _extract_value_types(text: str) -> list[str]:
         candidate = _normalize_type_token(candidate)
         if not candidate:
             continue
+        if not explicit_type_prefix and not _looks_like_type_name(candidate):
+            continue
         key = candidate.lower()
         if key in seen:
             continue
         seen.add(key)
         out.append(candidate)
     return out
+
+
+def _looks_like_type_name(candidate: str) -> bool:
+    value = str(candidate or "").strip()
+    if not value:
+        return False
+    if value.startswith("ОбъектМетаданных:"):
+        return True
+    if any(marker in value for marker in (".", "<", ">")):
+        return True
+    uppercase_count = sum(1 for ch in value if ch.isalpha() and ch == ch.upper())
+    if uppercase_count >= 2:
+        return True
+    return bool(
+        re.search(
+            r"(Менеджер|Коллекция|Перечисления|Перечисление|ПеречислимыеСвойства|"
+            r"Соответствие|Структура|Массив|ФиксированныйМассив|ТаблицаЗначений|"
+            r"ДеревоЗначений|ОписаниеТипов|Запрос|Ответ|Список|Набор|Ссылка|Объект|"
+            r"Команда|Форма|Результат|Процессор|Компоновщик|Схема|Хранилище|"
+            r"Булево|Число|Строка|Дата|Время|УникальныйИдентификатор|Неопределено)$",
+            value,
+        )
+    )
+
+
+def _looks_like_typed_link_target(target_name: str) -> bool:
+    value = str(target_name or "").strip()
+    if not value:
+        return False
+    if len(value) > 120:
+        return False
+    if "\n" in value:
+        return False
+    if value.count(" ") >= 4:
+        return False
+    return _looks_like_type_name(value)
 
 
 def _split_full_name(name: str) -> tuple[str, str]:
@@ -761,7 +813,10 @@ def _surface_aliases_for_member(full_name: str, owner_name: str, member_name: st
         return ["Метаданные.СвойстваОбъектов"]
     if owner_name == "ПеречислимыеСвойстваОбъектовМетаданных" and member_name:
         return [f"Метаданные.СвойстваОбъектов.{member_name}"]
-    if owner_name == "ОбъектМетаданныхКонфигурация" and member_name in _METADATA_COLLECTION_OBJECT_TYPES:
+    if (
+        owner_name == "ОбъектМетаданныхКонфигурация"
+        and member_name in _METADATA_COLLECTION_OBJECT_TYPES
+    ):
         return [f"Метаданные.{member_name}"]
     if owner_name == "Глобальный контекст" and member_name:
         return [member_name]
@@ -812,10 +867,20 @@ def _typed_relations_for_member(
     relations: list[dict[str, Any]] = []
     seq = 1
 
-    def add(target_name: str, link_kind: str, *, target_lookup: str = "object", reason: str = "") -> None:
+    def add(
+        target_name: str, link_kind: str, *, target_lookup: str = "object", reason: str = ""
+    ) -> None:
         nonlocal seq
         target = str(target_name or "").strip()
         if not target:
+            return
+        if link_kind in {
+            "returns_type",
+            "global_property_returns_type",
+            "metadata_property_returns_type",
+            "metadata_enum_property_returns_system_enum",
+            "metadata_collection_contains_object_type",
+        } and not _looks_like_typed_link_target(target):
             return
         relations.append(
             {
@@ -829,7 +894,7 @@ def _typed_relations_for_member(
                 "topic_path": topic_path,
                 "version": version,
                 "language": language,
-                "text": f"{full_name} -> {target}",
+                "text": f"{full_name} -> {target[:200]}",
             }
         )
         seq += 1
@@ -837,7 +902,12 @@ def _typed_relations_for_member(
     for type_name in record.get("value_types") or []:
         add(type_name, "returns_type", reason="normalized value type from structured help")
     for alias in record.get("surface_aliases") or []:
-        add(alias, "surface_alias", target_lookup="alias", reason="canonical BSL surface-syntax alias")
+        add(
+            alias,
+            "surface_alias",
+            target_lookup="alias",
+            reason="canonical BSL surface-syntax alias",
+        )
 
     if full_name == "Глобальный контекст.Метаданные":
         add("ОбъектМетаданныхКонфигурация", "global_property_returns_type")
@@ -846,7 +916,10 @@ def _typed_relations_for_member(
     elif owner_name == "ПеречислимыеСвойстваОбъектовМетаданных":
         for type_name in record.get("value_types") or []:
             add(type_name, "metadata_enum_property_returns_system_enum")
-    elif owner_name == "ОбъектМетаданныхКонфигурация" and member_name in _METADATA_COLLECTION_OBJECT_TYPES:
+    elif (
+        owner_name == "ОбъектМетаданныхКонфигурация"
+        and member_name in _METADATA_COLLECTION_OBJECT_TYPES
+    ):
         add(
             _METADATA_COLLECTION_OBJECT_TYPES[member_name],
             "metadata_collection_contains_object_type",
@@ -865,7 +938,9 @@ def _typed_relations_for_object(
     relations: list[dict[str, Any]] = []
     seq = 1
 
-    def add(target_name: str, link_kind: str, *, target_lookup: str = "alias", reason: str = "") -> None:
+    def add(
+        target_name: str, link_kind: str, *, target_lookup: str = "alias", reason: str = ""
+    ) -> None:
         nonlocal seq
         target = str(target_name or "").strip()
         if not target:
@@ -882,7 +957,7 @@ def _typed_relations_for_object(
                 "topic_path": topic_path,
                 "version": version,
                 "language": language,
-                "text": f"{full_name} -> {target}",
+                "text": f"{full_name} -> {target[:200]}",
             }
         )
         seq += 1
@@ -1161,7 +1236,7 @@ def _build_structured_records(
                     "topic_path": path,
                     "version": version,
                     "language": language,
-                    "text": f"{source_full_name} -> {target_name}",
+                    "text": f"{source_full_name} -> {target_name[:200]}",
                 }
             )
     if member_record is not None:
@@ -1650,9 +1725,15 @@ def build_structured_api_snapshot(
                     continue
                 html_links_raw.append(
                     {
-                        "id": _topic_point_id(f"{canon}#html-link-{idx}", str(topic.get("version") or ""), str(topic.get("language") or "")),
+                        "id": _topic_point_id(
+                            f"{canon}#html-link-{idx}",
+                            str(topic.get("version") or ""),
+                            str(topic.get("language") or ""),
+                        ),
                         "source_full_name": source_name,
-                        "target_name": str(link.get("target_title") or link.get("link_text") or "").strip(),
+                        "target_name": str(
+                            link.get("target_title") or link.get("link_text") or ""
+                        ).strip(),
                         "target_lookup": "topic_path",
                         "source_lookup": "member" if member_record is not None else "object",
                         "resolved_target_topic_path": f"{stem_dir.name}/{resolved_path}",
@@ -1662,7 +1743,7 @@ def build_structured_api_snapshot(
                         "topic_path": canon,
                         "version": str(topic.get("version") or ""),
                         "language": str(topic.get("language") or ""),
-                        "text": f"{source_name} -> {resolved_path}",
+                        "text": f"{source_name} -> {str(link.get('target_title') or link.get('link_text') or resolved_path)[:200]}",
                     }
                 )
 
@@ -1690,9 +1771,11 @@ def build_structured_api_snapshot(
         resolved_target = str(link.get("resolved_target_topic_path") or "").strip()
         if resolved_target and names_by_topic_path.get(resolved_target):
             link["target_name"] = names_by_topic_path[resolved_target]
-            link["target_lookup"] = "topic" if resolved_target in {
-                str(item.get("topic_path") or "") for item in topics_raw
-            } else "structured_topic"
+            link["target_lookup"] = (
+                "topic"
+                if resolved_target in {str(item.get("topic_path") or "") for item in topics_raw}
+                else "structured_topic"
+            )
 
     object_items = _merge_snapshot_records(objects_raw, id_suffix="obj")
     members = _merge_snapshot_records(members_raw, id_suffix="mem")
@@ -1971,9 +2054,10 @@ def _index_records(
     payload_builder,
     use_dense: bool = True,
     progress_callback=None,
+    indexed_fields: tuple[str, ...] = (),
 ) -> int:
     from qdrant_client import QdrantClient
-    from qdrant_client.models import Distance, PointStruct, VectorParams
+    from qdrant_client.models import Distance, PayloadSchemaType, PointStruct, VectorParams
 
     if not items:
         return 0
@@ -2009,6 +2093,17 @@ def _index_records(
             collection_name=collection,
             vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
         )
+    if indexed_fields and hasattr(client, "create_payload_index"):
+        for field_name in indexed_fields:
+            try:
+                client.create_payload_index(
+                    collection_name=collection,
+                    field_name=field_name,
+                    field_schema=PayloadSchemaType.KEYWORD,
+                    wait=True,
+                )
+            except Exception:
+                continue
 
     inserted = 0
     total_items = len(items)
@@ -2099,6 +2194,13 @@ def index_structured_api_objects(
             "source_sections": item.get("source_sections") or {},
             "text": _record_embedding_text(item, kind="object"),
         },
+        indexed_fields=(
+            "object_name",
+            "full_name",
+            "name",
+            "language",
+            "resolver_family",
+        ),
     )
 
 
@@ -2157,6 +2259,14 @@ def index_structured_api_members(
             "source_sections": item.get("source_sections") or {},
             "text": _record_embedding_text(item, kind="member"),
         },
+        indexed_fields=(
+            "owner_name",
+            "member_name",
+            "full_name",
+            "name",
+            "language",
+            "resolver_family",
+        ),
     )
 
 
@@ -2208,6 +2318,7 @@ def index_structured_api_examples(
             ),
         },
         use_dense=True,
+        indexed_fields=("owner_name", "member_name", "full_name", "api_name", "language"),
     )
 
 
@@ -2222,7 +2333,36 @@ def index_structured_api_links(
     progress_callback=None,
 ) -> int:
     """Index API links into dedicated relation collection."""
-    items = load_api_links(snapshot_dir)
+    import hashlib
+
+    items = list(load_api_links(snapshot_dir))
+    versions = sorted(
+        {
+            str(item.get("version") or "").strip()
+            for item in items
+            if str(item.get("version") or "").strip()
+        },
+        key=_version_sort_key,
+        reverse=True,
+    )
+    for source_name, target_name in _WORKFLOW_RELATIONS:
+        key = f"workflow|{source_name}|{target_name}"
+        items.append(
+            {
+                "id": int(hashlib.sha256(key.encode("utf-8")).hexdigest()[:14], 16) % (2**63),
+                "source_full_name": source_name,
+                "target_name": target_name,
+                "link_kind": "workflow_next_step",
+                "target_lookup": "object",
+                "source_lookup": "object",
+                "reason": "curated workflow edge",
+                "version": versions[0] if versions else "",
+                "versions": versions,
+                "language": "ru",
+                "topic_path": "",
+                "text": f"{source_name} -> {target_name}",
+            }
+        )
     return _index_records(
         items,
         collection=collection,
@@ -2250,6 +2390,7 @@ def index_structured_api_links(
             "text": item.get("text") or "",
         },
         use_dense=False,
+        indexed_fields=("source_full_name", "target_name", "link_kind", "language"),
     )
 
 
@@ -2671,6 +2812,7 @@ def get_api_object(
     Use ``search_api_objects`` where broad/semantic search is intended.
     """
     from qdrant_client import QdrantClient
+
     from ..shared.qdrant_errors import is_qdrant_unreachable_error
 
     name_clean = (name or "").strip()
@@ -2723,16 +2865,40 @@ def get_api_related(
     language: str | None = None,
 ) -> list[dict[str, Any]]:
     """Exact-first lookup of related API links by source name."""
-    items = _scroll_payloads(API_LINKS_COLLECTION_NAME)
     name_clean = (name or "").strip()
     if not name_clean:
         return []
-    out: list[dict[str, Any]] = []
-    for item in items:
-        if version and not payload_matches_platform_version(item, version):
-            continue
-        if language and str(item.get("language") or "") != language:
-            continue
-        if str(item.get("source_full_name") or "") == name_clean:
-            out.append(item)
-    return out
+    from qdrant_client import QdrantClient
+    from qdrant_client.models import FieldCondition, Filter, MatchValue
+
+    from ..shared.qdrant_errors import is_qdrant_unreachable_error
+
+    try:
+        client = QdrantClient(
+            host=env_config.get_qdrant_host(),
+            port=env_config.get_qdrant_port(),
+            check_compatibility=False,
+        )
+        if not client.collection_exists(API_LINKS_COLLECTION_NAME):
+            return []
+        must = [FieldCondition(key="source_full_name", match=MatchValue(value=name_clean))]
+        if language:
+            must.append(FieldCondition(key="language", match=MatchValue(value=language)))
+        points, _ = client.scroll(
+            collection_name=API_LINKS_COLLECTION_NAME,
+            scroll_filter=Filter(must=must),
+            limit=100,
+            with_payload=True,
+            with_vectors=False,
+        )
+        out = [dict(getattr(point, "payload", None) or {}) for point in points or []]
+        if version:
+            out = [item for item in out if payload_matches_platform_version(item, version)]
+        out.sort(
+            key=lambda item: (str(item.get("link_kind") or ""), str(item.get("target_name") or ""))
+        )
+        return out
+    except Exception as exc:
+        if is_qdrant_unreachable_error(exc):
+            return []
+        raise

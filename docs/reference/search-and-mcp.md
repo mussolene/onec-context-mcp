@@ -69,4 +69,4 @@ Structured help search (`search_1c_api`, hybrid retrieval в `api_members|api_ob
 - **Два вызова:** `get_1c_api_answer("Тип.Метод", detail="full")` + `search_1c_api("Тип.Метод", include_examples=True)`.
 - **Третий вызов (по желанию):** `save_1c_snippet(code, description, title)` — сохранить рабочий пример в память, чтобы в следующих сессиях он находился через `search_1c_snippets`.
 
-Итого: рабочий API-контекст теперь получается за 1–3 вызова по structured DB-first route без topic fallback.
+Итого: рабочий API-контекст теперь получается за 1–3 вызова по structured Qdrant-first route без topic fallback.

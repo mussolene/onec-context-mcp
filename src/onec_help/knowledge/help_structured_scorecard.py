@@ -294,11 +294,7 @@ def build_structured_help_scorecard(
         "owner_name_pct": _field_pct(members, "owner_name"),
         "surface_aliases_pct": round(
             (
-                sum(
-                    1
-                    for item in [*members, *objects]
-                    if item.get("surface_aliases")
-                )
+                sum(1 for item in [*members, *objects] if item.get("surface_aliases"))
                 * 100.0
                 / max(len(members) + len(objects), 1)
             ),

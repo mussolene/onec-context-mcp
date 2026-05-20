@@ -779,6 +779,19 @@ def test_mcp_tool_resolve_1c_api_name_for_metadata_system_enum(help_sample_dir: 
     assert "ПеречислимыеСвойстваОбъектовМетаданных.РежимСовместимости" in text
 
 
+def test_mcp_tool_resolve_1c_api_name_accepts_query_alias(help_sample_dir: Path) -> None:
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    result = asyncio.run(
+        app.call_tool(
+            "resolve_1c_api_name",
+            {"query": "Документы.РеализацияТоваровУслуг.СоздатьДокумент"},
+        )
+    )
+    text = result.content[0].text if result.content else ""
+    assert "resolver_kind: platform_surface_chain" in text
+    assert "ДокументМенеджер.<Имя документа>.СоздатьДокумент" in text
+
+
 def test_mcp_tool_get_1c_api_object_via_app(help_sample_dir: Path) -> None:
     """get_1c_api_object returns structured API payload from onec_help_api_objects."""
     app = mcp_server._build_mcp_app(help_sample_dir)
@@ -1112,15 +1125,17 @@ def test_mcp_tool_compare_1c_help_resolves_structured_topic_path_before_compare(
                                     "version_right": "8.3.27.1859",
                                     "language": "ru",
                                 },
-                                )
                             )
+                        )
     text = result.content[0].text if result.content else ""
     assert "Версия 8.3.27.1859" in text
     assert "HTTPСоединение.Получить" not in text or "Получает" in text
     mock_compare.assert_not_called()
 
 
-def test_mcp_tool_compare_1c_help_prefers_surface_resolver_candidates(help_sample_dir: Path) -> None:
+def test_mcp_tool_compare_1c_help_prefers_surface_resolver_candidates(
+    help_sample_dir: Path,
+) -> None:
     app = mcp_server._build_mcp_app(help_sample_dir)
     with patch.object(
         mcp_server,
@@ -1155,7 +1170,9 @@ def test_mcp_tool_compare_1c_help_prefers_surface_resolver_candidates(help_sampl
     mock_compare.assert_not_called()
 
 
-def test_mcp_tool_compare_1c_help_uses_structured_compare_for_exact_api(help_sample_dir: Path) -> None:
+def test_mcp_tool_compare_1c_help_uses_structured_compare_for_exact_api(
+    help_sample_dir: Path,
+) -> None:
     app = mcp_server._build_mcp_app(help_sample_dir)
     with patch.object(
         mcp_server,
@@ -1454,6 +1471,13 @@ def test_mcp_tool_get_1c_task_context_via_app(mock_build_ctx, help_sample_dir: P
                 }
             }
         ],
+        "workflow": [
+            {
+                "full_name": "СхемаКомпоновкиДанных",
+                "kind": "object",
+                "topic_path": "schema.html",
+            }
+        ],
         "metadata_objects": [{"id": "Document.Sales", "object_type": "Document", "name": "Sales"}],
     }
     result = asyncio.run(
@@ -1473,6 +1497,7 @@ def test_mcp_tool_get_1c_task_context_via_app(mock_build_ctx, help_sample_dir: P
     assert "ObjectModule" in text
     assert "Document Sales" in text
     assert "diagnostics" in text
+    assert "Workflow" in text
 
 
 def test_mcp_tool_get_1c_quick_guide_develop_via_app(help_sample_dir: Path) -> None:

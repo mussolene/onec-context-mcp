@@ -1,0 +1,82 @@
+[
+  {
+    "id": "web_http_get_save_file",
+    "suite": "golden_web",
+    "profile": "workflow_context",
+    "runner": "task_context",
+    "query": "как выполнить HTTP запрос и сохранить результат в файл",
+    "expected_help_contains": ["HTTPСоединение.Получить"],
+    "source_title": "1С 8.2 УП : Выполнение HTTP запроса и сохранение результата в файл",
+    "source_url": "https://helpf.pro/faq82/view/800.html"
+  },
+  {
+    "id": "web_query_table_values",
+    "suite": "golden_web",
+    "profile": "workflow_context",
+    "runner": "task_context",
+    "query": "как сделать запрос к Таблице Значений через временную таблицу",
+    "expected_help_contains": ["МенеджерВременныхТаблиц"],
+    "source_title": "1С 8.3 : Запрос к Таблице Значений",
+    "source_url": "https://helpf.pro/faq83/view/815.html"
+  },
+  {
+    "id": "web_delete_temp_table",
+    "suite": "golden_web",
+    "profile": "workflow_context",
+    "runner": "task_context",
+    "query": "как удалить временную таблицу в 1С",
+    "expected_help_contains": ["МенеджерВременныхТаблиц"],
+    "source_title": "Временные таблицы, как удалить?",
+    "source_url": "https://helpf.pro/faq/view/906.html"
+  },
+  {
+    "id": "web_dcs_current_cell_breakdown",
+    "suite": "golden_web",
+    "profile": "workflow_context",
+    "runner": "task_context",
+    "query": "как получить расшифровку текущей ячейки СКД",
+    "expected_help_contains": ["ПолучитьИзВременногоХранилища"],
+    "source_title": "1С 8.2 УП : Получение расшифровки для текущей ячейки СКД",
+    "source_url": "https://helpf.pro/faq82/view/1381.html"
+  },
+  {
+    "id": "web_temp_tables_concept",
+    "suite": "golden_web",
+    "profile": "workflow_context",
+    "runner": "task_context",
+    "query": "что такое менеджер временных таблиц и как с ним работать",
+    "expected_help_contains": ["МенеджерВременныхТаблиц"],
+    "source_title": "Что такое менеджер временных таблиц и как с ним работать?",
+    "source_url": "https://helpf.pro/faq/20.html"
+  },
+  {
+    "id": "web_excel_to_table_values",
+    "suite": "golden_web",
+    "profile": "workflow_context",
+    "runner": "task_context",
+    "query": "как загрузить Excel в ТаблицуЗначений",
+    "expected_help_contains": ["ТаблицаЗначений"],
+    "source_title": "1С 8.3 : Универсальная функция для чтения данных из Excel в 1С",
+    "source_url": "https://helpf.pro/faq83/view/1375.html"
+  },
+  {
+    "id": "web_copy_table_values",
+    "suite": "golden_web",
+    "profile": "workflow_context",
+    "runner": "task_context",
+    "query": "как скопировать данные из одной ТаблицыЗначений в другую",
+    "expected_help_contains": ["ТаблицаЗначений.Скопировать"],
+    "source_title": "1С 8.x : Как скопировать, выгрузить данные из одной таблицы значений в другую?",
+    "source_url": "https://helpf.pro/faq8/view/512.html"
+  },
+  {
+    "id": "web_join_table_values_by_key",
+    "suite": "golden_web",
+    "profile": "workflow_context",
+    "runner": "task_context",
+    "query": "как соединить таблицы значений по ключевым полям",
+    "expected_help_contains": ["ТаблицаЗначений"],
+    "source_title": "1С 8.x : Соединение таблиц значений по ключевым полям",
+    "source_url": "https://helpf.pro/faq8/view/1109.html"
+  }
+]
