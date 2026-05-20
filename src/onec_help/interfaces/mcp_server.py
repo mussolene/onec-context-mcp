@@ -3063,7 +3063,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         if err:
             return f"Error: {err}"
         if not s.get("exists"):
-            return "Index does not exist. Run ingest to index the help (e.g. docker compose exec mcp python -m onec_help ingest)."
+            return "Index does not exist. Run ingest to index the help (e.g. make ingest-up && make ingest)."
         count = s.get("points_count")
         name = s.get("collection", "onec_help_api_members")
         lines = [
@@ -3489,15 +3489,28 @@ def _build_mcp_app(help_path: Path) -> Any:
 - query and xml_content: up to 64 KB. Full report: docs/archive/mcp-1c-help-tools-report.md."""
 
     @mcp.prompt
+    def get_mcp_workflow_guide() -> str:
+        """Returns the current onec-context-mcp + BSL LS workflow guide for human onboarding."""
+        return _read_cursor_doc("cursor-examples/rules/1c-mcp-workflow.mdc")
+
+    @mcp.prompt
+    def get_mcp_tools_tips() -> str:
+        """Returns operational tips for onec-context-mcp tools: empty results, URI format and limits."""
+        return _read_cursor_doc("cursor-examples/rules/1c-mcp-tools-report.mdc")
+
+    @mcp.prompt
+    def get_mcp_tools_summary() -> str:
+        """Returns the compact onec-context-mcp tools summary used by Cursor/Codex onboarding."""
+        return _read_cursor_doc("cursor-examples/1c-mcp-tools-report/SKILL.md")
+
+    @mcp.prompt
     def get_mcp_guides_bundle() -> str:
         """Returns all guides in one block for human onboarding or IDE restore.
         Not part of the default AI workflow; prefer get_1c_quick_guide for autonomous use."""
         parts = [
-            "=== workflow ===\n" + _read_cursor_doc("cursor-examples/rules/1c-mcp-workflow.mdc"),
-            "=== tools_tips ===\n"
-            + _read_cursor_doc("cursor-examples/rules/1c-mcp-tools-report.mdc"),
-            "=== tools_summary ===\n"
-            + _read_cursor_doc("cursor-examples/1c-mcp-tools-report/SKILL.md"),
+            "=== workflow ===\n" + get_mcp_workflow_guide(),
+            "=== tools_tips ===\n" + get_mcp_tools_tips(),
+            "=== tools_summary ===\n" + get_mcp_tools_summary(),
         ]
         return "\n\n".join(parts)
 

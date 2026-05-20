@@ -47,12 +47,12 @@ PYTHONPATH=src python3 -m onec_help mcp . --transport streamable-http --host 0.0
 
 ## Подключение MCP к Cursor
 
-MCP работает **в контейнере** по протоколу **streamable-http** (не stdio). В проекте уже есть **`.cursor/mcp.json`**:
+MCP работает **в контейнере** по протоколу **streamable-http** (не stdio). Пример конфигурации лежит в [mcp.json.example](mcp.json.example); рабочий `.cursor/mcp.json` обычно локальный и не коммитится:
 
 - Сервер: `onec-context-mcp`, URL: `http://localhost:8050/mcp`.
 - После `make up` (или `docker compose -f docker-compose.base.yml -f docker-compose.yml up -d`) Cursor подключается к контейнеру по этому URL. Перезапустите Cursor после правок конфига.
 
-Инструменты: `get_1c_api_answer`, `search_1c_api`, `get_1c_api_object`.
+Базовая проверка после подключения: `get_1c_help_index_status`, затем `get_1c_api_answer` или `search_1c_api`.
 
 ## Устранение неполадок
 

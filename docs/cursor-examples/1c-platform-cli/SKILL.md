@@ -129,7 +129,7 @@ ibsrv --help
 
 **Где это «нормально» работает:** одна линейка **версии платформы**, согласованный **формат выгрузки**, регламент по **ConfigDumpInfo** и полным выгрузкам при смене формата; для отладки — стабильная **сеть** (или туннель/VPN) до **сервера отладки** и до **ИБ**, без подмены понятий «SSH к ibsrv» и «доступ к PostgreSQL».
 
-Раскрыто подробнее: [1c-debug-remote-db-incremental.md](../reference/1c-debug-remote-db-incremental.md).
+Раскрыто подробнее: [1c-debug-remote-db-incremental.md](../../reference/1c-debug-remote-db-incremental.md).
 
 ---
 

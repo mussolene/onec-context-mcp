@@ -15,7 +15,7 @@ Structured help search (`search_1c_api`, hybrid retrieval в `api_members|api_ob
   ```bash
   make add-bm25
   # или
-  docker compose exec mcp python -m onec_help add-bm25
+  docker compose -f docker-compose.base.yml -f docker-compose.yml exec mcp python -m onec_help add-bm25
   ```
 - Vocab BM25 сохраняется в `data/bm25_vocab/onec_help.json` для поиска. Папка монтируется в контейнер. Если словарь потерян, а коллекция уже содержит BM25 — повторный вызов `make add-bm25` сохранит vocab на хост.
 - **Стемминг** (Snowball Russian): включён по умолчанию (`BM25_STEMMING=1`). Улучшает recall: «документы» → «документ», «подключение» → «подключ». Смена `BM25_STEMMING` требует повторного `make add-bm25`.
@@ -27,12 +27,6 @@ Structured help search (`search_1c_api`, hybrid retrieval в `api_members|api_ob
 - exact API: `get_1c_api_answer`
 - natural-language factual question: `answer_1c_help_question`
 - broad structured lookup и официальные примеры из справки: `search_1c_api` (параметр `include_examples`, по умолчанию включён)
-
-### 3. Skill 1c-mcp-development
-
-Добавлена секция «Типичные промахи семантики» с таблицей частых синонимов API и порядком действий при нерелевантных результатах. См. `.cursor/skills/1c-mcp-development/SKILL.md` и `docs/cursor-examples/1c-mcp-development/SKILL.md`.
-
----
 
 ## Оптимизация результата поиска
 

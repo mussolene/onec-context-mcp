@@ -478,9 +478,7 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 Panel(
                     Group(
                         Text("—\n"),
-                        _dim(
-                            "Ingest only. MCP errors → «MCP requests» or docker compose logs mcp."
-                        ),
+                        _dim("Ingest only. MCP errors → «MCP requests» or make logs."),
                     ),
                     title="[bold]Errors[/bold]",
                     border_style="dim",
@@ -615,13 +613,13 @@ def render_dashboard(data: dict[str, Any]) -> Any:
                 for e in errors_recent[:5]
             ],
         ]
-    mcp_parts += [Text(""), _dim("Full MCP logs: docker compose logs mcp.")]
+    mcp_parts += [Text(""), _dim("Full MCP logs: make logs.")]
     if total == 0 and last_hour == 0:
         mcp_parts += [
             _dim(
                 "0 requests — call an MCP tool from Cursor (e.g. get_1c_help_index_status). Same REDIS_URL for MCP and dashboard (Docker: redis://redis:6379/0)."
             ),
-            _dim("MCP errors (tools + protocol) appear here; full logs: docker compose logs mcp."),
+            _dim("MCP errors (tools + protocol) appear here; full logs: make logs."),
         ]
     mcp_content = Group(*mcp_parts)
     panels.append(Panel(mcp_content, title="[bold]MCP requests[/bold]", border_style="cyan"))

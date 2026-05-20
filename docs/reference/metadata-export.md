@@ -6,7 +6,9 @@
 
 - [tools/1c/MetadataExport.epf](../../tools/1c/MetadataExport.epf)
 
-Использовать нужно **эту обработку** (KD2 XML); индексация графа метаданных из выгрузки «в файлы» не поддерживается.
+Primary route — **эта обработка** (KD2 XML). Старую выгрузку конфигурации «в файлы»
+не используйте как источник для этого runtime: crawler штатной file-dump выгрузки удалён,
+а `metadata-graph-build` принимает только KD2 XML или compact snapshot.
 
 ## Рекомендуемый маршрут
 
@@ -18,19 +20,19 @@
 4. При необходимости можно явно построить snapshot:
 
 ```bash
-python -m onec_help metadata-snapshot-build data/metadata_export/<Имя>.xml -o data/metadata_export
+PYTHONPATH=src python3 -m onec_help metadata-snapshot-build data/metadata_export/<Имя>.xml -o data/metadata_export
 ```
 
 5. Построить граф метаданных:
 
 ```bash
-python -m onec_help metadata-graph-build data/metadata_export
+PYTHONPATH=src python3 -m onec_help metadata-graph-build data/metadata_export
 ```
 
 Или напрямую из XML:
 
 ```bash
-python -m onec_help metadata-graph-build data/metadata_export/<Имя>.xml --source-format metadata-xml
+PYTHONPATH=src python3 -m onec_help metadata-graph-build data/metadata_export/<Имя>.xml --source-format metadata-xml
 ```
 
 ### Переименование с прежнего `data/kd2`

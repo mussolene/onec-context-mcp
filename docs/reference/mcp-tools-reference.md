@@ -67,7 +67,7 @@
 
 ## Метаданные конфигурации и контекст
 
-Работают после построения графа метаданных: выгрузка в ONEC_CONFIG_SOURCE_DIR и команда `metadata-graph-build` (или watchdog). При пустом графе инструменты возвращают пустой результат или «not found»; проверка: `get_1c_help_index_status` показывает коллекцию **onec_config_metadata**.
+Работают после построения графа метаданных: KD2 XML или compact snapshot в `ONEC_CONFIG_SOURCE_DIR` и команда `metadata-graph-build` (или watchdog). При пустом графе инструменты возвращают пустой результат или «not found»; проверка: `get_1c_help_index_status` показывает коллекцию **onec_config_metadata**.
 
 **Поиск:** `search_1c_metadata_exact` делает exact-first lookup по `id`, `name`, `full_name`, `path` внутри `config_version`. **Канонический id в индексе** — **`EnglishType.ИмяОбъекта`** (например `Document.РеализацияТоваровУслуг`): это соглашение KD2/Qdrant (payload `id`), **не** синтаксис языка запросов (в запросах — **`Документ.Имя`**, **`Справочник.Имя`** и т.д.). Устаревший вид `Type/Name` по-прежнему можно подставить в поиск и в `get_1c_metadata_object` до полной пересборки графа.
 
@@ -77,9 +77,9 @@
 
 **Переиндексация метаданных (Qdrant `onec_config_metadata`):** после исправлений, которые **только читают** уже записанный в payload `attributes` (например логика полей в `search_1c_metadata_fields`), полная пересборка графа **не обязательна**. Пересборка **`metadata-graph-build`** нужна при изменении текста для эмбеддинга, схемы payload, отдельной коллекции полей или источника выгрузки.
 
-**config_version:** при сборке графа версия берётся из `config.json` в корне выгрузки (ключ `config_version`); при отсутствии — `"0.0.0.0"`. В логе `metadata-graph-build` выводится строка `use config_version='...'` для metadata tools. В вызовах можно передавать эту версию; **если в коллекции только одна версия**, параметр `config_version` можно не передавать — подставится автоматически. Иначе нужно указать версию или убедиться, что в графе одна версия.
+**config_version:** при сборке графа версия берётся из KD2 XML / compact snapshot; при отсутствии — `"0.0.0.0"`. В логе `metadata-graph-build` выводится строка `use config_version='...'` для metadata tools. В вызовах можно передавать эту версию; **если в коллекции только одна версия**, параметр `config_version` можно не передавать — подставится автоматически. Иначе нужно указать версию или убедиться, что в графе одна версия.
 
-**Данные объектов:** краулер поддерживает иерархическую выгрузку («Выгрузить в файлы») и выгрузку с Object.xml. В корне читаются **ConfigDumpInfo.xml** и **Configuration.xml**. Для каждого объекта (папка Documents/ИмяДокумента/ и т.д.) метаданные берутся: (1) из файла **в папке** (Object.xml, Document.xml, Catalog.xml и т.д.), если есть; (2) из **соседнего файла** того же имени (Documents/ИмяДокумента.xml) — в нём полное описание с типами реквизитов (Type/v8:Type) и табличными частями; (3) при отсутствии — из ConfigDumpInfo. Данные попадают в payload графа и в `get_1c_metadata_object` (блоки **Requisites** с типами, **Tabular sections**).
+**Данные объектов:** graph payload строится из `objects.jsonl` и `fields.jsonl`, которые создаёт KD2 parser. В `get_1c_metadata_object` выводятся объект, реквизиты/поля, табличные части и команды, если они присутствуют в snapshot. Штатная иерархическая выгрузка «Выгрузить в файлы» (`Configuration.xml`, `Documents/…`) больше не читается runtime-кодом.
 
 | Инструмент | Параметры | Описание | Лимиты / примечания |
 |------------|-----------|----------|---------------------|
@@ -108,16 +108,23 @@
 
 ---
 
-## Формат выгрузки конфигурации (иерархический)
+## Формат источника метаданных
 
-При выгрузке из конфигуратора по кнопке **«Выгрузить в файлы»** (штатный функционал) в корне выгрузки появляются:
+Runtime-источник для `onec_config_metadata` — **KD2 XML из `tools/1c/MetadataExport.epf`**
+или compact snapshot `manifest.json|objects.jsonl|fields.jsonl`, созданный из этого XML.
+Старый crawler штатной выгрузки «Выгрузить в файлы»
+(`Configuration.xml`, `Documents/…`, `Catalogs/…`) удалён из runtime: такой каталог
+не является валидным источником для `metadata-graph-build`.
 
-- **Configuration.xml** — свойства конфигурации: `Properties/Name`, `Properties/Version`, `Properties/Synonym` (v8:item/v8:lang/v8:content). Краулер использует их для `config_name`, `config_version` и отображаемого имени конфигурации.
-- **ConfigDumpInfo.xml** — список метаданных с именами вида `Document.ИмяДокумента`, `Document.ИмяДокумента.Attribute.ИмяРеквизита`, `Document.ИмяДокумента.TabularSection.ИмяТабличнойЧасти`. Краулер извлекает из него реквизиты и табличные части для каждого объекта (Document, Catalog, Register и т.д.). Типы реквизитов в этом файле не хранятся.
+Основной путь:
 
-В папках объектов (например `Documents/РеализацияТоваровУслуг/`) в иерархическом формате лежат подпапки Ext, Forms, Templates; рядом с папкой часто лежит **файл объекта** `Documents/РеализацияТоваровУслуг.xml` (имя совпадает с папкой). В нём — полное описание объекта в формате MetaDataObject (Document/Properties/Synonym, ChildObjects/Attribute с Properties/Name и Type/v8:Type, ChildObjects/TabularSection с Properties/Name). Краулер читает этот файл и подмешивает из него синоним (full_name), реквизиты **с типами** (например `cfg:CatalogRef.Организации`, `xs:boolean`) и табличные части. Если такого файла нет, используются только данные из ConfigDumpInfo.xml (имена без типов).
+```bash
+PYTHONPATH=src python3 -m onec_help metadata-graph-build data/metadata_export
+```
 
-**Формы объектов:** для каждого объекта (документ, справочник и т.д.) краулер обходит подпапку **Forms/** и для каждой формы (например `ФормаДокумента`) читает **Forms/ИмяФормы/Ext/Form.xml** (логическая структура формы). Оттуда извлекаются реквизиты формы (имя и тип из `<Attribute>`/`<Type>`/`<v8:Type>`) и команды формы (имя, действие, заголовок из `<Command>`). Синоним формы при наличии берётся из соседнего файла **Forms/ИмяФормы.xml**. Формы попадают в граф с идентификатором вида `Form/Document.РеализацияТоваровУслуг.ФормаДокумента` и в ответе `get_1c_metadata_object` отображаются блоки **Form requisites** и **Form commands**.
+Если в `data/metadata_export` лежит KD2 XML, команда обновляет per-config snapshot в
+`data/metadata_export/snapshots/<config-key>/` и индексирует его в Qdrant. Если передан
+уже готовый snapshot root или snapshot dir, он используется напрямую.
 
 ---
 
