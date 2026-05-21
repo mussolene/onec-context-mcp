@@ -20,6 +20,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+import zstandard as zstd
+
 
 def _now_stamp() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%d_%H%M%SZ")
@@ -52,8 +54,11 @@ def _default_backup_name() -> str:
 def _tar_zst(source: Path, archive: Path) -> dict[str, Any]:
     start = time.time()
     archive.parent.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(archive, "w:zst") as tf:
-        tf.add(source, arcname=".")
+    compressor = zstd.ZstdCompressor(level=10)
+    with archive.open("wb") as raw:
+        with compressor.stream_writer(raw) as compressed:
+            with tarfile.open(fileobj=compressed, mode="w|") as tf:
+                tf.add(source, arcname=".")
     return {
         "archive": archive.name,
         "archive_bytes": archive.stat().st_size,
@@ -62,13 +67,36 @@ def _tar_zst(source: Path, archive: Path) -> dict[str, Any]:
     }
 
 
+def _safe_extract_stream(tf: tarfile.TarFile, dest: Path) -> None:
+    base = dest.resolve()
+    for member in tf:
+        name = member.name
+        target = (base / name).resolve()
+        if target != base and base not in target.parents:
+            raise SystemExit(f"Unsafe tar member path: {name}")
+        if member.isdir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        if not member.isfile():
+            raise SystemExit(f"Unsupported tar member type: {name}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        src = tf.extractfile(member)
+        if src is None:
+            raise SystemExit(f"Unable to extract tar member: {name}")
+        with src, target.open("wb") as out:
+            shutil.copyfileobj(src, out, length=1024 * 1024)
+
+
 def _extract_tar_zst(archive: Path, dest: Path) -> dict[str, Any]:
     start = time.time()
     if dest.exists():
         shutil.rmtree(dest)
     dest.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(archive, "r:zst") as tf:
-        tf.extractall(dest, filter="data")
+    decompressor = zstd.ZstdDecompressor()
+    with archive.open("rb") as raw:
+        with decompressor.stream_reader(raw) as decompressed:
+            with tarfile.open(fileobj=decompressed, mode="r|") as tf:
+                _safe_extract_stream(tf, dest)
     return {
         "archive": archive.name,
         "archive_bytes": archive.stat().st_size,
