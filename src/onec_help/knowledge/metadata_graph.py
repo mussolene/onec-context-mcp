@@ -1185,11 +1185,14 @@ def _match_filter(field: str, value: str, *, qmodels: Any) -> Any:
 
 def _base_metadata_filter(
     *,
-    config_version: str,
+    config_version: str | None,
     type_filter: str | None,
     qmodels: Any,
 ) -> Any:
-    must: list[Any] = [_match_filter("config_version", config_version, qmodels=qmodels)]
+    must: list[Any] = []
+    cfg = str(config_version or "").strip()
+    if cfg:
+        must.append(_match_filter("config_version", cfg, qmodels=qmodels))
     if type_filter:
         must.append(_match_filter("object_type", type_filter, qmodels=qmodels))
     return qmodels.Filter(must=must)
@@ -1223,9 +1226,11 @@ def _unique_metadata_items(items: list[dict[str, Any]], limit: int) -> list[dict
     seen: set[str] = set()
     for item in items:
         oid = str(item.get("id") or "")
-        if not oid or oid in seen:
+        cfg = str(item.get("config_version") or "")
+        key = f"{oid}\0{cfg}"
+        if not oid or key in seen:
             continue
-        seen.add(oid)
+        seen.add(key)
         unique.append(item)
         if len(unique) >= limit:
             break
@@ -1322,9 +1327,11 @@ def search_metadata_exact(
     collection_name: str = "onec_config_metadata",
     limit: int = 20,
 ) -> list[dict[str, Any]]:
-    """Indexed exact lookup by id/name/full_name/path within a config_version."""
-    if not config_version:
-        return []
+    """Indexed exact lookup by id/name/full_name/path.
+
+    If ``config_version`` is empty, search across all indexed configurations in
+    one Qdrant filtered request per exact field instead of looping per version.
+    """
     try:
         from qdrant_client import models as qmodels  # type: ignore[import-not-found]
     except Exception:
@@ -1367,9 +1374,11 @@ def search_metadata_semantic(
     limit: int = 20,
     query_vector: list[float] | None = None,
 ) -> list[dict[str, Any]]:
-    """Semantic lookup over metadata vectors within a config_version."""
-    if not config_version:
-        return []
+    """Semantic lookup over metadata vectors.
+
+    If ``config_version`` is empty, search across all indexed configurations in
+    a single vector query.
+    """
     try:
         from qdrant_client import models as qmodels  # type: ignore[import-not-found]
     except Exception:
@@ -1454,7 +1463,7 @@ def search_metadata_fields(
     exact_object_first: bool = True,
 ) -> list[dict[str, Any]]:
     """Search requisites/tabular sections/commands inside matched metadata objects."""
-    if not config_version or not object_query or not field_query:
+    if not object_query or not field_query:
         return []
     try:
         from qdrant_client import models as qmodels  # type: ignore[import-not-found]
@@ -1483,32 +1492,63 @@ def search_metadata_fields(
         )
     variants = _metadata_query_variants(field_query)
     ranked: list[tuple[int, dict[str, Any]]] = []
+    seen_ranked_fields: set[str] = set()
     if qmodels is not None:
         client = client or _get_default_client()
         try:
             if client.collection_exists(METADATA_FIELDS_COLLECTION_NAME):
+                seen_field_lookups: set[str] = set()
                 for obj in object_matches:
                     object_id = str(obj.get("id") or "").strip()
                     if not object_id:
                         continue
-                    filt = qmodels.Filter(
-                        must=[
+                    cfg = str(config_version or "").strip()
+                    lookup_key = f"{object_id}\0{cfg}" if cfg else object_id
+                    if lookup_key in seen_field_lookups:
+                        continue
+                    seen_field_lookups.add(lookup_key)
+                    base_must = [
+                        qmodels.FieldCondition(
+                            key="object_id",
+                            match=qmodels.MatchValue(value=object_id),
+                        )
+                    ]
+                    if cfg:
+                        base_must.insert(
+                            0,
                             qmodels.FieldCondition(
                                 key="config_version",
-                                match=qmodels.MatchValue(value=config_version),
+                                match=qmodels.MatchValue(value=cfg),
                             ),
-                            qmodels.FieldCondition(
-                                key="object_id",
-                                match=qmodels.MatchValue(value=object_id),
-                            ),
-                        ]
-                    )
-                    points = _scroll_points(
-                        client,
-                        collection_name=METADATA_FIELDS_COLLECTION_NAME,
-                        filt=filt,
-                        limit=max(limit * 8, 50),
-                    )
+                        )
+                    points: list[Any] = []
+                    for exact_field in ("field_name_norm", "synonym_norm"):
+                        for variant in variants:
+                            filt = qmodels.Filter(
+                                must=[
+                                    *base_must,
+                                    qmodels.FieldCondition(
+                                        key=exact_field,
+                                        match=qmodels.MatchValue(value=variant),
+                                    ),
+                                ]
+                            )
+                            points.extend(
+                                _scroll_points(
+                                    client,
+                                    collection_name=METADATA_FIELDS_COLLECTION_NAME,
+                                    filt=filt,
+                                    limit=max(limit, 10),
+                                )
+                            )
+                    if not points:
+                        filt = qmodels.Filter(must=base_must)
+                        points = _scroll_points(
+                            client,
+                            collection_name=METADATA_FIELDS_COLLECTION_NAME,
+                            filt=filt,
+                            limit=max(limit * 8, 50),
+                        )
                     for point in points:
                         payload = _payload_from_point(point)
                         field_payload = {
@@ -1524,6 +1564,18 @@ def search_metadata_fields(
                         priority = _field_match_priority(field_payload, variants)
                         if priority > 2:
                             continue
+                        ranked_key = "\0".join(
+                            [
+                                object_id,
+                                str(payload.get("config_version") or config_version or ""),
+                                str(payload.get("group_name") or ""),
+                                str(payload.get("tabular_section") or ""),
+                                str(payload.get("field_name") or ""),
+                            ]
+                        )
+                        if ranked_key in seen_ranked_fields:
+                            continue
+                        seen_ranked_fields.add(ranked_key)
                         ranked.append(
                             (
                                 priority,

@@ -2600,29 +2600,7 @@ def _build_mcp_app(help_path: Path) -> Any:
         limit: int,
         search_fn: Any,
     ) -> tuple[list[dict[str, Any]], str | None]:
-        from ..knowledge.metadata_graph import get_metadata_config_versions
-
         cfg_ver = (config_version or "").strip()
-        if cfg_ver:
-            return search_fn(
-                query,
-                type_filter=object_type,
-                config_version=cfg_ver,
-                limit=limit,
-            ), cfg_ver
-        versions = get_metadata_config_versions()
-        if not versions:
-            return [], None
-        if len(versions) == 1:
-            only_version = versions[0]
-            return search_fn(
-                query,
-                type_filter=object_type,
-                config_version=only_version,
-                limit=limit,
-            ), only_version
-        per_ver = max(1, (limit + len(versions) - 1) // len(versions))
-        items: list[dict[str, Any]] = []
         query_vector: list[float] | None = None
         if (
             getattr(search_fn, "__name__", "") == "search_metadata_semantic"
@@ -2645,16 +2623,14 @@ def _build_mcp_app(help_path: Path) -> Any:
                     )
             except Exception:
                 query_vector = None
-        for ver in versions:
-            kwargs: dict[str, Any] = {
-                "type_filter": object_type,
-                "config_version": ver,
-                "limit": per_ver,
-            }
-            if query_vector is not None:
-                kwargs["query_vector"] = query_vector
-            items.extend(search_fn(query, **kwargs))
-        return items[:limit], None
+        kwargs: dict[str, Any] = {
+            "type_filter": object_type,
+            "config_version": cfg_ver,
+            "limit": limit,
+        }
+        if query_vector is not None:
+            kwargs["query_vector"] = query_vector
+        return search_fn(query, **kwargs)[:limit], (cfg_ver or None)
 
     def _format_metadata_config_suffix(
         obj: dict[str, Any], *, default_version: str | None = None
@@ -2791,34 +2767,19 @@ def _build_mcp_app(help_path: Path) -> Any:
         if err:
             return err
         try:
-            from ..knowledge.metadata_graph import (
-                get_metadata_config_versions,
-                search_metadata_fields,
-            )
+            from ..knowledge.metadata_graph import search_metadata_fields
         except Exception as e:  # pragma: no cover - import/runtime guard
             return f"Metadata graph module is not available: {safe_error_message(e)}"
 
-        versions: list[str] = []
         cfg_ver = (config_version or "").strip()
-        if cfg_ver:
-            versions = [cfg_ver]
-        else:
-            versions = get_metadata_config_versions()
-            if not versions:
-                return "Metadata graph is empty. Run metadata-graph-build for your config export first."
-        items: list[dict[str, Any]] = []
-        per_ver = max(1, (limit + len(versions) - 1) // len(versions))
-        for version_item in versions:
-            items.extend(
-                search_metadata_fields(
-                    object_query,
-                    field_query,
-                    config_version=version_item,
-                    type_filter=object_type,
-                    limit=per_ver,
-                    exact_object_first=exact_object_first,
-                )
-            )
+        items = search_metadata_fields(
+            object_query,
+            field_query,
+            config_version=cfg_ver,
+            type_filter=object_type,
+            limit=limit,
+            exact_object_first=exact_object_first,
+        )
         if not items:
             return (
                 "No metadata fields found. Verify object name/config_version or try search_1c_metadata_semantic "

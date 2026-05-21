@@ -132,6 +132,41 @@ def test_search_metadata_exact_matches_name_without_broad_scan() -> None:
     assert results[0]["id"] == "Catalog.Items"
 
 
+def test_search_metadata_exact_empty_config_searches_all_versions() -> None:
+    client = _DummyClient(
+        [
+            [
+                _point(
+                    "Catalog.Items.1",
+                    config_version="1.0.0.0",
+                    object_type="Catalog",
+                    id="Catalog.Items",
+                    name="Items",
+                    full_name="Номенклатура",
+                    path="Catalogs/Items",
+                ),
+                _point(
+                    "Catalog.Items.2",
+                    config_version="2.0.0.0",
+                    object_type="Catalog",
+                    id="Catalog.Items",
+                    name="Items",
+                    full_name="Номенклатура",
+                    path="Catalogs/Items",
+                ),
+            ]
+        ]
+    )
+    results = metadata_graph.search_metadata_exact(
+        "Items",
+        "Catalog",
+        "",
+        client=client,
+        limit=5,
+    )
+    assert {item["config_version"] for item in results} == {"1.0.0.0", "2.0.0.0"}
+
+
 def test_search_metadata_fields_finds_requisite_in_exact_object() -> None:
     class _FieldsClient(_DummyClient):
         def __init__(self):
@@ -169,6 +204,59 @@ def test_search_metadata_fields_finds_requisite_in_exact_object() -> None:
     assert len(results) == 1
     assert results[0]["object_id"] == "Document.РеализацияТоваровУслуг"
     assert results[0]["field_name"] == "Организация"
+
+
+def test_search_metadata_fields_empty_config_searches_all_versions() -> None:
+    client = _DummyClient(
+        [
+            [
+                _point(
+                    "Document.Sales.1",
+                    config_version="1.0.0.0",
+                    object_type="Document",
+                    id="Document.Sales",
+                    name="Sales",
+                    full_name="Документ.Sales",
+                    path="Documents/Sales",
+                    attributes={
+                        "requisites": [
+                            {
+                                "name": "Организация",
+                                "synonym": "Организация",
+                                "type": "cfg:CatalogRef.Организации",
+                            }
+                        ]
+                    },
+                ),
+                _point(
+                    "Document.Sales.2",
+                    config_version="2.0.0.0",
+                    object_type="Document",
+                    id="Document.Sales",
+                    name="Sales",
+                    full_name="Документ.Sales",
+                    path="Documents/Sales",
+                    attributes={
+                        "requisites": [
+                            {
+                                "name": "Организация",
+                                "synonym": "Организация",
+                                "type": "cfg:CatalogRef.Организации",
+                            }
+                        ]
+                    },
+                ),
+            ]
+        ]
+    )
+    results = metadata_graph.search_metadata_fields(
+        "Sales",
+        "Организация",
+        config_version="",
+        client=client,
+        limit=5,
+    )
+    assert {item["config_version"] for item in results} == {"1.0.0.0", "2.0.0.0"}
 
 
 def test_metadata_canonical_id_aliases_from_dot_query() -> None:

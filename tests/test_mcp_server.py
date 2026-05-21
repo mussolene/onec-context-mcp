@@ -1353,6 +1353,35 @@ def test_mcp_tool_search_1c_metadata_exact_via_app(mock_search_meta, help_sample
     assert "`Cfg`" in text and "`1.0.0.0`" in text
 
 
+@patch("onec_help.knowledge.metadata_graph.search_metadata_exact")
+def test_mcp_tool_search_1c_metadata_exact_without_config_uses_single_call(
+    mock_search_meta, help_sample_dir: Path
+) -> None:
+    """Without config_version, metadata exact searches all versions in one helper call."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    mock_search_meta.return_value = [
+        {
+            "id": "Document.Sales",
+            "config_name": "Cfg",
+            "config_version": "1.0.0.0",
+            "object_type": "Document",
+            "name": "Sales",
+            "full_name": "Реализация",
+            "path": "Documents/Sales",
+        }
+    ]
+    result = asyncio.run(
+        app.call_tool(
+            "search_1c_metadata_exact",
+            {"query": "Sales", "object_type": None, "limit": 5},
+        )
+    )
+    text = result.content[0].text if result.content else ""
+    assert "Sales" in text
+    mock_search_meta.assert_called_once()
+    assert mock_search_meta.call_args.kwargs["config_version"] == ""
+
+
 @patch("onec_help.knowledge.metadata_graph.search_metadata_semantic")
 def test_mcp_tool_search_1c_metadata_semantic_via_app(
     mock_search_meta, help_sample_dir: Path
@@ -1422,6 +1451,43 @@ def test_mcp_tool_search_1c_metadata_fields_via_app(
     assert "Организация" in text
     assert "Document Sales" in text
     assert "`Cfg`" in text
+
+
+@patch("onec_help.knowledge.metadata_graph.search_metadata_fields")
+def test_mcp_tool_search_1c_metadata_fields_without_config_uses_single_call(
+    mock_search_fields, help_sample_dir: Path
+) -> None:
+    """Without config_version, metadata fields searches all versions in one helper call."""
+    app = mcp_server._build_mcp_app(help_sample_dir)
+    mock_search_fields.return_value = [
+        {
+            "object_id": "Document.Sales",
+            "object_name": "Sales",
+            "object_type": "Document",
+            "config_name": "Cfg",
+            "config_version": "1.0.0.0",
+            "field_group": "requisites",
+            "field_name": "Организация",
+            "field_synonym": "Организация",
+            "field_type": "СправочникСсылка.Организации",
+        }
+    ]
+    result = asyncio.run(
+        app.call_tool(
+            "search_1c_metadata_fields",
+            {
+                "object_query": "Sales",
+                "field_query": "Организация",
+                "object_type": "Document",
+                "limit": 5,
+                "exact_object_first": True,
+            },
+        )
+    )
+    text = result.content[0].text if result.content else ""
+    assert "Организация" in text
+    mock_search_fields.assert_called_once()
+    assert mock_search_fields.call_args.kwargs["config_version"] == ""
 
 
 @patch("onec_help.knowledge.metadata_graph.get_metadata_object")
