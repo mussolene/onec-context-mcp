@@ -4,7 +4,7 @@
 
 ## Начать здесь
 
-- [getting-started/quick-start.md](getting-started/quick-start.md) - минимальный Docker-first старт, индексация и подключение MCP
+- [getting-started/quick-start.md](getting-started/quick-start.md) - минимальный старт: готовый публичный индекс или свой ingest
 - [../README.md](../README.md) - короткий обзор проекта и верхний вход
 
 ## Понять систему
@@ -15,13 +15,13 @@
 ## Справочник
 
 - [reference/run.md](reference/run.md) - расширенные сценарии запуска, локальный режим и troubleshooting
-- [reference/prebuilt-backup.md](reference/prebuilt-backup.md) - быстрый restore готового публичного Qdrant/BM25 backup
+- [reference/prebuilt-backup.md](reference/prebuilt-backup.md) - готовый публичный Qdrant/BM25 backup для быстрого старта
 - [reference/mcp-tools-cheatsheet.md](reference/mcp-tools-cheatsheet.md) - короткая шпаргалка по MCP-инструментам
 - [reference/mcp-tools-reference.md](reference/mcp-tools-reference.md) - полный reference по параметрам и лимитам
 - [reference/metadata-export.md](reference/metadata-export.md) - route для выгрузки и индексации метаданных 1С
 - [reference/structured-help-scorecard.md](reference/structured-help-scorecard.md) - метрики качества structured help и stop criteria для extractor
 - [reference/mesh-scorecard.md](reference/mesh-scorecard.md) - метрики runtime mesh-поведения и deterministic route
-- [getting-started/quick-start.md](getting-started/quick-start.md) + [reference/mesh-scorecard.md](reference/mesh-scorecard.md) - минимальный TTM-маршрут: поднять MCP и быстро проверить, что runtime route работает
+- [getting-started/quick-start.md](getting-started/quick-start.md) + [reference/mesh-scorecard.md](reference/mesh-scorecard.md) - TTM-маршрут: `make quick-start-prebuilt`, подключить MCP, проверить runtime route
 - [reference/embedding.md](reference/embedding.md) - embedding pipeline, backends и retry
 - [reference/help-formats.md](reference/help-formats.md) - форматы `.hbk`, HTML и structured JSONL
 - [reference/search-and-mcp.md](reference/search-and-mcp.md) - рекомендации по качеству поиска и MCP usage

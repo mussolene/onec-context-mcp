@@ -29,8 +29,6 @@ from onec_help.interfaces.cli import (
     cmd_mesh_scorecard,
     cmd_parse_fastcode,
     cmd_parse_helpf,
-    cmd_qdrant_backup,
-    cmd_qdrant_restore,
     cmd_read_hbk_container,
     cmd_reinit,
     cmd_structured_help_scorecard,
@@ -700,28 +698,6 @@ def test_cmd_parse_helpf_pages_list(mock_run, tmp_path: Path) -> None:
     assert call_kw["pages"] == [1, 2, 5]
 
 
-@patch("urllib.request.urlopen")
-def test_cmd_qdrant_backup_fails(
-    mock_urlopen, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    """cmd_qdrant_backup returns 1 when API raises."""
-    mock_urlopen.side_effect = OSError("Connection refused")
-    args = make_args(output_dir=str(tmp_path))
-    with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
-        assert cmd_qdrant_backup(args) == 1
-    assert "Error:" in capsys.readouterr().err
-
-
-def test_cmd_qdrant_restore_file_not_found(
-    capsys: pytest.CaptureFixture[str], tmp_path: Path
-) -> None:
-    """cmd_qdrant_restore returns 1 when file path does not exist."""
-    args = make_args(file=str(tmp_path / "missing.snapshot"), backup_dir=str(tmp_path))
-    with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
-        assert cmd_qdrant_restore(args) == 1
-    assert "not found" in capsys.readouterr().err or "Error:" in capsys.readouterr().err
-
-
 @patch("onec_help.interfaces.cli._clear_before_reinit", return_value=True)
 @patch("onec_help.interfaces.cli.cmd_load_standards", return_value=0)
 @patch("onec_help.interfaces.cli.cmd_load_snippets", return_value=0)
@@ -1132,167 +1108,6 @@ def test_cmd_load_snippets_type_split(
     domains = [c[1]["domain"] for c in calls]
     assert "snippets" in domains
     assert "community_help" in domains
-
-
-@patch("urllib.request.urlopen")
-def test_cmd_qdrant_backup_success(mock_urlopen, tmp_path: Path) -> None:
-    """cmd_qdrant_backup creates snapshot and saves to output dir for all 3 collections."""
-    import urllib.error
-
-    def make_ctx_mock(data: bytes) -> MagicMock:
-        m = MagicMock()
-        m.read.return_value = data
-        m.__enter__ = lambda self: self
-        m.__exit__ = lambda *a: None
-        return m
-
-    # GET /collections → returns onec_help, onec_help_memory, onec_config_metadata
-    list_resp = make_ctx_mock(
-        b'{"result":{"collections":[{"name":"onec_help"},{"name":"onec_help_memory"},{"name":"onec_config_metadata"}]}}'
-    )
-    # onec_help: success (create + download)
-    create_resp = make_ctx_mock(b'{"result":{"name":"abc-123.snapshot"}}')
-    download_resp = make_ctx_mock(b"snapshot-data")
-    # onec_help_memory and onec_config_metadata: not present → URLError on create
-    mock_urlopen.side_effect = [
-        list_resp,
-        create_resp,
-        download_resp,
-        urllib.error.URLError("not found"),
-        urllib.error.URLError("not found"),
-    ]
-
-    out_dir = tmp_path / "backup"
-    args = make_args(output_dir=str(out_dir))
-    with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
-        assert cmd_qdrant_backup(args) == 0
-
-    assert mock_urlopen.call_count == 5
-    snaps = list(out_dir.glob("onec_help-*.snapshot"))
-    assert len(snaps) == 1
-    assert snaps[0].read_bytes() == b"snapshot-data"
-
-
-@patch("urllib.request.urlopen")
-def test_cmd_qdrant_backup_no_name_in_response(mock_urlopen, tmp_path: Path) -> None:
-    """cmd_qdrant_backup returns 1 when response has no snapshot name."""
-    create_resp = MagicMock()
-    create_resp.read.return_value = b'{"result":{}}'
-    mock_urlopen.return_value = create_resp
-
-    args = make_args(output_dir=str(tmp_path / "backup"))
-    with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
-        assert cmd_qdrant_backup(args) == 1
-
-
-@patch("urllib.request.urlopen")
-def test_cmd_qdrant_backup_http_error(mock_urlopen, tmp_path: Path) -> None:
-    """cmd_qdrant_backup returns 1 on HTTP/network error."""
-    import urllib.error
-
-    mock_urlopen.side_effect = urllib.error.URLError("connection refused")
-
-    args = make_args(output_dir=str(tmp_path / "backup"))
-    with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
-        assert cmd_qdrant_backup(args) == 1
-
-
-@patch("urllib.request.urlopen")
-def test_cmd_qdrant_restore_success(mock_urlopen, tmp_path: Path) -> None:
-    """cmd_qdrant_restore restores from snapshot file."""
-    snap = tmp_path / "onec_help-20260302-120000.snapshot"
-    snap.write_bytes(b"snapshot-content")
-
-    resp = MagicMock()
-    resp.read.return_value = b'{"status":"ok"}'
-    resp.__enter__ = lambda self: self
-    resp.__exit__ = lambda *a: None
-    mock_urlopen.return_value = resp
-
-    args = make_args(backup_dir=str(tmp_path), file=str(snap))
-    data_dir = tmp_path / "data"
-    with patch.dict(
-        "os.environ",
-        {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333", "DATA_DIR": str(data_dir)},
-    ):
-        assert cmd_qdrant_restore(args) == 0
-
-    mock_urlopen.assert_called_once()
-
-
-@patch("urllib.request.urlopen")
-def test_cmd_qdrant_restore_latest_from_dir(mock_urlopen, tmp_path: Path) -> None:
-    """cmd_qdrant_restore uses latest snapshot when file not specified."""
-    (tmp_path / "onec_help-20260301-100000.snapshot").write_bytes(b"old")
-    (tmp_path / "onec_help-20260302-120000.snapshot").write_bytes(b"new")
-
-    resp = MagicMock()
-    resp.read.return_value = b'{"status":"ok"}'
-    resp.__enter__ = lambda self: self
-    resp.__exit__ = lambda *a: None
-    mock_urlopen.return_value = resp
-
-    args = make_args(backup_dir=str(tmp_path), file=None)
-    data_dir = tmp_path / "data"
-    with patch.dict(
-        "os.environ",
-        {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333", "DATA_DIR": str(data_dir)},
-    ):
-        assert cmd_qdrant_restore(args) == 0
-
-    # Should use latest (20260302)
-    call_data = mock_urlopen.call_args[0][0].data
-    assert b"new" in call_data
-    assert b"old" not in call_data
-
-
-@patch("shutil.copytree")
-@patch("urllib.request.urlopen")
-def test_cmd_qdrant_restore_backup_set_layout(mock_urlopen, mock_copytree, tmp_path: Path) -> None:
-    """cmd_qdrant_restore accepts backup-set layout with qdrant_snapshots + bm25_vocab."""
-    snapshots_dir = tmp_path / "qdrant_snapshots"
-    snapshots_dir.mkdir()
-    (tmp_path / "bm25_vocab").mkdir()
-    (snapshots_dir / "onec_help-20260302-120000.snapshot").write_bytes(b"snapshot")
-
-    resp = MagicMock()
-    resp.read.return_value = b'{"status":"ok"}'
-    resp.__enter__ = lambda self: self
-    resp.__exit__ = lambda *a: None
-    mock_urlopen.return_value = resp
-
-    args = make_args(backup_dir=str(tmp_path), file=None)
-    data_dir = tmp_path / "data"
-    with patch.dict(
-        "os.environ",
-        {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333", "DATA_DIR": str(data_dir)},
-    ):
-        assert cmd_qdrant_restore(args) == 0
-
-    call_data = mock_urlopen.call_args[0][0].data
-    assert b"snapshot" in call_data
-    mock_copytree.assert_called_once()
-
-
-def test_cmd_qdrant_restore_no_snapshots(tmp_path: Path) -> None:
-    """cmd_qdrant_restore returns 1 when backup dir has no snapshots."""
-    args = make_args(backup_dir=str(tmp_path), file=None)
-    with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
-        assert cmd_qdrant_restore(args) == 1
-
-
-@patch("urllib.request.urlopen")
-def test_cmd_qdrant_restore_http_error(mock_urlopen, tmp_path: Path) -> None:
-    """cmd_qdrant_restore returns 1 on HTTP/network error."""
-    import urllib.error
-
-    snap = tmp_path / "onec_help-20260302.snapshot"
-    snap.write_bytes(b"data")
-    mock_urlopen.side_effect = urllib.error.URLError("connection refused")
-
-    args = make_args(backup_dir=str(tmp_path), file=str(snap))
-    with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
-        assert cmd_qdrant_restore(args) == 1
 
 
 @patch("onec_help.knowledge.loaders.parse_fastcode.run_parse")

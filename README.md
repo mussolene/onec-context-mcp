@@ -19,35 +19,26 @@
 
 ## Quick Start
 
-Полный короткий маршрут: [docs/getting-started/quick-start.md](docs/getting-started/quick-start.md).
-
-### Готовый индекс / Prebuilt index
-
-RU: для быстрой оценки без локальной индексации можно восстановить подготовленный Qdrant/BM25 backup из публичного архива:
-[https://cloud.mail.ru/public/NzFn/qLfhyf8zo](https://cloud.mail.ru/public/NzFn/qLfhyf8zo).
-Берите последнюю датированную папку, например `2026-05-21_onec-context-mcp_git-b7d6725_qdrant-1.12.0_moe-768`.
-Внутри есть `manifest.json` с моделью эмбеддингов, размерностью, версиями конфигураций и counts коллекций.
-Подробный restore: [docs/reference/prebuilt-backup.md](docs/reference/prebuilt-backup.md).
-
-EN: for a fast evaluation path without local indexing, restore a prepared Qdrant/BM25 backup from the public archive:
-[https://cloud.mail.ru/public/NzFn/qLfhyf8zo](https://cloud.mail.ru/public/NzFn/qLfhyf8zo).
-Use the latest dated folder, for example `2026-05-21_onec-context-mcp_git-b7d6725_qdrant-1.12.0_moe-768`.
-It includes `manifest.json` with the embedding model, vector dimension, configuration versions and collection counts.
-Restore guide: [docs/reference/prebuilt-backup.md](docs/reference/prebuilt-backup.md).
-
-Security note: the public backup is for demo/evaluation only. Do not publish backups built from private or NDA 1C configurations.
-
-Минимальные команды:
+Самый короткий путь без локальной индексации `.hbk`:
 
 ```bash
-# если /opt/1cv8 не доступен Docker Desktop, задайте HOST_HELP_SOURCE_BASE в .env
+make quick-start-prebuilt
+```
+
+Команда скачивает готовый публичный Qdrant/BM25 backup, восстанавливает индекс и поднимает MCP на `http://localhost:8050/mcp`. Локальная справка 1С для этого сценария не нужна. Подробности: [docs/getting-started/quick-start.md](docs/getting-started/quick-start.md), [docs/reference/prebuilt-backup.md](docs/reference/prebuilt-backup.md).
+
+Public prebuilt index: [https://cloud.mail.ru/public/NzFn/qLfhyf8zo](https://cloud.mail.ru/public/NzFn/qLfhyf8zo). It is intended for demo/evaluation only; do not publish backups built from private or NDA 1C configurations.
+
+Если нужен свой индекс из локальной `.hbk`-справки:
+
+```bash
+cp env.example .env
+echo 'HOST_HELP_SOURCE_BASE=/path/to/1cv8' >> .env
 make up
 make ingest-up
 ```
 
-После **`make ingest-up`** индексация в **split**-режиме идёт **по расписанию в ingest-worker**: при старте контейнера — **`watchdog --once`**, затем **каждые 10 минут** watchdog, полный **`ingest` — раз в сутки в 3:00** (см. `crontab` в образе). Чтобы запустить полный ingest **сразу**, не дожидаясь cron: **`make ingest`** (нужен запущенный ingest-worker).
-
-После **`make up`** MCP доступен по адресу `http://localhost:8050/mcp`.
+После **`make ingest-up`** индексация идёт в **ingest-worker** по cron: `watchdog --once` при старте, затем watchdog каждые 10 минут, полный `ingest` раз в сутки в 3:00. Немедленный полный ingest: **`make ingest`**.
 
 Для метаданных 1С основной route теперь такой:
 
@@ -77,7 +68,7 @@ make reinit ARGS='--force'
 - [docs/getting-started/quick-start.md](docs/getting-started/quick-start.md) - быстрый старт и подключение MCP
 - [docs/explanation/how-it-works.md](docs/explanation/how-it-works.md) - как устроен pipeline и сервисы
 - [docs/reference/run.md](docs/reference/run.md) - расширенные сценарии запуска и troubleshooting
-- [docs/reference/prebuilt-backup.md](docs/reference/prebuilt-backup.md) - восстановление готового публичного Qdrant/BM25 backup
+- [docs/reference/prebuilt-backup.md](docs/reference/prebuilt-backup.md) - готовый публичный Qdrant/BM25 backup для быстрого старта
 - [docs/reference/mcp-tools-reference.md](docs/reference/mcp-tools-reference.md) - полный справочник MCP-инструментов
 - [docs/reference/metadata-export.md](docs/reference/metadata-export.md) - route для метаданных 1С
 - [docs/reference/structured-help-scorecard.md](docs/reference/structured-help-scorecard.md) - метрики качества structured help и stop criteria для extractor

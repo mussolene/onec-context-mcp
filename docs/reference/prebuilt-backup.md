@@ -1,8 +1,8 @@
 # Prebuilt Qdrant/BM25 Backup
 
-RU: эта страница описывает быстрый путь запуска без локальной индексации `.hbk`: скачать готовый backup, восстановить Qdrant snapshots и BM25 vocab, затем подключить MCP.
+RU: эта страница описывает быстрый путь запуска без локальной индексации `.hbk`: скачать готовый physical backup, восстановить Qdrant storage и BM25 vocab, затем подключить MCP.
 
-EN: this page documents the fastest startup path without local `.hbk` indexing: download a prepared backup, restore Qdrant snapshots and BM25 vocab, then connect MCP.
+EN: this page documents the fastest startup path without local `.hbk` indexing: download a prepared physical backup, restore Qdrant storage and BM25 vocab, then connect MCP.
 
 ## Public Archive
 
@@ -15,24 +15,24 @@ EN: public archive:
 Use the latest dated backup set. Current public set:
 
 ```text
-2026-05-21_onec-context-mcp_git-b7d6725_qdrant-1.12.0_moe-768/
+2026-05-21_081637Z_onec-context-mcp_v1.0.15_git-3d5c5f8_qdrant-1.12.0_nomic-embed-text-v2-moe-768_physical/
   manifest.json
-  qdrant_snapshots/
-  bm25_vocab/
+  qdrant-storage.tar.zst
+  bm25-vocab.tar.zst
 ```
 
 ## What It Contains
 
 RU: текущий публичный backup содержит:
 
-- Qdrant snapshots для structured help, snippets/standards memory и metadata graph.
-- BM25 vocab для коллекций, где BM25 включен.
+- physical Qdrant storage archive для structured help, snippets/standards memory и metadata graph.
+- BM25 vocab archive для коллекций, где BM25 включен.
 - `manifest.json` с версией сервера, моделью эмбеддингов, размерностью и версиями конфигураций.
 
 EN: the current public backup contains:
 
-- Qdrant snapshots for structured help, snippets/standards memory and metadata graph.
-- BM25 vocab for BM25-enabled collections.
+- physical Qdrant storage archive for structured help, snippets/standards memory and metadata graph.
+- BM25 vocab archive for BM25-enabled collections.
 - `manifest.json` with server version, embedding model, vector dimension and configuration versions.
 
 Current embedding profile:
@@ -48,40 +48,61 @@ Indexed metadata configurations:
 
 | Configuration | Version | Objects | Fields |
 |---|---:|---:|---:|
-| БухгалтерияПредприятияКОРП | 3.0.184.16 | 4442 | 62353 |
-| УправлениеНебольшойФирмой | 1.6.27.295 | 2745 | 31521 |
-| УправлениеНебольшойФирмой | 3.0.13.260 | 4520 | 57431 |
-| УправлениеПроизводственнымПредприятием | 1.3.257.1 | 2536 | 36259 |
+| БухгалтерияПредприятияКОРП | 3.0.184.16 | 4442 | 62297 |
+| УправлениеНебольшойФирмой | 1.6.27.295 | 2745 | 31456 |
+| УправлениеНебольшойФирмой | 3.0.13.260 | 4520 | 57361 |
+| УправлениеПроизводственнымПредприятием | 1.3.257.1 | 2536 | 36219 |
 
 ## Restore
 
-RU:
+RU: основной путь — одна команда.
 
-1. Скачайте последнюю датированную папку из публичного архива.
-2. Положите ее в `data/backup/` в репозитории.
-3. Поднимите базовые сервисы.
-4. Восстановите backup set.
+EN: the primary path is a single command.
 
-EN:
+```bash
+make quick-start-prebuilt
+```
 
-1. Download the latest dated folder from the public archive.
-2. Put it into `data/backup/` in this repository.
-3. Start the base services.
-4. Restore the backup set.
+Она скачивает latest backup set, восстанавливает `data/qdrant` и
+`data/bm25_vocab`, затем поднимает `qdrant` и `mcp`.
+
+For manual step-by-step restore:
 
 ```bash
 make ensure-data
-make up
-
-docker compose -f docker-compose.base.yml -f docker-compose.yml exec mcp \
-  python -m onec_help qdrant-restore \
-  --backup-dir /data/backup/2026-05-21_onec-context-mcp_git-b7d6725_qdrant-1.12.0_moe-768
+make qdrant-download BACKUP=latest
+make qdrant-restore BACKUP=latest
 ```
 
-The restore command accepts both layouts:
+`make qdrant-download` reads the public Mail.ru folder, downloads
+`manifest.json`, `qdrant-storage.tar.zst` and `bm25-vocab.tar.zst` into
+`data/backup/<backup-set>/`, and validates the downloaded file sizes.
 
-- Flat legacy layout: `data/backup/*.snapshot`
-- Backup set layout: `data/backup/<backup-set>/qdrant_snapshots/*.snapshot` plus `data/backup/<backup-set>/bm25_vocab/`
+`make qdrant-restore` stops `mcp` and `qdrant`, restores `data/qdrant` and
+`data/bm25_vocab` through the project Docker image, then starts the services
+again. To restore a specific backup set:
+
+```bash
+make qdrant-restore BACKUP=2026-05-21_..._physical
+```
+
+## Create Backup
+
+RU: локальный backup текущей базы:
+
+EN: create a local backup of the current database:
+
+```bash
+make qdrant-backup
+```
+
+Команда создает `data/backup/<backup-set>/manifest.json`,
+`qdrant-storage.tar.zst` и `bm25-vocab.tar.zst`. Qdrant останавливается на время
+архивации, чтобы физический backup был консистентным.
+
+The command writes `data/backup/<backup-set>/manifest.json`,
+`qdrant-storage.tar.zst` and `bm25-vocab.tar.zst`. Qdrant is stopped while the
+archive is created so the physical backup is consistent.
 
 ## Verify
 

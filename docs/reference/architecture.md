@@ -89,7 +89,7 @@ make up-full
 
 В Docker контейнер MCP запускается через **быстрый entry point** `python -m onec_help.interfaces.mcp_server` (без загрузки всего CLI), чтобы порт 8050 открывался быстрее. Если MCP «лежит» и подключение невозможно:
 
-1. **Логи:** `docker compose -f docker-compose.base.yml -f docker-compose.yml logs mcp` или `make logs` — падения, исключения при старте, недоступность Qdrant/embedding API.
+1. **Логи:** `docker compose -f docker-compose.base.yml -f docker-compose.yml logs mcp` — падения, исключения при старте, недоступность Qdrant/embedding API.
 2. **Healthcheck:** у сервиса `mcp` задан `start_period: 45s` — контейнеру даётся до 45 с на первый прогрев; затем проверка каждые 15 с (retries 5). При нехватке ресурсов или блокировке при старте увеличьте `start_period` в `docker-compose.base.yml`.
 3. **Зависимость от Qdrant:** MCP стартует только после `qdrant: condition: service_healthy`. Если Qdrant долго поднимается, MCP ждёт. Ingest при этом может уже работать в отдельном контейнере (ingest-worker).
 

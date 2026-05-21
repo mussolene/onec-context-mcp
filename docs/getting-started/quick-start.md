@@ -1,42 +1,54 @@
 # Quick Start
 
-Читайте этот файл, если нужно быстро поднять проект, проиндексировать справку и подключить MCP без погружения в детали.
+Читайте этот файл, если нужно быстро поднять проект и подключить MCP без погружения в детали.
 
 ## Что понадобится
 
 - Docker и Docker Compose
 - `make`
-- каталог с `.hbk`, доступный Docker через `HOST_HELP_SOURCE_BASE`
+- для prebuilt-сценария локальная `.hbk`-справка не нужна
+- для собственного индекса: каталог с `.hbk`, доступный Docker через `HOST_HELP_SOURCE_BASE`
 
 Если нужна расширенная настройка, локальный `pip`-запуск или troubleshooting, переходите в [../reference/run.md](../reference/run.md).
 
-## Быстрый путь с готовым индексом / Fast Path With Prebuilt Index
+## 1. Быстрый путь с готовым индексом / Fast Path With Prebuilt Index
 
-RU: если нужно быстро оценить MCP без локального ingest `.hbk`, можно восстановить готовый публичный Qdrant/BM25 backup:
+RU: это основной demo/TTM-путь. Он скачивает публичный Qdrant/BM25 backup,
+восстанавливает индекс и поднимает MCP:
+
+```bash
+make quick-start-prebuilt
+```
+
+EN: this is the primary demo/TTM path. It downloads the public Qdrant/BM25
+backup, restores the index and starts MCP.
+
+После завершения MCP доступен по `http://localhost:8050/mcp`. Подробности backup:
 [../reference/prebuilt-backup.md](../reference/prebuilt-backup.md).
 
-EN: if you want to evaluate MCP quickly without local `.hbk` ingest, restore the public prebuilt Qdrant/BM25 backup:
-[../reference/prebuilt-backup.md](../reference/prebuilt-backup.md).
+Быстрая проверка живости:
 
-Этот путь обычно короче для demo/TTM: `make up` → `qdrant-restore` → подключение MCP.
+```bash
+curl -i -H 'Accept: text/event-stream' http://localhost:8050/mcp
+```
 
-## 0. Проверьте путь к справке
+Нормален ответ `400 Missing session ID`: endpoint поднят и отвечает как MCP
+streamable HTTP server.
 
-По умолчанию Docker пытается смонтировать хостовый каталог `/opt/1cv8` внутрь контейнера как `/opt/1cv8`. Если на macOS/Windows Docker Desktop не имеет доступа к этому пути или справка лежит в другом месте, задайте путь хоста в `.env`:
+## 2. Если нужен свой индекс из `.hbk`
+
+Задайте путь к локальной справке. `HOST_HELP_SOURCE_BASE` монтируется только в
+ingest-worker и ingest/unpack-команды; runtime `mcp` локальную `.hbk`-справку не
+монтирует.
 
 ```bash
 cp env.example .env
 echo 'HOST_HELP_SOURCE_BASE=/path/to/1cv8' >> .env
 ```
 
-`HELP_SOURCE_BASE` оставьте `/opt/1cv8`, если не меняете контейнерный путь. Если нужно быстро поднять только MCP/Qdrant/Redis без индексации `.hbk`, можно указать пустой доступный каталог:
+`HELP_SOURCE_BASE` оставьте `/opt/1cv8`, если не меняете контейнерный путь.
 
-```bash
-mkdir -p data/empty_1cv8
-echo 'HOST_HELP_SOURCE_BASE=./data/empty_1cv8' >> .env
-```
-
-## 1. Поднимите базовые сервисы
+Поднимите базовые сервисы:
 
 ```bash
 make up
@@ -44,16 +56,7 @@ make up
 
 Команда поднимает **qdrant**, **redis** и **mcp**. После этого MCP будет доступен по `http://localhost:8050/mcp`.
 
-Быстрая проверка живости:
-
-```bash
-docker ps --filter name=onec-context-mcp
-curl -i -H 'Accept: text/event-stream' http://localhost:8050/mcp
-```
-
-Для второго вызова нормален ответ `400 Missing session ID`: это означает, что HTTP endpoint поднят и отвечает как MCP streamable HTTP server.
-
-## 2. Поднимите ingest-worker
+Поднимите ingest-worker:
 
 ```bash
 make ingest-up
@@ -69,7 +72,7 @@ make ingest
 
 (команда выполняется **в уже запущенном** ingest-worker.)
 
-## 3. Проверьте, что индекс появился
+Проверьте, что индекс появился:
 
 ```bash
 make dashboard ARGS='--once'
@@ -77,15 +80,13 @@ make dashboard ARGS='--once'
 
 Ожидаемый результат: в статусе видны коллекции и прогресс без ошибок. Сразу после старта ingest-worker полный ingest может ещё не завершиться — дождитесь cron/watchdog или выполните **`make ingest`**, если нужен немедленный полный прогон.
 
-## 4. Полная переинициализация (по желанию)
-
-Очистка коллекций Qdrant и кэша, затем повторная инициализация:
+Полная переинициализация, если нужно очистить коллекции Qdrant и кэш:
 
 ```bash
 make reinit ARGS='--force'
 ```
 
-## 5. Подключите MCP в Cursor
+## 3. Подключите MCP в Cursor
 
 Используйте streamable HTTP server:
 
@@ -94,7 +95,7 @@ make reinit ARGS='--force'
 
 После обновления `.cursor/mcp.json` перезапустите Cursor.
 
-## 6. Минимальная проверка маршрута
+## 4. Минимальная проверка маршрута
 
 После подключения MCP в Cursor:
 

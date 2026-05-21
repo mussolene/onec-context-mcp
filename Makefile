@@ -13,6 +13,13 @@ ARGS ?=
 HELP_SOURCE_PATH ?= $(or $(HOST_HELP_SOURCE_BASE),/opt/1cv8)
 UNPACK_OUTPUT ?= data/unpacked
 HELP_LANGS ?= ru
+BACKUP ?= latest
+BACKUP_NAME ?=
+PUBLIC_BACKUP_URL ?= https://cloud.mail.ru/public/NzFn/qLfhyf8zo
+APP_IMAGE ?= onec-context-mcp:latest
+SERVER_VERSION ?= $(shell python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])' 2>/dev/null || echo local)
+GIT_REV ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo nogit)
+QDRANT_VERSION ?= 1.12.0
 
 # -f base + overlay: merge вместо include (избегаем "conflicts with imported resource")
 COMPOSE = docker compose -f docker-compose.base.yml -f docker-compose.yml
@@ -35,7 +42,7 @@ INDEX_STATUS_SERVICE = mcp
 
 .PHONY: build build-nocache build-full fetch-bsl-ls-docker-deps parse-fastcode parse-helpf load-snippets load-snippets-from-project load-standards snippets
 .PHONY: ordinary-form-extract ordinary-form-pack ordinary-form-verify
-.PHONY: up down ingest-up ingest-down ingest-worker up-full down-full bsl-start bsl-stop qdrant-logs ingest-logs ollama-logs qdrant-reset qdrant-backup qdrant-restore ensure-data
+.PHONY: up down ingest-up ingest-down ingest-worker up-full down-full bsl-start bsl-stop qdrant-logs ingest-logs ollama-logs qdrant-reset qdrant-download qdrant-backup qdrant-restore quick-start-prebuilt ensure-data
 
 # Docker BSL LS stack: vendored git clone as build context (Docker cannot always use remote URL)
 deps/mcp-bsl-lsp-bridge/.git/HEAD:
@@ -265,13 +272,69 @@ qdrant-reset:
 	docker run --rm -v "$(CURDIR)/data:/data" alpine rm -rf /data/qdrant
 	@echo "data/qdrant удалён. Запустите: make up; для индексации: make ingest-up"
 
-# Снапшоты всех коллекций onec_* → data/backup/{collection}-{timestamp}.snapshot (для миграции между хостами)
-qdrant-backup:
-	$(COMPOSE) exec mcp python -m onec_help qdrant-backup -o /data/backup
+# Physical backup Qdrant storage + BM25 vocab → data/backup/<backup-set>/.
+# Qdrant is stopped during archive creation so the storage copy is consistent.
+qdrant-download:
+	@set -e; \
+	mkdir -p data/backup; \
+	docker run --rm \
+		-v "$(CURDIR)/scripts:/app/scripts:ro" \
+		-v "$(CURDIR)/data/backup:/backup/out" \
+		"$(APP_IMAGE)" python /app/scripts/qdrant_physical_backup.py download \
+		--public-url "$(PUBLIC_BACKUP_URL)" \
+		--backup "$(BACKUP)" \
+		--output-root /backup/out
 
-# Восстановить все коллекции onec_* из последних снапшотов в data/backup/ (в контейнере: /data/backup)
+qdrant-backup:
+	@set -e; \
+	mkdir -p data/backup data/qdrant data/bm25_vocab; \
+	probe="/data/backup/.qdrant-backup-probe.json"; \
+	echo "Probing Qdrant collections..."; \
+	$(COMPOSE) run --rm --no-deps --entrypoint python \
+		-v "$(CURDIR)/scripts:/app/scripts:ro" \
+		mcp /app/scripts/qdrant_physical_backup.py probe \
+		--qdrant-url http://qdrant:6333 \
+		--output "$$probe"; \
+	echo "Stopping mcp and qdrant for a consistent physical backup..."; \
+	$(COMPOSE) stop mcp qdrant; \
+	trap '$(COMPOSE) up -d qdrant mcp' EXIT; \
+	$(COMPOSE) run --rm --no-deps --entrypoint python \
+		-v "$(CURDIR)/scripts:/app/scripts:ro" \
+		-v "$(CURDIR)/data/qdrant:/backup/qdrant:ro" \
+		-v "$(CURDIR)/data/bm25_vocab:/backup/bm25_vocab:ro" \
+		-v "$(CURDIR)/data/backup:/backup/out" \
+		-e BACKUP_NAME="$(BACKUP_NAME)" \
+		-e SERVER_VERSION="$(SERVER_VERSION)" \
+		-e GIT_REV="$(GIT_REV)" \
+		-e QDRANT_VERSION="$(QDRANT_VERSION)" \
+		mcp /app/scripts/qdrant_physical_backup.py backup \
+		--qdrant-dir /backup/qdrant \
+		--bm25-dir /backup/bm25_vocab \
+		--output-root /backup/out \
+		--probe-file "$$probe"; \
+	rm -f data/backup/.qdrant-backup-probe.json
+
+# Restore physical backup set from data/backup/<backup-set>/.
+# Usage: make qdrant-restore BACKUP=latest
+#        make qdrant-restore BACKUP=2026-05-21_...
 qdrant-restore:
-	$(COMPOSE) exec mcp python -m onec_help qdrant-restore --backup-dir /data/backup
+	@set -e; \
+	mkdir -p data/backup data/qdrant data/bm25_vocab; \
+	echo "Stopping mcp and qdrant before physical restore..."; \
+	$(COMPOSE) stop mcp qdrant; \
+	trap '$(COMPOSE) up -d qdrant mcp' EXIT; \
+	$(COMPOSE) run --rm --no-deps --entrypoint python \
+		-v "$(CURDIR)/scripts:/app/scripts:ro" \
+		-v "$(CURDIR)/data:/restore-data" \
+		mcp /app/scripts/qdrant_physical_backup.py restore \
+		--backup-root /restore-data/backup \
+		--backup "$(BACKUP)" \
+		--qdrant-dir /restore-data/qdrant \
+		--bm25-dir /restore-data/bm25_vocab
+
+# Fast local evaluation: download public Qdrant+BM25 backup and restore it.
+quick-start-prebuilt: ensure-data qdrant-download
+	$(MAKE) qdrant-restore BACKUP="$(BACKUP)"
 
 help:
 	@echo "1C Context MCP — Docker (по умолчанию split)"
@@ -311,11 +374,14 @@ help:
 	@echo "  make metadata-watchdog-debug Диагностика: ONEC_CONFIG_SOURCE_DIR, KD2/snapshot, число файлов, ключ Redis"
 	@echo "  make ollama-logs      Последние 100 строк лога Ollama (~/.ollama/logs/server.log)"
 	@echo "  make qdrant-reset     Удалить data/qdrant, перезапустить с пустым индексом"
-	@echo "  make qdrant-backup    Снапшот → data/backup/ (для миграции)"
-	@echo "  make qdrant-restore   Восстановить из data/backup/"
+	@echo "  make qdrant-download  Скачать public Qdrant+BM25 backup → data/backup/ (BACKUP=latest)"
+	@echo "  make qdrant-backup    Physical backup Qdrant+BM25 → data/backup/<backup-set>/"
+	@echo "  make qdrant-restore   Восстановить Qdrant+BM25 из data/backup/ (BACKUP=latest)"
+	@echo "  make quick-start-prebuilt  Скачать public backup, восстановить Qdrant+BM25 и поднять MCP"
 	@echo ""
 	@echo "При qdrant exit 101: make qdrant-logs, затем make qdrant-reset && make up && make ingest"
-	@echo "Миграция индекса с другого хоста: make qdrant-backup / make qdrant-restore"
+	@echo "Quick start с готовым индексом: make quick-start-prebuilt"
+	@echo "Миграция индекса с другого хоста: make qdrant-backup / make qdrant-restore BACKUP=latest"
 	@echo "Compose требует оба файла: -f docker-compose.base.yml -f docker-compose.yml"
 	@echo ""
 	@echo "Args: ARGS=...  make ingest ARGS='--dry-run'"
