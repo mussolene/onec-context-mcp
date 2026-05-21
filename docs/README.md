@@ -31,7 +31,6 @@
 ## Разработка и тесты
 
 - [reference/1c-testing-guide.md](reference/1c-testing-guide.md) - как тестировать Python и 1С-код
-- [codex-examples/README.md](codex-examples/README.md) - Codex-native OACS consumer pack и optional runtime skill
 - [cursor-examples/README.md](cursor-examples/README.md) - skill и rules для Cursor
 - [snippets/README.md](snippets/README.md) - как загружать реальные сниппеты
 - [query-joins-standards.md](query-joins-standards.md) - отдельная заметка по стандартам 1С для запросов

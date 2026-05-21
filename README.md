@@ -73,7 +73,6 @@ make reinit ARGS='--force'
 - [docs/reference/metadata-export.md](docs/reference/metadata-export.md) - route для метаданных 1С
 - [docs/reference/structured-help-scorecard.md](docs/reference/structured-help-scorecard.md) - метрики качества structured help и stop criteria для extractor
 - [docs/reference/1c-testing-guide.md](docs/reference/1c-testing-guide.md) - тестирование Python и 1С-сценариев
-- [docs/codex-examples/README.md](docs/codex-examples/README.md) - Codex-native OACS consumer pack
 
 ## Для контрибьюторов
 
