@@ -28,7 +28,7 @@
 
 ### Split (по умолчанию)
 
-`mcp` только MCP API (`MCP_MODE=api`), `ingest-worker` — все write-операции. Рекомендуется для большинства сценариев.
+`mcp` только MCP API (`MCP_MODE=api`), `ingest-worker` — все write-операции. Оба сервиса используют один application image `onec-context-mcp:latest`; роли задаются через env/command. Рекомендуется для большинства сценариев.
 
 ```mermaid
 flowchart LR
@@ -107,9 +107,8 @@ make up-full
 Сборка отдельно от запуска (принцип единственной ответственности):
 
 ```bash
-# Сборка образов
+# Сборка единого application image
 make build
-# или один сервис: make build SERVICE=mcp
 
 # Запуск (после сборки)
 make up
@@ -127,9 +126,11 @@ make up-full
 | Что меняли | Команда (split) | Команда (full) |
 |------------|-----------------|----------------|
 | Код Python (onec_help) | `make build && make up` | `make build-full && make up-full` |
-| Только MCP API | `make build SERVICE=mcp && make up` | `make build-full && make up-full` |
+| Только MCP API | `make build && make up` | `make build-full && make up-full` |
 | Только ingest/cron | `make build && make ingest-up` | `make build-full && make up-full` |
 | Dockerfile, requirements | `make build && make up` | `make build-full && make up-full` |
 | Только env/volumes в compose | `make up` | `make up-full` |
 
 Изменение env или volumes не требует пересборки — Compose пересоздаёт только затронутые контейнеры.
+
+Локальный тег можно переопределить через `APP_IMAGE`, например `APP_IMAGE=ghcr.io/org/onec-context-mcp:dev make up`. В split-режиме build задан только у `mcp`; `ingest-worker` использует тот же image без отдельной сборки.

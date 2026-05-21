@@ -25,11 +25,15 @@
 
 ## Одна модель для индекса и поиска
 
-**EMBEDDING_MODEL и EMBEDDING_BACKEND** при индексации (ingest, load-snippets) и при поиске (MCP, search_index) должны совпадать. Иначе запрос эмбеддится другой моделью (или плейсхолдером при несовпадении размерности с коллекцией Qdrant), и семантический поиск даёт нерелевантные результаты. В Docker переменная **EMBEDDING_BACKEND** в .env задаёт только **запуск** (какой бэкенд использует приложение). **Сборка образа** не зависит от .env: по умолчанию образ без local-зависимостей (Dockerfile: `ARG EMBEDDING_BACKEND=openai_api`). Образ с sentence-transformers: `docker compose build --build-arg EMBEDDING_BACKEND=local`.
+**EMBEDDING_MODEL и EMBEDDING_BACKEND** при индексации (ingest, load-snippets) и при поиске (MCP, search_index) должны совпадать. Иначе запрос эмбеддится другой моделью (или плейсхолдером при несовпадении размерности с коллекцией Qdrant), и семантический поиск даёт нерелевантные результаты. В Docker переменная **EMBEDDING_BACKEND** в .env задаёт только **запуск** (какой бэкенд использует приложение). **Сборка образа** не зависит от .env: по умолчанию application image без local-зависимостей (Dockerfile: `ARG EMBEDDING_BACKEND=openai_api`).
 
 ### Сборка Docker-образа
 
-По умолчанию образ собирается **без** пакетов `.[embed]` (sentence-transformers): в образ попадают только зависимости для openai_api/deterministic/none. Команды `make build` и `docker compose build` не читают .env для сборки — используется значение по умолчанию из Dockerfile. Нужен образ с local-эмбеддингами: `docker compose -f docker-compose.base.yml -f docker-compose.yml build --build-arg EMBEDDING_BACKEND=local`.
+По умолчанию `make build` собирает единый application image `onec-context-mcp:latest` **без** пакетов `.[embed]` (sentence-transformers): в образ попадают только зависимости для openai_api/deterministic/none. Команды сборки не читают `.env` для build-arg — используется значение по умолчанию из Dockerfile. Нужен образ с local-эмбеддингами:
+
+```bash
+docker compose -f docker-compose.base.yml -f docker-compose.yml build --build-arg EMBEDDING_BACKEND=local mcp
+```
 
 ## Точки интеграции
 

@@ -1,6 +1,7 @@
 # Git and IDE
 .git
 .gitignore
+.DS_Store
 .cursor
 .cursorignore
 *.md

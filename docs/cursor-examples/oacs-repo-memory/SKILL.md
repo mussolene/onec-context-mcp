@@ -24,10 +24,12 @@ acs status --json
 acs context gate --intent repo_development --scope project --task "<task>" --json
 ```
 
-Treat `decision=skip` as permission to proceed from visible files and the user
-request. Treat `decision=build` as the signal to build context.
-4. Build context only when the gate says `build` or prior memory/evidence
-   clearly matters:
+Treat `decision=build` as the signal to build context. Treat `decision=skip` as
+valid only for tiny visible-file edits; when work is substantial, ambiguous,
+domain-heavy, or release/CI/security/tooling related, build context or
+explicitly report that OACS context is unavailable.
+4. Build context when the gate says `build`, when prior memory/evidence may
+   matter, or when in doubt:
 
 ```bash
 acs context build --intent repo_development --scope project --json
@@ -84,8 +86,8 @@ acs checkpoint add \
 ## Guardrails
 
 - OACS is not the tool orchestrator.
-- Do not prepend OACS context unconditionally. Use `acs context gate` or an
-  equivalent explicit decision before context build.
+- Do not prepend OACS context unconditionally. Use `acs context gate` as a
+  preflight, but do not let `skip` bypass the proof loop for substantial work.
 - Standalone tool evidence is not projected into context unless a reviewed
   memory references it.
 - Preserve attribution roles in distilled memory.

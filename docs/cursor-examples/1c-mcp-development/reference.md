@@ -73,7 +73,7 @@ save_1c_snippet(
 
 ```bash
 pip install -e ".[dev]"
-PYTHONPATH=src python -m pytest tests -v --cov=src/onec_help --cov-report=term-missing --cov-fail-under=70
+PYTHONPATH=src python3 -m pytest tests -v --cov=src/onec_help --cov-report=term-missing --cov-fail-under=74
 ```
 
 Линтинг:

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "onec-context-mcp"
-version = "1.0.13"
+version = "1.0.14"
 description = "1C Context MCP: unpack .hbk, build structured JSONL, index in Qdrant, serve help, snippets, standards, and metadata over MCP"
 license = { text = "MIT" }
 readme = "README.md"

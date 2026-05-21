@@ -1210,7 +1210,11 @@ def test_cmd_qdrant_restore_success(mock_urlopen, tmp_path: Path) -> None:
     mock_urlopen.return_value = resp
 
     args = make_args(backup_dir=str(tmp_path), file=str(snap))
-    with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
+    data_dir = tmp_path / "data"
+    with patch.dict(
+        "os.environ",
+        {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333", "DATA_DIR": str(data_dir)},
+    ):
         assert cmd_qdrant_restore(args) == 0
 
     mock_urlopen.assert_called_once()
@@ -1229,13 +1233,45 @@ def test_cmd_qdrant_restore_latest_from_dir(mock_urlopen, tmp_path: Path) -> Non
     mock_urlopen.return_value = resp
 
     args = make_args(backup_dir=str(tmp_path), file=None)
-    with patch.dict("os.environ", {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333"}):
+    data_dir = tmp_path / "data"
+    with patch.dict(
+        "os.environ",
+        {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333", "DATA_DIR": str(data_dir)},
+    ):
         assert cmd_qdrant_restore(args) == 0
 
     # Should use latest (20260302)
     call_data = mock_urlopen.call_args[0][0].data
     assert b"new" in call_data
     assert b"old" not in call_data
+
+
+@patch("shutil.copytree")
+@patch("urllib.request.urlopen")
+def test_cmd_qdrant_restore_backup_set_layout(mock_urlopen, mock_copytree, tmp_path: Path) -> None:
+    """cmd_qdrant_restore accepts backup-set layout with qdrant_snapshots + bm25_vocab."""
+    snapshots_dir = tmp_path / "qdrant_snapshots"
+    snapshots_dir.mkdir()
+    (tmp_path / "bm25_vocab").mkdir()
+    (snapshots_dir / "onec_help-20260302-120000.snapshot").write_bytes(b"snapshot")
+
+    resp = MagicMock()
+    resp.read.return_value = b'{"status":"ok"}'
+    resp.__enter__ = lambda self: self
+    resp.__exit__ = lambda *a: None
+    mock_urlopen.return_value = resp
+
+    args = make_args(backup_dir=str(tmp_path), file=None)
+    data_dir = tmp_path / "data"
+    with patch.dict(
+        "os.environ",
+        {"QDRANT_HOST": "localhost", "QDRANT_PORT": "6333", "DATA_DIR": str(data_dir)},
+    ):
+        assert cmd_qdrant_restore(args) == 0
+
+    call_data = mock_urlopen.call_args[0][0].data
+    assert b"snapshot" in call_data
+    mock_copytree.assert_called_once()
 
 
 def test_cmd_qdrant_restore_no_snapshots(tmp_path: Path) -> None:

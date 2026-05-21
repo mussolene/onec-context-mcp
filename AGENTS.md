@@ -6,6 +6,57 @@
 - Конфигурация через переменные окружения. БД — Qdrant в docker-compose.
 - Дальнейшие этапы: один–два MCP по кодовой базе и метаданным 1С (задел в README).
 
+## OACS / ACS Repository Workflow
+
+For substantial features, refactors, bug fixes, investigations, and release
+work, use OACS/ACS as the governed local context, evidence, and checkpoint
+layer. Do not create a parallel private task-artifact tree unless the user asks
+for one.
+
+Required sequence:
+
+1. State task scope and explicit acceptance criteria (`AC1`, `AC2`, ...).
+2. Ask the reference context gate before building context:
+   `acs context gate --intent repo_development --scope project --task "<task>" --json`.
+   Treat `decision=build` as the signal to continue with context build. Treat
+   `decision=skip` as valid only for tiny visible-file edits; when the task is
+   substantial, ambiguous, domain-heavy, or release/CI/security/tooling related,
+   build context or explicitly report that OACS context is unavailable.
+3. Build or inspect repository context through OACS when the gate says `build`,
+   when prior project memory/evidence may matter, or when in doubt:
+   `acs context build --intent repo_development --scope project --json`.
+4. Run external tools normally. OACS does not schedule tools; it records their
+   canonical results as governed evidence.
+5. Treat command outputs, external retrieval, CI results, package publication,
+   deployment results, and manual verification as evidence:
+   `acs tool ingest-result ...`.
+6. Inspect important evidence with `acs evidence inspect <ev_...> --json`.
+7. If evidence should become durable project knowledge, distill it into memory
+   and attach the evidence ref with the memory lifecycle commands.
+8. Record a checkpoint for each completed iteration with outcome, evidence
+   refs, and next step:
+   `acs checkpoint add ... --evidence <ev_...> --json`.
+9. Run current verification and a leak/secret check before claiming completion.
+
+Hard rules:
+
+- Do not claim completion unless every acceptance criterion is `PASS`.
+- Do not claim completion unless current verification, OACS evidence, and an
+  OACS checkpoint exist for the iteration.
+- Verifiers judge current files and current command results, not chat claims.
+- OACS is not the tool orchestrator; it is the governed memory/context/evidence
+  layer.
+- Do not prepend OACS context unconditionally. Use `acs context gate` as a
+  preflight, but do not let `skip` bypass the proof loop for substantial work.
+- Standalone tool-result evidence does not enter `ContextCapsule.evidence_refs`
+  by itself. It is projected only through included memories that reference it.
+- Preserve attribution when distilling memory: user instructions, agent
+  decisions, tool observations, project policies, human approvals, derived
+  memory, and system policy are different roles.
+- Do not read, print, or commit `.agent/oacs/key.json`,
+  `.agent/oacs/unlocked.key`, `.agent/oacs`, `.oacs`, local databases,
+  passphrases, or private agent state.
+
 ## Команды и сценарии
 
 - **Единая точка входа:** **ingest** — загрузка/обновление structured help (поиск .hbk в HELP_SOURCE_BASE, временная распаковка HTML, JSONL, Qdrant). **reinit --force** — полная перезагрузка: очистка коллекций и кэша, затем init (ingest + load-snippets + load-standards). Без миграций и без постоянного runtime-каталога unpacked.
@@ -135,53 +186,3 @@
 - **BSL LS:** `analyze` (JAR) или диагностики IDE — статический анализ (не runtime). После каждой правки; цикл до приемлемой чистоты.
 - **Python (onec_help):** `PYTHONPATH=src python3 -m pytest tests -v --cov=src/onec_help --cov-report=term-missing` (порог покрытия — из `pyproject.toml`); `ruff check src tests && ruff format --check src tests`. При падении покрытия — добавить тесты. Для проверки инструментов на живом MCP: поднять сервисы (`make up` и т.д.), затем `MCP_INTEGRATION=1 PYTHONPATH=src python3 -m pytest tests/test_mcp_integration.py tests/test_mcp_functional_crypto.py -v --no-cov`.
 - **1C runtime:** YaxUnit (unit-тесты процедур/функций; искать в `Tests/`), Vanessa-Automation (BDD, xdd, UI; искать в `features/`, `BDD/`), CoverageBSL. При новой логике — предлагать unit (YaxUnit) или сценарий (Vanessa). Подробно: `docs/reference/1c-testing-guide.md`.
-
-## OACS / ACS Repository Workflow
-
-For substantial features, refactors, bug fixes, investigations, and release
-work, use OACS/ACS as the governed local context, evidence, and checkpoint
-layer. Do not create a parallel private task-artifact tree unless the user asks
-for one.
-
-Required sequence:
-
-1. State task scope and explicit acceptance criteria (`AC1`, `AC2`, ...).
-2. Ask the reference context gate before building context:
-   `acs context gate --intent repo_development --scope project --task "<task>" --json`.
-   Treat `decision=build` as the signal to continue with context build; treat
-   `decision=skip` as permission to proceed from visible files and user
-   instructions.
-3. Build or inspect repository context through OACS only when the gate says
-   `build` or prior project memory/evidence clearly matters:
-   `acs context build --intent repo_development --scope project --json`.
-4. Run external tools normally. OACS does not schedule tools; it records their
-   canonical results as governed evidence.
-5. Treat command outputs, external retrieval, CI results, package publication,
-   deployment results, and manual verification as evidence:
-   `acs tool ingest-result ...`.
-6. Inspect important evidence with `acs evidence inspect <ev_...> --json`.
-7. If evidence should become durable project knowledge, distill it into memory
-   and attach the evidence ref with the memory lifecycle commands.
-8. Record a checkpoint for each completed iteration with outcome, evidence
-   refs, and next step:
-   `acs checkpoint add ... --evidence <ev_...> --json`.
-9. Run current verification and a leak/secret check before claiming completion.
-
-Hard rules:
-
-- Do not claim completion unless every acceptance criterion is `PASS`.
-- Do not claim completion unless current verification, OACS evidence, and an
-  OACS checkpoint exist for the iteration.
-- Verifiers judge current files and current command results, not chat claims.
-- OACS is not the tool orchestrator; it is the governed memory/context/evidence
-  layer.
-- Do not prepend OACS context unconditionally. Use `acs context gate` or an
-  equivalent explicit decision before context build.
-- Standalone tool-result evidence does not enter `ContextCapsule.evidence_refs`
-  by itself. It is projected only through included memories that reference it.
-- Preserve attribution when distilling memory: user instructions, agent
-  decisions, tool observations, project policies, human approvals, derived
-  memory, and system policy are different roles.
-- Do not read, print, or commit `.agent/oacs/key.json`,
-  `.agent/oacs/unlocked.key`, `.agent/oacs`, `.oacs`, local databases,
-  passphrases, or private agent state.

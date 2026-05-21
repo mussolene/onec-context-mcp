@@ -38,6 +38,27 @@ jobs:
             type=sha,prefix=
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
 
+      - name: Validate deploy compose wiring
+        env:
+          APP_IMAGE: ${{ env.REGISTRY }}/${{ github.repository }}:latest
+          HOST_HELP_SOURCE_BASE: /tmp/onec-help-empty
+        run: |
+          mkdir -p "$HOST_HELP_SOURCE_BASE"
+          docker compose -f docker-compose.base.yml -f docker-compose.yml --profile ingest config --format json >/tmp/compose.json
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          services = json.loads(Path("/tmp/compose.json").read_text())["services"]
+          mcp = services["mcp"]
+          ingest = services["ingest-worker"]
+          assert mcp["image"] == os.environ["APP_IMAGE"]
+          assert ingest["image"] == mcp["image"]
+          assert "build" in mcp
+          assert "build" not in ingest
+          PY
+
       - name: Build and push
         uses: docker/build-push-action@v7
         with:

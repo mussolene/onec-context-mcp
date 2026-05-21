@@ -38,6 +38,7 @@ PYTHONPATH=src python3 -m onec_help mcp . --transport streamable-http --host 0.0
 
 - Данные справки: хостовый каталог **`HOST_HELP_SOURCE_BASE`** монтируется в контейнеры **mcp** и **ingest-worker** как `/opt/1cv8`; внутри контейнера ingest читает **`HELP_SOURCE_BASE`** (по умолчанию `/opt/1cv8`). Подпапки = версии 1С. На Windows при монтировании `C:\Program Files\1cv8` учтите подпапку `bin` — поиск `.hbk` рекурсивный. После ingest канонический runtime-layer лежит в `data/help_structured`.
 - **Split (по умолчанию):** `make up` — Qdrant, Redis, **mcp** с **`MCP_MODE=api`** (только API, без фонового ingest/cron). **`make ingest-up`** — добавляет **ingest-worker** (профиль **ingest**): внутри него **cron** — при старте **`watchdog --once`**, далее **`watchdog --once` каждые 10 мин**, полный **`ingest` в 3:00** (см. `crontab` в репозитории). Разовый полный ingest без ожидания cron: **`make ingest`** (exec в **ingest-worker**).
+- В split-режиме **mcp** и **ingest-worker** запускаются из одного application image `onec-context-mcp:latest`; `make build` собирает его один раз.
 - **Full:** `make up-full` — один контейнер **mcp** с **`MCP_MODE=full`**, фоновый ingest, cron и watchdog в том же образе (см. `entrypoint.sh`).
 - Запуск split: `make up` или `docker compose -f docker-compose.base.yml -f docker-compose.yml up -d`. Без `-f` base-файла команда `docker compose up -d` выдаст ошибку.
 - Порты по умолчанию: 8050 (MCP, streamable-http), 6333 (Qdrant).
@@ -72,6 +73,7 @@ MCP работает **в контейнере** по протоколу **strea
 2. **Запустить ingest-worker:** **`make ingest-up`**. Индексация подхватится **watchdog при старте** и по **cron**; для немедленного полного ingest без ожидания расписания — **`make ingest`**.
 
 Если делали снапшот ранее: `make qdrant-restore` (восстановит из data/backup/), затем при необходимости `make up`.
+Готовый публичный backup для быстрого старта описан отдельно: [prebuilt-backup.md](prebuilt-backup.md).
 
 Рекомендуется периодически делать `make qdrant-backup` — снапшоты сохраняются в data/backup/.
 

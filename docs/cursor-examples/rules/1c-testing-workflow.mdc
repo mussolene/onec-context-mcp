@@ -23,7 +23,7 @@ alwaysApply: false
 При изменении Python в этом проекте:
 
 ```bash
-PYTHONPATH=src python -m pytest tests -v --cov=src/onec_help --cov-report=term-missing --cov-fail-under=70
+PYTHONPATH=src python3 -m pytest tests -v --cov=src/onec_help --cov-report=term-missing --cov-fail-under=74
 ruff check src tests && ruff format src tests
 ```
 

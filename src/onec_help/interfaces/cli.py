@@ -1901,6 +1901,11 @@ def cmd_qdrant_restore(args: argparse.Namespace) -> int:
     port = env_config.get_qdrant_port()
     base = f"http://{host}:{port}"
     backup_dir = Path(args.backup_dir)
+    snapshots_dir = (
+        backup_dir / "qdrant_snapshots"
+        if (backup_dir / "qdrant_snapshots").is_dir()
+        else backup_dir
+    )
 
     # Режим совместимости: если явно указан файл — восстановить только collection из env.
     if args.file:
@@ -1911,11 +1916,14 @@ def cmd_qdrant_restore(args: argparse.Namespace) -> int:
             return 1
         targets = [(collection, snap_path)]
     else:
-        # По умолчанию: восстанавливаем все коллекции из последних снапшотов в backup-dir.
+        # По умолчанию: восстанавливаем все коллекции из последних снапшотов.
+        # Поддерживаются оба layout:
+        # - плоский каталог data/backup/*.snapshot
+        # - публичный backup set: <backup-dir>/qdrant_snapshots/*.snapshot + <backup-dir>/bm25_vocab
         # Имя коллекции — всё до последнего «-YYYYmmdd-HHMMSS» в имени файла.
         import re
 
-        all_snaps = sorted(backup_dir.glob("*.snapshot"), reverse=True)
+        all_snaps = sorted(snapshots_dir.glob("*.snapshot"), reverse=True)
         seen_colls: set[str] = set()
         targets: list[tuple[str, Path]] = []
         _ts_re = re.compile(r"-\d{8}-\d{6}\.snapshot$")
@@ -1926,7 +1934,7 @@ def cmd_qdrant_restore(args: argparse.Namespace) -> int:
                 print(f"Using latest for {coll}: {snap_path}")
                 targets.append((coll, snap_path))
         if not targets:
-            print(f"Error: no snapshots found in {backup_dir}", file=sys.stderr)
+            print(f"Error: no snapshots found in {snapshots_dir}", file=sys.stderr)
             return 1
 
     try:
@@ -2626,7 +2634,7 @@ def main() -> int:
     # qdrant-backup / qdrant-restore — снапшоты в data/backup/
     p_qdrant_backup = sub.add_parser(
         "qdrant-backup",
-        help="Создать снапшот коллекции onec_help и сохранить в data/backup/",
+        help="Создать снапшоты Qdrant-коллекций и сохранить в data/backup/",
     )
     p_qdrant_backup.add_argument(
         "--output-dir",
@@ -2639,7 +2647,7 @@ def main() -> int:
 
     p_qdrant_restore = sub.add_parser(
         "qdrant-restore",
-        help="Восстановить коллекцию onec_help из снапшота в data/backup/",
+        help="Восстановить Qdrant-коллекции из snapshot backup",
     )
     p_qdrant_restore.add_argument(
         "--file",
@@ -2652,7 +2660,7 @@ def main() -> int:
         "--backup-dir",
         type=str,
         default="data/backup",
-        help="Каталог со снапшотами (default: data/backup)",
+        help="Каталог со снапшотами или backup set с qdrant_snapshots/ + bm25_vocab/ (default: data/backup)",
     )
     p_qdrant_restore.set_defaults(func=cmd_qdrant_restore)
 

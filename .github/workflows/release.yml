@@ -40,7 +40,7 @@ jobs:
           pip-audit --ignore-vuln PYSEC-2025-183
 
       - name: Run tests
-        run: PYTHONPATH=src python -m pytest tests -v --cov=src/onec_help --cov-report=term-missing --cov-fail-under=70
+        run: PYTHONPATH=src python -m pytest tests -v --cov=src/onec_help --cov-report=term-missing --cov-fail-under=74
 
   release:
     runs-on: ubuntu-latest
@@ -110,6 +110,27 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest
+
+      - name: Validate release compose wiring
+        env:
+          APP_IMAGE: ghcr.io/${{ github.repository }}:latest
+          HOST_HELP_SOURCE_BASE: /tmp/onec-help-empty
+        run: |
+          mkdir -p "$HOST_HELP_SOURCE_BASE"
+          docker compose -f docker-compose.base.yml -f docker-compose.yml --profile ingest config --format json >/tmp/compose.json
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          services = json.loads(Path("/tmp/compose.json").read_text())["services"]
+          mcp = services["mcp"]
+          ingest = services["ingest-worker"]
+          assert mcp["image"] == os.environ["APP_IMAGE"]
+          assert ingest["image"] == mcp["image"]
+          assert "build" in mcp
+          assert "build" not in ingest
+          PY
 
       - name: Build and push
         uses: docker/build-push-action@v7

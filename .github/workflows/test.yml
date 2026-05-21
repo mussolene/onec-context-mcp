@@ -7,6 +7,36 @@ on:
     branches: [main, master]
 
 jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Validate Docker Compose wiring
+        env:
+          HOST_HELP_SOURCE_BASE: /tmp/onec-help-empty
+        run: |
+          mkdir -p "$HOST_HELP_SOURCE_BASE"
+          docker compose -f docker-compose.base.yml -f docker-compose.yml config >/tmp/compose.yml
+          docker compose -f docker-compose.base.yml -f docker-compose.yml --profile ingest config --format json >/tmp/compose.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          services = json.loads(Path("/tmp/compose.json").read_text())["services"]
+          mcp = services["mcp"]
+          ingest = services["ingest-worker"]
+          assert mcp["image"] == "onec-context-mcp:latest"
+          assert ingest["image"] == mcp["image"]
+          assert "build" in mcp
+          assert "build" not in ingest
+          PY
+
+      - name: Build application image
+        env:
+          HOST_HELP_SOURCE_BASE: /tmp/onec-help-empty
+        run: docker compose -f docker-compose.base.yml -f docker-compose.yml build mcp
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -27,7 +57,7 @@ jobs:
 
       - name: Run tests
         run: |
-          PYTHONPATH=src python -m pytest tests -v --cov=src/onec_help --cov-report=xml --cov-report=term-missing --cov-fail-under=70
+          PYTHONPATH=src python -m pytest tests -v --cov=src/onec_help --cov-report=xml --cov-report=term-missing --cov-fail-under=74
         env:
           COVERAGE_FILE: .coverage.${{ matrix.python-version }}
 

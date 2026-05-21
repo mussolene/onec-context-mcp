@@ -15,6 +15,7 @@
 ## Справочник
 
 - [reference/run.md](reference/run.md) - расширенные сценарии запуска, локальный режим и troubleshooting
+- [reference/prebuilt-backup.md](reference/prebuilt-backup.md) - быстрый restore готового публичного Qdrant/BM25 backup
 - [reference/mcp-tools-cheatsheet.md](reference/mcp-tools-cheatsheet.md) - короткая шпаргалка по MCP-инструментам
 - [reference/mcp-tools-reference.md](reference/mcp-tools-reference.md) - полный reference по параметрам и лимитам
 - [reference/metadata-export.md](reference/metadata-export.md) - route для выгрузки и индексации метаданных 1С

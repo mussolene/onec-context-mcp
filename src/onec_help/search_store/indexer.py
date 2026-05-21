@@ -862,6 +862,64 @@ def _collection_has_sparse(
         return False
 
 
+def _payload_index_schema_value(schema_info: Any) -> Any:
+    """Extract a reusable Qdrant payload index schema value."""
+    if schema_info is None:
+        return None
+    if isinstance(schema_info, str):
+        return schema_info
+    if isinstance(schema_info, dict):
+        return (
+            schema_info.get("data_type")
+            or schema_info.get("schema")
+            or schema_info.get("type")
+            or schema_info.get("field_schema")
+        )
+    return (
+        getattr(schema_info, "data_type", None)
+        or getattr(schema_info, "schema", None)
+        or getattr(schema_info, "type", None)
+        or getattr(schema_info, "field_schema", None)
+    )
+
+
+def _get_payload_index_schema(client: Any, collection: str) -> dict[str, Any]:
+    """Return existing payload indexes for a collection."""
+    try:
+        info = client.get_collection(collection)
+        schema = getattr(info, "payload_schema", None)
+        if schema is None and isinstance(info, dict):
+            schema = ((info.get("result") or {}).get("payload_schema")) or info.get(
+                "payload_schema"
+            )
+        if not isinstance(schema, dict):
+            return {}
+        out: dict[str, Any] = {}
+        for field_name, schema_info in schema.items():
+            field_schema = _payload_index_schema_value(schema_info)
+            if field_name and field_schema is not None:
+                out[str(field_name)] = field_schema
+        return out
+    except Exception:
+        return {}
+
+
+def _restore_payload_indexes(client: Any, collection: str, schema: dict[str, Any]) -> None:
+    """Recreate payload indexes after collection recreate/swap operations."""
+    if not schema or not hasattr(client, "create_payload_index"):
+        return
+    for field_name, field_schema in schema.items():
+        try:
+            client.create_payload_index(
+                collection_name=collection,
+                field_name=field_name,
+                field_schema=field_schema,
+                wait=True,
+            )
+        except Exception:
+            continue
+
+
 def add_bm25_to_collection(
     qdrant_host: str | None = None,
     qdrant_port: int | None = None,
@@ -891,6 +949,7 @@ def add_bm25_to_collection(
     client = QdrantClient(host=host, port=port, timeout=timeout, check_compatibility=False)
     if not client.collection_exists(collection):
         raise RuntimeError(f"Collection {collection} does not exist. Run ingest first.")
+    original_payload_schema = _get_payload_index_schema(client, collection)
 
     if _collection_has_sparse(client, collection) and force_rebuild:
         if verbose:
@@ -1098,6 +1157,7 @@ def add_bm25_to_collection(
         sparse_vectors_config=sparse_config,
         optimizers_config=optimizers,
     )
+    _restore_payload_indexes(client, collection, original_payload_schema)
     offset = None
     while True:
         res, next_offset = client.scroll(
@@ -1157,6 +1217,7 @@ def _recover_add_bm25_swap(
     optimizers = (
         OptimizersConfigDiff(indexing_threshold=1) if OptimizersConfigDiff is not None else None
     )
+    original_payload_schema = _get_payload_index_schema(client, collection)
     if client.collection_exists(collection):
         client.delete_collection(collection)
     client.create_collection(
@@ -1165,6 +1226,7 @@ def _recover_add_bm25_swap(
         sparse_vectors_config=sparse_config,
         optimizers_config=optimizers,
     )
+    _restore_payload_indexes(client, collection, original_payload_schema)
     offset = None
     while True:
         res, next_offset = client.scroll(
@@ -1196,6 +1258,7 @@ def _remove_bm25_from_collection(
     """Remove sparse (BM25) from collection: scroll all, recreate dense-only, upsert."""
     from . import embedding
 
+    original_payload_schema = _get_payload_index_schema(client, collection)
     points = []
     offset = None
     while True:
@@ -1226,6 +1289,7 @@ def _remove_bm25_from_collection(
         collection_name=collection,
         vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
     )
+    _restore_payload_indexes(client, collection, original_payload_schema)
     for i in range(0, len(points), batch_size):
         batch = points[i : i + batch_size]
         batch_struct = []

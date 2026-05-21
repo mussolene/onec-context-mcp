@@ -10,6 +10,16 @@
 
 Если нужна расширенная настройка, локальный `pip`-запуск или troubleshooting, переходите в [../reference/run.md](../reference/run.md).
 
+## Быстрый путь с готовым индексом / Fast Path With Prebuilt Index
+
+RU: если нужно быстро оценить MCP без локального ingest `.hbk`, можно восстановить готовый публичный Qdrant/BM25 backup:
+[../reference/prebuilt-backup.md](../reference/prebuilt-backup.md).
+
+EN: if you want to evaluate MCP quickly without local `.hbk` ingest, restore the public prebuilt Qdrant/BM25 backup:
+[../reference/prebuilt-backup.md](../reference/prebuilt-backup.md).
+
+Этот путь обычно короче для demo/TTM: `make up` → `qdrant-restore` → подключение MCP.
+
 ## 0. Проверьте путь к справке
 
 По умолчанию Docker пытается смонтировать хостовый каталог `/opt/1cv8` внутрь контейнера как `/opt/1cv8`. Если на macOS/Windows Docker Desktop не имеет доступа к этому пути или справка лежит в другом месте, задайте путь хоста в `.env`:

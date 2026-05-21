@@ -14,10 +14,12 @@ the OACS standard.
 1. State task scope and acceptance criteria (`AC1`, `AC2`, ...).
 2. Ask the reference context gate before building context:
    `acs context gate --intent repo_development --scope project --task "<task>" --json`.
-   If the gate returns `decision=skip`, proceed from visible files and the user
-   request. If it returns `decision=build`, build context.
-3. If the gate says `build` or prior repository memory/evidence clearly matters,
-   build context:
+   If the gate returns `decision=build`, build context. Treat `decision=skip`
+   as valid only for tiny visible-file edits; when work is substantial,
+   ambiguous, domain-heavy, or release/CI/security/tooling related, build
+   context or explicitly report that OACS context is unavailable.
+3. If the gate says `build`, prior repository memory/evidence may matter, or you
+   are unsure, build context:
    `acs context build --intent repo_development --scope project --json`.
 4. Run tools normally. OACS does not orchestrate tools.
 5. Record canonical command output, CI, retrieval, deployment, package publish,
@@ -35,8 +37,8 @@ the OACS standard.
 - Do not claim completion until all acceptance criteria are `PASS`.
 - Do not rely on chat history as proof; prefer files, command output, OACS
   evidence, and checkpoints.
-- Do not prepend OACS context unconditionally. Use `acs context gate` or an
-  equivalent explicit decision before context build.
+- Do not prepend OACS context unconditionally. Use `acs context gate` as a
+  preflight, but do not let `skip` bypass the proof loop for substantial work.
 - Standalone tool-result evidence does not enter `ContextCapsule.evidence_refs`
   by itself. Attach evidence refs to reviewed memory when they should guide
   future context builds.

@@ -59,6 +59,39 @@ def test_collection_info_int() -> None:
     assert _collection_info_int(SimpleNamespace(), "points_count") == 0
 
 
+def test_payload_index_schema_helpers_restore_indexes() -> None:
+    """BM25 rebuild helpers preserve Qdrant payload index schemas across recreate/swap."""
+    from types import SimpleNamespace
+
+    client = MagicMock()
+    client.get_collection.return_value = SimpleNamespace(
+        payload_schema={
+            "config_version": SimpleNamespace(data_type="keyword"),
+            "name": {"data_type": "keyword"},
+            "amount": "integer",
+            "ignored": SimpleNamespace(),
+        }
+    )
+
+    schema = indexer_mod._get_payload_index_schema(client, "onec_config_metadata")
+    assert schema == {
+        "config_version": "keyword",
+        "name": "keyword",
+        "amount": "integer",
+    }
+
+    indexer_mod._restore_payload_indexes(client, "onec_config_metadata", schema)
+
+    calls = client.create_payload_index.call_args_list
+    assert len(calls) == 3
+    assert {call.kwargs["field_name"] for call in calls} == {
+        "config_version",
+        "name",
+        "amount",
+    }
+    assert all(call.kwargs["wait"] is True for call in calls)
+
+
 def test_is_qdrant_500() -> None:
     """_is_qdrant_500 detects 500 and UnexpectedResponse."""
 

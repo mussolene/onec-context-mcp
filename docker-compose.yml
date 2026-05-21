@@ -25,8 +25,7 @@ services:
   ingest-worker:
     profiles:
       - ingest
-    build:
-      context: .
+    image: ${APP_IMAGE:-onec-context-mcp:latest}
     environment:
       INGEST_WORKER: "1"
       REDIS_URL: redis://redis:6379/0

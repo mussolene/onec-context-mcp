@@ -100,7 +100,7 @@ description: AI-first skill для разработки 1С (BSL): MCP onec-cont
 При изменении Python-кода в этом проекте:
 
 1. Редактировать код.
-2. Запустить `PYTHONPATH=src python -m pytest tests -v --cov=src/onec_help --cov-report=term-missing --cov-fail-under=70`.
+2. Запустить `PYTHONPATH=src python3 -m pytest tests -v --cov=src/onec_help --cov-report=term-missing --cov-fail-under=74`.
 3. **При падении тестов или покрытии < 70%:** исправить → повторить п. 2.
 4. Запустить `ruff check src tests && ruff format src tests`.
 

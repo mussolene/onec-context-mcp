@@ -47,13 +47,13 @@ fetch-bsl-ls-docker-deps: deps/mcp-bsl-lsp-bridge/.git/HEAD
 
 WATCH_INTERVAL ?= 2
 
-# Сборка образов (split). SERVICE=mcp|ingest-worker — только один сервис. По умолчанию образ без local-эмбеддингов.
+# Сборка application image (split). mcp и ingest-worker используют один образ.
 build:
-	$(COMPOSE) build $(if $(SERVICE),$(SERVICE),mcp ingest-worker)
+	$(COMPOSE) build mcp
 
-# Сборка образов (split). SERVICE=mcp|ingest-worker — только один сервис. По умолчанию образ без local-эмбеддингов.
+# Сборка application image (split) без кэша.
 build-nocache:
-	$(COMPOSE) build $(if $(SERVICE),$(SERVICE),mcp ingest-worker) --no-cache
+	$(COMPOSE) build mcp --no-cache
 
 # Сборка образа (full, один контейнер mcp)
 build-full:
@@ -276,8 +276,8 @@ qdrant-restore:
 help:
 	@echo "1C Context MCP — Docker (по умолчанию split)"
 	@echo ""
-	@echo "  make build            Сборка образов mcp+ingest-worker (split). SERVICE=mcp|ingest-worker"
-	@echo "  make build-nocache    Сборка образов mcp+ingest-worker (split). SERVICE=mcp|ingest-worker" --no-cache
+	@echo "  make build            Сборка application image для mcp+ingest-worker (split)"
+	@echo "  make build-nocache    Сборка application image без кэша"
 	@echo "  make build-full       Сборка образа mcp (full)"
 	@echo "  make parse-fastcode   Parse FastCode.im → fastcode_snippets.json"
 	@echo "  make parse-helpf      Parse HelpF.pro FAQ/Files → helpf_snippets.json"
